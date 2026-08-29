@@ -159,12 +159,28 @@ export interface BallotRatings {
   playerRatings: Record<EntityId, number>;
   coachRating: { coachId: EntityId; rating: number };
 }
-export interface MatchRatingAggregate {
+export interface PlayerResult {
+  playerId: EntityId;
+  playerName: string;
+  position?: string;
+  average: number;
+  voteCount: number;
+  order: number;
+}
+export interface MatchResult {
   matchId: EntityId;
+  teamId: EntityId;
   ballotCount: number;
-  playerAverages: Record<EntityId, number>;
-  coachAverage: number;
-  updatedAt: string;
+  playerResults: Record<EntityId, PlayerResult>;
+  coachResult: {
+    coachId: EntityId;
+    coachName: string;
+    average: number;
+    voteCount: number;
+  };
+  mvpPlayerIds: EntityId[];
+  status: "final" | "no_votes";
+  generatedAt: string;
 }
 export interface TeamPresentation {
   teamId: EntityId;

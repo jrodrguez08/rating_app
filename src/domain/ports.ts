@@ -101,6 +101,7 @@ export interface MatchLifecycleStore extends FootballSyncStore {
   updateMatchLifecycle(match: Match): Promise<void>;
   countRateableParticipants(matchId: string, teamId: string): Promise<number>;
   hasTrackedTeamHeadCoach(matchId: string, teamId: string): Promise<boolean>;
+  finalizeMatchResult(matchId: string, now: Date): Promise<void>;
   getSyncMetadata(teamId: string): Promise<FootballSyncMetadata | null>;
   setSyncMetadata(metadata: FootballSyncMetadata): Promise<void>;
 }

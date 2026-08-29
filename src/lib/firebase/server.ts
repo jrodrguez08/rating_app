@@ -14,13 +14,16 @@ import {
 
 import { validateBallotRatings } from "@/domain/ballot-validation";
 import { preserveMonotonicMatchStatus } from "@/domain/match-status";
+import { aggregateMatchResult } from "@/domain/result-aggregation";
 import type {
+  Ballot,
   Coach,
   CoachAssignment,
   BallotContext,
   Competition,
   FootballSyncMetadata,
   Match,
+  MatchResult,
   MatchParticipant,
   Player,
   Season,
@@ -84,6 +87,40 @@ export type BallotSubmissionResult =
         | "data_unavailable"
         | "invalid_ballot";
     };
+
+export type ResultPageState =
+  | { state: "ready"; match: Match; result: MatchResult }
+  | { state: "locked" | "preparing" | "unavailable"; match?: Match };
+
+export class AdminResultService {
+  constructor(private readonly database = getServerFirestore()) {}
+
+  async getPageState(
+    matchId: string,
+    now = new Date(),
+  ): Promise<ResultPageState> {
+    const matchSnapshot = await this.database.doc(`matches/${matchId}`).get();
+    if (!matchSnapshot.exists) return { state: "unavailable" };
+    const match = fromDocument<Match>(matchSnapshot);
+    if (
+      match.votingClosesAt === undefined ||
+      now < new Date(match.votingClosesAt)
+    ) {
+      return { state: "locked", match };
+    }
+    const resultSnapshot = await this.database
+      .doc(`matches/${matchId}/results/summary`)
+      .get();
+    if (!resultSnapshot.exists || match.ratingState !== "rating_closed") {
+      return { state: "preparing", match };
+    }
+    return {
+      state: "ready",
+      match,
+      result: fromDocument<MatchResult>(resultSnapshot),
+    };
+  }
+}
 
 export class AdminBallotService {
   constructor(private readonly database = getServerFirestore()) {}
@@ -263,6 +300,76 @@ export class AdminFootballSyncStore
       .doc(`matches/${matchId}/coachAssignments/head-coach`)
       .get();
     return snapshot.exists && snapshot.data()?.teamId === teamId;
+  }
+  async finalizeMatchResult(matchId: string, now: Date): Promise<void> {
+    await this.database.runTransaction(async (transaction) => {
+      const matchReference = this.database.doc(`matches/${matchId}`);
+      const resultReference = this.database.doc(
+        `matches/${matchId}/results/summary`,
+      );
+      const participantQuery = this.database.collection(
+        `matches/${matchId}/participants`,
+      );
+      const coachReference = this.database.doc(
+        `matches/${matchId}/coachAssignments/head-coach`,
+      );
+      const ballotQuery = this.database.collection(
+        `matches/${matchId}/ballots`,
+      );
+      const [
+        matchSnapshot,
+        resultSnapshot,
+        participants,
+        coachSnapshot,
+        ballots,
+      ] = await Promise.all([
+        transaction.get(matchReference),
+        transaction.get(resultReference),
+        transaction.get(participantQuery),
+        transaction.get(coachReference),
+        transaction.get(ballotQuery),
+      ]);
+      if (!matchSnapshot.exists)
+        throw new Error(`Match ${matchId} was not found.`);
+      const match = fromDocument<Match>(matchSnapshot);
+      if (resultSnapshot.exists) {
+        if (match.ratingState !== "rating_closed") {
+          transaction.update(matchReference, {
+            ratingState: "rating_closed",
+            updatedAt: Timestamp.fromDate(now),
+          });
+        }
+        return;
+      }
+      if (
+        match.status !== "finished" ||
+        match.ratingState !== "rating_ready" ||
+        match.votingClosesAt === undefined ||
+        now < new Date(match.votingClosesAt)
+      ) {
+        throw new Error("Match is not eligible for result finalization.");
+      }
+      if (!coachSnapshot.exists)
+        throw new Error("Head coach assignment is missing.");
+      const result = aggregateMatchResult({
+        matchId,
+        teamId: match.trackedTeamId,
+        participants: participants.docs.map((document) =>
+          fromDocument<MatchParticipant>(document),
+        ),
+        coach: fromDocument<CoachAssignment>(coachSnapshot),
+        ballots: ballots.docs.map((document) => fromDocument<Ballot>(document)),
+        generatedAt: now.toISOString(),
+      });
+      transaction.create(resultReference, {
+        ...result,
+        generatedAt: Timestamp.fromDate(now),
+      });
+      transaction.update(matchReference, {
+        ratingState: "rating_closed",
+        updatedAt: Timestamp.fromDate(now),
+      });
+    });
   }
   async getSyncMetadata(teamId: string): Promise<FootballSyncMetadata | null> {
     const snapshot = await this.database

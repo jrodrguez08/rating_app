@@ -1,4 +1,5 @@
 import type { Match } from "@/domain/models";
+import Link from "next/link";
 import type { Locale } from "@/i18n/config";
 import { formatDate } from "@/i18n/format";
 import type { Messages } from "@/i18n/messages";
@@ -57,6 +58,14 @@ export function MatchLifecyclePanel({
         {isVotingOpen(match) ? (
           <BallotEntry matchId={match.id} messages={messages.ready} />
         ) : null}
+        {match.ratingState === "rating_closed" ? (
+          <Link
+            href={`/matches/${match.id}/results`}
+            className="button-primary mt-5 inline-flex min-h-11 w-full items-center justify-center px-4 py-3 font-bold"
+          >
+            {messages.results.action}
+          </Link>
+        ) : null}
       </div>
     </section>
   );
@@ -104,6 +113,13 @@ function presentationState(
       label: messages.ready.label,
       title: messages.ready.title,
       description: messages.ready.description,
+    };
+  }
+  if (match.ratingState === "rating_closed") {
+    return {
+      label: messages.results.label,
+      title: messages.results.title,
+      description: messages.results.description,
     };
   }
   if (match.status === "live") {

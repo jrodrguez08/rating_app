@@ -60,6 +60,13 @@ export const esMessages = {
         checking: "Preparando tu sesi\u00f3n...",
         sessionError: "No pudimos preparar tu sesi\u00f3n. Intenta de nuevo.",
       },
+      results: {
+        label: "Resultados finales",
+        title: "Resultados de la comunidad",
+        description:
+          "La votaci\u00f3n cerr\u00f3 y los resultados ya est\u00e1n disponibles.",
+        action: "Ver resultados",
+      },
     },
   },
   ballot: {
@@ -93,6 +100,29 @@ export const esMessages = {
     sessionError: "No pudimos preparar tu sesi\u00f3n. Intenta de nuevo.",
     invalidError: "Completa todas las calificaciones del 1 al 10.",
     submitError: "No pudimos enviar tu calificaci\u00f3n. Intenta de nuevo.",
+    backHome: "Volver al inicio",
+  },
+  results: {
+    eyebrow: "Resultados de la comunidad",
+    title: "Resultados del partido",
+    versus: "VS",
+    final: "FINAL",
+    mvp: "MVP",
+    coMvp: "MVP compartido",
+    players: "Clasificaci\u00f3n de jugadores",
+    coach: "Director t\u00e9cnico",
+    basedOnOne: "Basado en 1 voto",
+    basedOnMany: "Basado en {count} votos",
+    rating: "Calificaci\u00f3n de {name}: {rating}",
+    lockedTitle: "Resultados bloqueados",
+    lockedDescription:
+      "Los resultados estar\u00e1n disponibles cuando cierre la votaci\u00f3n.",
+    preparingTitle: "Preparando resultados",
+    preparingDescription: "Estamos preparando los resultados.",
+    unavailableTitle: "Resultados no disponibles",
+    unavailableDescription: "No pudimos cargar este partido.",
+    noVotesTitle: "Sin resultados",
+    noVotesDescription: "No hubo suficientes votos para mostrar resultados.",
     backHome: "Volver al inicio",
   },
   footer: {

@@ -1,0 +1,147 @@
+import { deleteApp, initializeApp } from "firebase-admin/app";
+import { getFirestore, Timestamp } from "firebase-admin/firestore";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+
+import {
+  AdminFootballSyncStore,
+  AdminResultService,
+} from "@/lib/firebase/server";
+
+const projectId = process.env.GCLOUD_PROJECT ?? "demo-rating-app-local";
+const app = initializeApp({ projectId }, `result-tests-${Date.now()}`);
+const database = getFirestore(app);
+const store = new AdminFootballSyncStore(database);
+const reader = new AdminResultService(database);
+const close = new Date("2026-08-29T20:00:00.000Z");
+
+beforeAll(() => {
+  if (!process.env.FIRESTORE_EMULATOR_HOST)
+    throw new Error("FIRESTORE_EMULATOR_HOST is required.");
+});
+afterAll(() => deleteApp(app));
+
+describe("trusted result finalization", () => {
+  it("reveals nothing before close, then atomically stores one stable summary", async () => {
+    await seed("two-votes");
+    expect(
+      (await reader.getPageState("two-votes", new Date(close.getTime() - 1)))
+        .state,
+    ).toBe("locked");
+    await Promise.all([
+      writeBallot("two-votes", "voter-a", 8, 6),
+      writeBallot("two-votes", "voter-b", 9, 8),
+    ]);
+    await store.finalizeMatchResult("two-votes", close);
+    const first = await database.doc("matches/two-votes/results/summary").get();
+    expect(first.data()).toMatchObject({
+      ballotCount: 2,
+      status: "final",
+      mvpPlayerIds: ["starter"],
+      playerResults: { starter: { average: 8.5, voteCount: 2 } },
+      coachResult: { average: 7, voteCount: 2 },
+    });
+    expect(first.data()?.generatedAt).toBeInstanceOf(Timestamp);
+    expect(
+      (await database.doc("matches/two-votes").get()).data()?.ratingState,
+    ).toBe("rating_closed");
+    await store.finalizeMatchResult(
+      "two-votes",
+      new Date(close.getTime() + 60_000),
+    );
+    const second = await database
+      .doc("matches/two-votes/results/summary")
+      .get();
+    expect(second.data()?.generatedAt).toEqual(first.data()?.generatedAt);
+    expect((await reader.getPageState("two-votes", close)).state).toBe("ready");
+  });
+
+  it("creates an explicit stable zero-vote summary", async () => {
+    await seed("zero-votes");
+    await store.finalizeMatchResult("zero-votes", close);
+    expect(
+      (await database.doc("matches/zero-votes/results/summary").get()).data(),
+    ).toMatchObject({ ballotCount: 0, status: "no_votes", mvpPlayerIds: [] });
+  });
+
+  it("leaves malformed ballots retryable without closing or publishing", async () => {
+    await seed("malformed");
+    await database.doc("matches/malformed/ballots/voter-a").set({
+      matchId: "malformed",
+      voterId: "voter-a",
+      teamId: "team-1",
+      playerRatings: {},
+      coachRating: { coachId: "coach-1", rating: 8 },
+      submittedAt: Timestamp.fromDate(close),
+    });
+    await expect(store.finalizeMatchResult("malformed", close)).rejects.toThrow(
+      "malformed",
+    );
+    expect(
+      (await database.doc("matches/malformed/results/summary").get()).exists,
+    ).toBe(false);
+    expect(
+      (await database.doc("matches/malformed").get()).data()?.ratingState,
+    ).toBe("rating_ready");
+  });
+});
+
+async function seed(matchId: string) {
+  const timestamp = Timestamp.fromDate(close);
+  await database.doc(`matches/${matchId}`).set({
+    trackedTeamId: "team-1",
+    competitionId: "c",
+    seasonId: "s",
+    homeTeam: { externalProviderId: "815", name: "Herediano" },
+    awayTeam: { externalProviderId: "2", name: "Opponent" },
+    kickoffAt: timestamp,
+    status: "finished",
+    ratingState: "rating_ready",
+    score: { home: 2, away: 1 },
+    votingOpensAt: Timestamp.fromDate(new Date(close.getTime() - 7_200_000)),
+    votingClosesAt: timestamp,
+    externalProvider: "api-football",
+    externalProviderFixtureId: matchId,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  });
+  await database.doc(`matches/${matchId}/participants/starter`).set({
+    matchId,
+    playerId: "starter",
+    teamId: "team-1",
+    externalProvider: "api-football",
+    externalProviderTeamId: "815",
+    externalProviderPlayerId: "1",
+    playerName: "Starter",
+    position: "Midfielder",
+    squadRole: "starter",
+    starter: true,
+    participated: true,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  });
+  await database.doc(`matches/${matchId}/coachAssignments/head-coach`).set({
+    matchId,
+    coachId: "coach-1",
+    teamId: "team-1",
+    externalProviderTeamId: "815",
+    role: "head-coach",
+    coachName: "Coach",
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  });
+}
+async function writeBallot(
+  matchId: string,
+  voterId: string,
+  player: number,
+  coach: number,
+) {
+  await database.doc(`matches/${matchId}/ballots/${voterId}`).set({
+    matchId,
+    voterId,
+    teamId: "team-1",
+    playerRatings: { starter: player },
+    coachRating: { coachId: "coach-1", rating: coach },
+    submittedAt: Timestamp.fromDate(close),
+  });
+}

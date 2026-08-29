@@ -43,9 +43,15 @@ A match stores tracked team, opponent, home/away IDs, competition, season, kicko
 
 A completed ballot is one compact document containing `matchId`, `teamId`, `voterId`, a map of player IDs to integer ratings, one `{ coachId, rating }`, and a server timestamp. Its document ID is the verified Firebase UID inside the match's `ballots` subcollection. A trusted Next.js server endpoint verifies the Firebase ID token and derives that UID; the payload cannot select its owner. A Firestore transaction reloads the authoritative match, participants, head coach, and ballot, validates the active server-controlled window and exact eligible ID set, then creates only if absent. Direct client reads and every client write remain denied by rules. This deterministic path plus the transaction enforces `one voter + one match` without a per-score write explosion.
 
-## Aggregation
+## Aggregation and results
 
-On accepted ballot creation, a future trusted Cloud Function transaction updates `matches/{matchId}/aggregates/summary`. When voting closes, it materializes player match summaries and incrementally updates season/career statistics. Public reads target these summaries rather than scanning ballots. Ballots remain private and aggregates are rule-protected until the window closes. Idempotency/event markers are required before implementing triggers.
+The existing lifecycle trigger finalizes results when trusted server time reaches `votingClosesAt`; no second scheduler or provider call is involved. `AdminFootballSyncStore.finalizeMatchResult` reads the authoritative tracked-Team participants, deterministic head-coach assignment, and private ballots in one Firestore transaction. Every ballot is revalidated with the same exact-key, coach-ID, and integer 1–10 validator used at submission. Any malformed persisted ballot aborts the transaction and leaves the match retryable.
+
+The transaction creates the deterministic `matches/{matchId}/results/summary` document and changes `ratingState` from `rating_ready` to `rating_closed` together. Existing summaries early-exit without changing `generatedAt`; finalized summaries are immutable in the MVP. Raw sums are divided by the valid ballot count and unrounded numeric averages are stored; presentation consistently rounds to one decimal. One ballot is sufficient, zero ballots creates an explicit `no_votes` summary, and every exact top-average player is stored in ordered `mvpPlayerIds`. Coach results remain separate and never enter MVP ranking. Ranked ties use canonical participant order, then stable player ID.
+
+The pilot reads all ballots once at close, which is appropriate for the small community. The aggregate DTO and UI do not depend on the query strategy, leaving a replacement boundary if volume grows. Player/career summaries, archives, and leaderboards remain deferred.
+
+Result reads remain behind Firebase Admin. `AdminResultService` checks trusted time before reading the summary, returns a locked state before close, a preparing state after close but before successful finalization, and only returns a sanitized aggregate DTO when both the summary exists and `ratingState` is closed. Firestore client rules remain deny-all for ballots and results, so neither raw ballots nor voter IDs enter server-rendered HTML.
 
 ## Authentication and security
 
@@ -81,7 +87,7 @@ A private GitHub Actions workflow runs every 30 minutes and performs only an aut
 
 Controlled live verification on 2026-08-29 discovered API-Football fixture `1551672` (CS Cartaginés vs CS Herediano, 2026-08-30 17:00 UTC) and then refreshed that persisted fixture with exactly one focused provider request. The lifecycle remained `not_ready` with no voting timestamps while the provider status was scheduled, confirming that an away fixture is selected without opening a window early.
 
-Home reads relevant Match data through the server-side Admin boundary, so client Firestore rules remain unchanged. Without Admin configuration or a relevant persisted match, Home retains the honest empty state. With data, a localized scoreboard panel shows upcoming, live, preparing, or rating-ready context. An active rating-ready match links to `/matches/{matchId}/rate`; that server route supplies only the exact rateable participant/coach context and renders safe not-open, closed, unavailable, or already-submitted states without exposing ballot contents or aggregates.
+Home reads relevant Match data through the server-side Admin boundary, so client Firestore rules remain unchanged. Without Admin configuration or a relevant persisted match, Home retains the honest empty state. With data, a localized scoreboard panel shows upcoming, live, preparing, rating-ready, or finalized context. Selection prioritizes active voting, then live, then the most recent finalized result, preparing, and next scheduled; this keeps results discoverable without hiding a new live match. An active rating-ready match links to `/matches/{matchId}/rate`; a finalized match links to `/matches/{matchId}/results`. Both server routes fail closed and expose only their focused sanitized DTOs.
 
 ## Multi-team scaling
 
