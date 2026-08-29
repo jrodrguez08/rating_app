@@ -3,7 +3,8 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Rating App",
-  description: "Supporter ratings for the players and coaches who shape the match.",
+  description:
+    "Supporter ratings for the players and coaches who shape the match.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

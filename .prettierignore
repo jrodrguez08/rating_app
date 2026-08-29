@@ -1,0 +1,9 @@
+node_modules/
+.next/
+coverage/
+out/
+build/
+.firebase/
+package-lock.json
+next-env.d.ts
+*.tsbuildinfo
