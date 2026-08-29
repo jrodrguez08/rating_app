@@ -7,10 +7,12 @@ import {
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { syncFootballData } from "@/application/sync-football";
+import { syncMatchParticipants } from "@/application/sync-match-participants";
 import type {
   FootballDataProvider,
   ProviderCompetitionSeason,
   ProviderFixture,
+  ProviderMatchContext,
   ProviderTeamIdentity,
 } from "@/domain/ports";
 
@@ -66,6 +68,41 @@ const fixtures: ProviderFixture[] = [
   },
 ];
 
+const matchContext: ProviderMatchContext = {
+  participants: [
+    {
+      externalPlayerId: "10",
+      name: "Starter",
+      shirtNumber: 1,
+      position: "G",
+      squadRole: "starter",
+      participated: true,
+      captain: true,
+    },
+    {
+      externalPlayerId: "20",
+      name: "Entering Substitute",
+      shirtNumber: 14,
+      position: "M",
+      squadRole: "substitute",
+      participated: true,
+      enteredAtMinute: 65,
+    },
+    {
+      externalPlayerId: "21",
+      name: "Unused Substitute",
+      shirtNumber: 18,
+      position: "F",
+      squadRole: "substitute",
+      participated: false,
+    },
+  ],
+  headCoach: {
+    externalCoachId: "900",
+    name: "Tracked Team Coach",
+  },
+};
+
 class FixtureProvider implements FootballDataProvider {
   readonly name = "api-football";
   requestCount = 0;
@@ -73,6 +110,7 @@ class FixtureProvider implements FootballDataProvider {
   constructor(
     private readonly fixtureValues = fixtures,
     private readonly seasonValues = seasons,
+    private readonly contextValue = matchContext,
   ) {}
 
   async resolveTeam(): Promise<ProviderTeamIdentity> {
@@ -92,6 +130,11 @@ class FixtureProvider implements FootballDataProvider {
   async getFixtures(): Promise<ProviderFixture[]> {
     this.requestCount += 1;
     return this.fixtureValues;
+  }
+
+  async getMatchContext(): Promise<ProviderMatchContext> {
+    this.requestCount += 1;
+    return this.contextValue;
   }
 }
 
@@ -212,5 +255,84 @@ describe("football synchronization persistence", () => {
     expect(await collectionData("seasons")).toHaveLength(0);
     expect(await collectionData("matches")).toHaveLength(0);
     expect((await store.getTeam(team.id)).externalProviderId).toBeUndefined();
+  });
+
+  it("persists players, participants, and the tracked Team coach idempotently while allowing late participation updates", async () => {
+    const store = new EmulatorFootballSyncStore(emulatorHost, projectId);
+    const team = await store.getTeam("club-sport-herediano");
+    await syncFootballData(team, new FixtureProvider(), store, {
+      now: new Date("2026-08-29T12:00:00.000Z"),
+    });
+    const matches = await collectionData("matches");
+    const matchId = String(
+      matches.find((match) => match.externalProviderFixtureId === "5001")?.id,
+    );
+    const persistedTeam = await store.getTeam(team.id);
+
+    const first = await syncMatchParticipants(
+      matchId,
+      new FixtureProvider(),
+      store,
+      new Date("2026-08-29T13:00:00.000Z"),
+    );
+    const firstParticipants = await collectionData(
+      `matches/${matchId}/participants`,
+    );
+    const firstCreatedAt = firstParticipants.find(
+      (participant) => participant.externalProviderPlayerId === "21",
+    )?.createdAt;
+    const second = await syncMatchParticipants(
+      matchId,
+      new FixtureProvider(),
+      store,
+      new Date("2026-08-29T13:00:00.000Z"),
+    );
+
+    expect(first.players.created).toBe(3);
+    expect(first.participants.created).toBe(3);
+    expect(first.coaches.created).toBe(1);
+    expect(first.coachAssignments.created).toBe(1);
+    expect(second.players.unchanged).toBe(3);
+    expect(second.participants.unchanged).toBe(3);
+    expect(second.coaches.unchanged).toBe(1);
+    expect(second.coachAssignments.unchanged).toBe(1);
+    expect(await collectionData("players")).toHaveLength(3);
+    expect(await collectionData("coaches")).toHaveLength(1);
+    expect(await collectionData(`matches/${matchId}/coachAssignments`)).toEqual(
+      [
+        expect.objectContaining({
+          id: "head-coach",
+          teamId: persistedTeam.id,
+          coachName: "Tracked Team Coach",
+        }),
+      ],
+    );
+
+    const lateContext = structuredClone(matchContext);
+    lateContext.participants[2].participated = true;
+    lateContext.participants[2].enteredAtMinute = 80;
+    lateContext.participants[2].name = "Unused Substitute Corrected";
+    const late = await syncMatchParticipants(
+      matchId,
+      new FixtureProvider(fixtures, seasons, lateContext),
+      store,
+      new Date("2026-08-29T14:00:00.000Z"),
+    );
+    const lateParticipants = await collectionData(
+      `matches/${matchId}/participants`,
+    );
+    const corrected = lateParticipants.find(
+      (participant) => participant.externalProviderPlayerId === "21",
+    );
+
+    expect(late.players.updated).toBe(1);
+    expect(late.participants.updated).toBe(1);
+    expect(corrected).toMatchObject({
+      participated: true,
+      enteredAtMinute: 80,
+      playerName: "Unused Substitute Corrected",
+      createdAt: firstCreatedAt,
+    });
+    expect(lateParticipants).toHaveLength(3);
   });
 });

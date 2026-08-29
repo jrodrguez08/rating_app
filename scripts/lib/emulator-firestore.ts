@@ -1,4 +1,13 @@
-import type { Competition, Match, Season, Team } from "@/domain/models";
+import type {
+  Coach,
+  CoachAssignment,
+  Competition,
+  Match,
+  MatchParticipant,
+  Player,
+  Season,
+  Team,
+} from "@/domain/models";
 import type { FootballSyncStore, SyncWriteCounts } from "@/domain/ports";
 
 const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
@@ -87,7 +96,17 @@ function comparable(value: Record<string, unknown>) {
   const copy = { ...value };
   delete copy.createdAt;
   delete copy.updatedAt;
-  return JSON.stringify(copy);
+  return JSON.stringify(sortObject(copy));
+}
+
+function sortObject(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortObject);
+  if (typeof value !== "object" || value === null) return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, field]) => [key, sortObject(field)]),
+  );
 }
 
 export class EmulatorFootballSyncStore implements FootballSyncStore {
@@ -115,6 +134,12 @@ export class EmulatorFootballSyncStore implements FootballSyncStore {
     return value as unknown as Team;
   }
 
+  async getMatch(matchId: string): Promise<Match> {
+    const value = await this.get("matches", matchId);
+    if (value === null) throw new Error(`matches/${matchId} was not found.`);
+    return value as unknown as Match;
+  }
+
   async updateTeamProviderId(
     team: Team,
     externalProviderId: string,
@@ -140,9 +165,48 @@ export class EmulatorFootballSyncStore implements FootballSyncStore {
     return this.upsert("matches", matches);
   }
 
+  upsertPlayers(players: Player[]): Promise<SyncWriteCounts> {
+    return this.upsert("players", players);
+  }
+
+  upsertMatchParticipants(
+    matchId: string,
+    participants: MatchParticipant[],
+  ): Promise<SyncWriteCounts> {
+    return this.upsert(
+      `matches/${encodeURIComponent(matchId)}/participants`,
+      participants.map((participant) => ({
+        ...participant,
+        id: participant.playerId,
+      })),
+    );
+  }
+
+  upsertCoaches(coaches: Coach[]): Promise<SyncWriteCounts> {
+    return this.upsert("coaches", coaches);
+  }
+
+  upsertCoachAssignment(
+    matchId: string,
+    assignment: CoachAssignment,
+  ): Promise<SyncWriteCounts> {
+    return this.upsert(
+      `matches/${encodeURIComponent(matchId)}/coachAssignments`,
+      [{ ...assignment, id: "head-coach" }],
+    );
+  }
+
   private async upsert(
     collection: string,
-    values: Array<Competition | Season | Match>,
+    values: Array<
+      | Competition
+      | Season
+      | Match
+      | Player
+      | Coach
+      | (MatchParticipant & { id: string })
+      | (CoachAssignment & { id: string })
+    >,
   ): Promise<SyncWriteCounts> {
     const counts = { created: 0, updated: 0, unchanged: 0 };
     for (const value of values) {

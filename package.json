@@ -20,6 +20,7 @@
     "firebase:emulators": "firebase emulators:start --only firestore",
     "seed:firebase": "node scripts/seed-development.mjs",
     "sync:football": "tsx --env-file=.env.local scripts/sync-football.ts",
+    "sync:match-participants": "tsx --env-file=.env.local scripts/sync-match-participants.ts",
     "verify": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build"
   },
   "dependencies": {

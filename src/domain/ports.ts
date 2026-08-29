@@ -1,8 +1,12 @@
 import type {
   Ballot,
   Competition,
+  Coach,
+  CoachAssignment,
   EntityId,
   Match,
+  MatchParticipant,
+  Player,
   Season,
   Team,
 } from "./models";
@@ -42,6 +46,29 @@ export interface ProviderFixture {
   score: Match["score"];
 }
 
+export interface ProviderMatchParticipant {
+  externalPlayerId: string;
+  name: string;
+  shirtNumber?: number;
+  position?: string;
+  squadRole: "starter" | "substitute";
+  participated: boolean;
+  enteredAtMinute?: number;
+  exitedAtMinute?: number;
+  captain?: boolean;
+}
+
+export interface ProviderHeadCoach {
+  externalCoachId: string;
+  name: string;
+  photoUrl?: string;
+}
+
+export interface ProviderMatchContext {
+  participants: ProviderMatchParticipant[];
+  headCoach: ProviderHeadCoach;
+}
+
 export interface FixtureWindow {
   from: string;
   to: string;
@@ -59,13 +86,29 @@ export interface FootballDataProvider {
     window: FixtureWindow,
     competitionSeasons: ProviderCompetitionSeason[],
   ): Promise<ProviderFixture[]>;
+  getMatchContext(
+    externalFixtureId: string,
+    externalTeamId: string,
+  ): Promise<ProviderMatchContext>;
 }
 
 export interface FootballSyncStore {
+  getTeam(teamId: string): Promise<Team>;
+  getMatch(matchId: string): Promise<Match>;
   updateTeamProviderId(team: Team, externalProviderId: string): Promise<Team>;
   upsertCompetitions(competitions: Competition[]): Promise<SyncWriteCounts>;
   upsertSeasons(seasons: Season[]): Promise<SyncWriteCounts>;
   upsertMatches(matches: Match[]): Promise<SyncWriteCounts>;
+  upsertPlayers(players: Player[]): Promise<SyncWriteCounts>;
+  upsertMatchParticipants(
+    matchId: string,
+    participants: MatchParticipant[],
+  ): Promise<SyncWriteCounts>;
+  upsertCoaches(coaches: Coach[]): Promise<SyncWriteCounts>;
+  upsertCoachAssignment(
+    matchId: string,
+    assignment: CoachAssignment,
+  ): Promise<SyncWriteCounts>;
 }
 
 export interface SyncWriteCounts {

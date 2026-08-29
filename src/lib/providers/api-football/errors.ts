@@ -3,6 +3,11 @@ export type ProviderErrorCode =
   | "request-failed"
   | "rate-limited"
   | "malformed-response"
+  | "fixture-not-found"
+  | "lineup-unavailable"
+  | "tracked-team-missing"
+  | "coach-missing"
+  | "ambiguous-coach"
   | "team-not-found"
   | "ambiguous-team";
 

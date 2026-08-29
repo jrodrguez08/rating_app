@@ -1,6 +1,8 @@
 import type {
   FixtureWindow,
   FootballDataProvider,
+  ProviderMatchContext,
+  ProviderMatchParticipant,
   ProviderCompetitionSeason,
   ProviderFixture,
   ProviderTeamIdentity,
@@ -44,6 +46,18 @@ function optionalString(value: unknown, label: string): string | undefined {
   return value === null || value === undefined
     ? undefined
     : string(value, label);
+}
+
+function optionalNumber(value: unknown, label: string): number | undefined {
+  return value === null || value === undefined
+    ? undefined
+    : number(value, label);
+}
+
+function optionalBoolean(value: unknown, label: string): boolean | undefined {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value !== "boolean") malformed(`${label} must be a boolean.`);
+  return value;
 }
 
 function nullableScore(value: unknown, label: string): number | null {
@@ -228,6 +242,204 @@ export class ApiFootballAdapter implements FootballDataProvider {
         },
       };
     });
+  }
+
+  async getMatchContext(
+    externalFixtureId: string,
+    externalTeamId: string,
+  ): Promise<ProviderMatchContext> {
+    const response = await this.request("/fixtures", {
+      id: externalFixtureId,
+      timezone: "UTC",
+    });
+    if (response.length === 0) {
+      throw new ProviderError(
+        "fixture-not-found",
+        `Fixture ${externalFixtureId} was not found.`,
+      );
+    }
+    if (response.length !== 1) {
+      return malformed(
+        `fixture ${externalFixtureId} returned multiple records.`,
+      );
+    }
+    const fixture = record(response[0], "fixture response item");
+    const lineups = array(fixture.lineups, "fixture.lineups");
+    if (lineups.length === 0) {
+      throw new ProviderError(
+        "lineup-unavailable",
+        `Lineup data is not published for fixture ${externalFixtureId}.`,
+      );
+    }
+    const trackedLineups = lineups.filter((value) => {
+      const lineup = record(value, "lineup");
+      const team = record(lineup.team, "lineup.team");
+      return String(number(team.id, "lineup.team.id")) === externalTeamId;
+    });
+    if (trackedLineups.length === 0) {
+      throw new ProviderError(
+        "tracked-team-missing",
+        `Tracked Team ${externalTeamId} is missing from fixture ${externalFixtureId} lineups.`,
+      );
+    }
+    if (trackedLineups.length > 1) {
+      throw new ProviderError(
+        "ambiguous-coach",
+        `Fixture ${externalFixtureId} contains multiple lineups for tracked Team ${externalTeamId}.`,
+      );
+    }
+
+    const lineup = record(trackedLineups[0], "tracked lineup");
+    const participants = new Map<string, ProviderMatchParticipant>();
+    this.addLineupPlayers(participants, lineup.startXI, "starter");
+    this.addLineupPlayers(participants, lineup.substitutes, "substitute");
+    if (participants.size === 0) {
+      throw new ProviderError(
+        "lineup-unavailable",
+        `Tracked Team lineup is empty for fixture ${externalFixtureId}.`,
+      );
+    }
+
+    this.reconcilePlayerStatistics(
+      participants,
+      fixture.players,
+      externalTeamId,
+    );
+    this.reconcileSubstitutions(participants, fixture.events, externalTeamId);
+
+    const coachValue = lineup.coach;
+    if (coachValue === null || coachValue === undefined) {
+      throw new ProviderError(
+        "coach-missing",
+        `Head coach is not published for tracked Team ${externalTeamId}.`,
+      );
+    }
+    const coach = record(coachValue, "lineup.coach");
+    const photoUrl = optionalString(coach.photo, "lineup.coach.photo");
+    return {
+      participants: [...participants.values()],
+      headCoach: {
+        externalCoachId: String(number(coach.id, "lineup.coach.id")),
+        name: string(coach.name, "lineup.coach.name"),
+        ...(photoUrl === undefined ? {} : { photoUrl }),
+      },
+    };
+  }
+
+  private addLineupPlayers(
+    participants: Map<string, ProviderMatchParticipant>,
+    value: unknown,
+    squadRole: ProviderMatchParticipant["squadRole"],
+  ) {
+    for (const entryValue of array(value, `lineup.${squadRole}`)) {
+      const entry = record(entryValue, `lineup.${squadRole} entry`);
+      const player = record(entry.player, `lineup.${squadRole}.player`);
+      const externalPlayerId = String(
+        number(player.id, `lineup.${squadRole}.player.id`),
+      );
+      if (participants.has(externalPlayerId)) {
+        return malformed(
+          `player ${externalPlayerId} appears twice in the lineup.`,
+        );
+      }
+      const shirtNumber = optionalNumber(
+        player.number,
+        `lineup.${squadRole}.player.number`,
+      );
+      const position = optionalString(
+        player.pos,
+        `lineup.${squadRole}.player.pos`,
+      );
+      participants.set(externalPlayerId, {
+        externalPlayerId,
+        name: string(player.name, `lineup.${squadRole}.player.name`),
+        ...(shirtNumber === undefined ? {} : { shirtNumber }),
+        ...(position === undefined ? {} : { position }),
+        squadRole,
+        participated: squadRole === "starter",
+      });
+    }
+  }
+
+  private reconcilePlayerStatistics(
+    participants: Map<string, ProviderMatchParticipant>,
+    value: unknown,
+    externalTeamId: string,
+  ) {
+    if (value === null || value === undefined) return;
+    const teams = array(value, "fixture.players");
+    const tracked = teams.filter((teamValue) => {
+      const teamEntry = record(teamValue, "fixture.players team");
+      return (
+        String(
+          number(
+            record(teamEntry.team, "fixture.players.team").id,
+            "fixture.players.team.id",
+          ),
+        ) === externalTeamId
+      );
+    });
+    if (tracked.length > 1)
+      malformed("fixture.players repeats the tracked Team.");
+    if (tracked.length === 0) return;
+    const teamEntry = record(tracked[0], "tracked fixture.players team");
+    for (const value of array(teamEntry.players, "fixture.players.players")) {
+      const entry = record(value, "fixture player");
+      const identity = record(entry.player, "fixture player.player");
+      const id = String(number(identity.id, "fixture player.player.id"));
+      const participant = participants.get(id);
+      if (participant === undefined) continue;
+      const statistics = array(entry.statistics, "fixture player.statistics");
+      if (statistics.length === 0) continue;
+      const games = record(
+        record(statistics[0], "fixture player statistic").games,
+        "fixture player statistic.games",
+      );
+      const minutes = optionalNumber(games.minutes, "games.minutes");
+      const position = optionalString(games.position, "games.position");
+      const captain = optionalBoolean(games.captain, "games.captain");
+      if (minutes !== undefined && minutes > 0) participant.participated = true;
+      if (position !== undefined) participant.position = position;
+      if (captain !== undefined) participant.captain = captain;
+    }
+  }
+
+  private reconcileSubstitutions(
+    participants: Map<string, ProviderMatchParticipant>,
+    value: unknown,
+    externalTeamId: string,
+  ) {
+    if (value === null || value === undefined) return;
+    for (const eventValue of array(value, "fixture.events")) {
+      const event = record(eventValue, "fixture event");
+      if (String(event.type).toLowerCase() !== "subst") continue;
+      const team = record(event.team, "substitution.team");
+      if (String(number(team.id, "substitution.team.id")) !== externalTeamId)
+        continue;
+      const time = record(event.time, "substitution.time");
+      const elapsed = optionalNumber(time.elapsed, "substitution.time.elapsed");
+      const extra = optionalNumber(time.extra, "substitution.time.extra") ?? 0;
+      const minute = elapsed === undefined ? undefined : elapsed + extra;
+      const outgoing = record(event.player, "substitution.player");
+      const incoming = record(event.assist, "substitution.assist");
+      const outgoingId = String(number(outgoing.id, "substitution.player.id"));
+      const incomingId = String(number(incoming.id, "substitution.assist.id"));
+      const outgoingParticipant = participants.get(outgoingId);
+      const incomingParticipant = participants.get(incomingId);
+      if (
+        outgoingParticipant === undefined ||
+        incomingParticipant === undefined
+      ) {
+        malformed(
+          `substitution references player outside tracked Team lineup (${outgoingId}/${incomingId}).`,
+        );
+      }
+      incomingParticipant.participated = true;
+      if (minute !== undefined) {
+        outgoingParticipant.exitedAtMinute ??= minute;
+        incomingParticipant.enteredAtMinute ??= minute;
+      }
+    }
   }
 
   private parseFixtureTeam(value: unknown, label: string) {

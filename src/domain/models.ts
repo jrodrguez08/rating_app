@@ -65,27 +65,49 @@ export interface Match {
 }
 export interface Player {
   id: EntityId;
-  name: string;
-  externalProviderPlayerId?: string;
+  displayName: string;
+  externalProvider: string;
+  externalProviderId: string;
+  position?: string;
+  photoUrl?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 export type SquadRole = "starter" | "substitute";
 export interface MatchParticipant {
   matchId: EntityId;
   playerId: EntityId;
+  externalProvider: string;
+  externalProviderPlayerId: string;
+  playerName: string;
+  shirtNumber?: number;
+  position?: string;
   squadRole: SquadRole;
+  starter: boolean;
   participated: boolean;
   enteredAtMinute?: number;
-  leftAtMinute?: number;
+  exitedAtMinute?: number;
+  captain?: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 export interface CoachAssignment {
   matchId: EntityId;
   coachId: EntityId;
   teamId: EntityId;
+  role: "head-coach";
+  coachName: string;
+  createdAt: string;
+  updatedAt: string;
 }
 export interface Coach {
   id: EntityId;
-  name: string;
-  externalProviderCoachId?: string;
+  displayName: string;
+  externalProvider: string;
+  externalProviderId: string;
+  photoUrl?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 export interface Ballot {
   id: EntityId;
