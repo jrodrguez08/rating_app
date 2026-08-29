@@ -67,7 +67,9 @@ describe("ensureAnonymousVoter", () => {
 
   it.each([
     ["auth/network-request-failed", "unavailable"],
+    ["auth/internal-error", "unavailable"],
     ["auth/operation-not-allowed", "disabled"],
+    ["auth/invalid-api-key", "unknown"],
   ])("maps %s without exposing its raw message", async (firebaseCode, code) => {
     getBrowserAuth.mockReturnValue({
       authStateReady: vi.fn().mockResolvedValue(undefined),
@@ -84,5 +86,18 @@ describe("ensureAnonymousVoter", () => {
     expect(error).toMatchObject({ code });
     expect(error.message).toBe("Unable to prepare voter identity.");
     expect(error.message).not.toContain("sensitive");
+  });
+
+  it("maps browser configuration failures without exposing details", async () => {
+    getBrowserAuth.mockImplementation(() => {
+      throw new Error("FIREBASE_ADMIN_PRIVATE_KEY=must-not-leak");
+    });
+    const { ensureAnonymousVoter, VoterIdentityError } =
+      await import("./voter-auth");
+
+    const error = await ensureAnonymousVoter().catch((caught) => caught);
+    expect(error).toBeInstanceOf(VoterIdentityError);
+    expect(error).toMatchObject({ code: "configuration" });
+    expect(error.message).not.toContain("PRIVATE_KEY");
   });
 });

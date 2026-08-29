@@ -14,7 +14,7 @@ Typed, build-time message resources live in `src/i18n/messages`. Every visible p
 
 ## Developer workflow
 
-Requirements: Node.js 22 and npm. CI uses the same Node major version.
+Requirements: Node.js 22, npm, Java 21, and the globally installed Firebase CLI 15.28.2. CI uses the same Node major version and pins the same Firebase CLI version.
 
 ```bash
 npm ci
@@ -22,12 +22,14 @@ copy .env.example .env.local
 npm run dev
 ```
 
-The page works without Firebase values and will not contact a Firebase project. `.env.example` is committed, `.env.local` is ignored and developer-owned, and CI variables must be supplied by CI configuration when a future test needs them.
+With the template's `NEXT_PUBLIC_FIREBASE_ENVIRONMENT=local`, `npm run dev` starts Next.js, the Firebase Auth and Firestore emulators, and the Emulator UI together. Local browser Firebase calls connect only to those emulators and never fall back to a cloud project. `.env.example` is committed, `.env.local` is ignored and developer-owned, and CI variables must be supplied by CI configuration when a future test needs them.
 
 Common commands:
 
 ```bash
-npm run dev           # local Next.js server
+npm run dev           # Next.js plus Auth/Firestore emulators and Emulator UI
+npm run dev:web       # Next.js only; advanced/focused web development
+npm run firebase:emulators # Auth/Firestore emulators without Next.js
 npm run format        # write Prettier formatting
 npm run format:check  # check formatting only
 npm run lint          # ESLint
@@ -50,13 +52,13 @@ Firebase environments are explicit:
 - `development` requires a complete Firebase Web configuration for a separate cloud development project.
 - `production` requires a complete production Web configuration and must never be used for local seeding or tests.
 
-For local persistence work, install Java and Firebase CLI 15.28.2 separately, copy `.env.example` to `.env.local`, and run:
+For local work, install Java 21 and Firebase CLI 15.28.2 separately, copy `.env.example` to `.env.local`, and run the normal one-command startup:
 
 ```bash
-npm run firebase:emulators
+npm run dev
 ```
 
-Auth runs on 9099, Firestore on 8080, and the Emulator UI on 4000. In another terminal, explicitly bootstrap the deterministic initial Team:
+Next.js normally runs on 3000, Auth on 9099, Firestore on 8080, and the Emulator UI on 4000. Stopping the parent command stops both the web and Firebase child processes. Use `npm run dev:web` only when Firebase is already running elsewhere or the web process must be isolated; use `npm run firebase:emulators` to run only the emulators. In another terminal, explicitly bootstrap the deterministic initial Team when persistence data is needed:
 
 ```bash
 npm run seed:firebase
@@ -66,7 +68,7 @@ The bootstrap targets Firestore at `127.0.0.1:8080` by default, accepts only a l
 
 ## Voter identity
 
-The browser quietly ensures a Firebase anonymous user on first visit. Firebase UID is the canonical `voterId`, Firebase's native persistence reuses it on normal reloads, and no `voters/{uid}` document, login screen, logout/reset control, or raw UID display is created. Concurrent initialization calls share one sign-in attempt. In local mode Auth must use the emulator; malformed hosted configuration fails instead of falling back to cloud behavior.
+The browser quietly ensures a Firebase anonymous user on first visit. Firebase UID is the canonical `voterId`, Firebase's native persistence reuses it on normal reloads, and no `voters/{uid}` document, login screen, logout/reset control, or raw UID display is created. Concurrent initialization calls share one sign-in attempt. React Strict Mode may restart the initializer effect during development; cleanup suppresses the superseded effect's duplicate failure log without disabling Strict Mode or changing sign-in deduplication. In local/development mode, voter-session failures log only the mapped category and an allowlisted Firebase `auth/*` or `app/*` cause code. Production retains the generic message, and neither path logs tokens, UIDs, credentials, or raw error messages. In local mode Auth must use the emulator; malformed hosted configuration fails instead of falling back to cloud behavior.
 
 Anonymous authentication identifies a browser profile, not a person. Clearing storage, incognito, another browser/device, or another anonymous account can produce a different UID. Rating App does not use fingerprinting. Future provider linking may upgrade the same Firebase account while preserving its UID where Firebase supports it; automatic anonymous-account cleanup is not assumed.
 
