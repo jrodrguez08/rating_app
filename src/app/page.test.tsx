@@ -38,9 +38,9 @@ describe("Home", () => {
     const navigation = screen.getByRole("navigation", {
       name: "Navegación principal",
     });
-    expect(
-      within(navigation).getByRole("link", { name: "Inicio" }),
-    ).toHaveAttribute("href", "/");
+    const homeLink = within(navigation).getByRole("link", { name: "Inicio" });
+    expect(homeLink).toHaveAttribute("href", "/");
+    expect(homeLink).toHaveAttribute("aria-current", "page");
     expect(within(navigation).getByText("Partidos")).toHaveAttribute(
       "aria-disabled",
       "true",

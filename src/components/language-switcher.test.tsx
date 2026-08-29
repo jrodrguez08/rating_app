@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -18,7 +18,7 @@ describe("LanguageSwitcher", () => {
     document.cookie = `${localeCookieName}=; Max-Age=0; Path=/`;
   });
 
-  it("exposes the current language and persists an English selection", async () => {
+  it("shows compact ES and exposes both languages with Spanish current", async () => {
     const user = userEvent.setup();
     render(
       <LanguageSwitcher
@@ -28,16 +28,69 @@ describe("LanguageSwitcher", () => {
       />,
     );
 
-    const group = screen.getByRole("group", { name: "Idioma" });
-    expect(group).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Español" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
+    const trigger = screen.getByRole("button", { name: "Idioma: Español" });
+    expect(trigger).toHaveTextContent("ES");
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
 
-    await user.click(screen.getByRole("button", { name: "English" }));
+    await user.click(trigger);
+
+    const menu = screen.getByRole("menu", { name: "Idioma" });
+    expect(within(menu).getByText("Español")).toBeInTheDocument();
+    expect(within(menu).getByText("English")).toBeInTheDocument();
+    expect(
+      within(menu).getByRole("menuitemradio", { name: "Español" }),
+    ).toHaveAttribute("aria-checked", "true");
+
+    await user.click(
+      within(menu).getByRole("menuitemradio", { name: "English" }),
+    );
 
     expect(document.cookie).toContain(`${localeCookieName}=en`);
     expect(refresh).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
+  it("shows compact EN and persists a Spanish selection", async () => {
+    const user = userEvent.setup();
+    render(
+      <LanguageSwitcher
+        locale="en"
+        label="Language"
+        languageNames={{ es: "Español", en: "English" }}
+      />,
+    );
+
+    const trigger = screen.getByRole("button", {
+      name: "Language: English",
+    });
+    expect(trigger).toHaveTextContent("EN");
+    await user.click(trigger);
+    const menu = screen.getByRole("menu", { name: "Language" });
+    expect(
+      within(menu).getByRole("menuitemradio", { name: "English" }),
+    ).toHaveAttribute("aria-checked", "true");
+
+    await user.click(
+      within(menu).getByRole("menuitemradio", { name: "Español" }),
+    );
+
+    expect(document.cookie).toContain(`${localeCookieName}=es`);
+    expect(refresh).toHaveBeenCalledOnce();
+  });
+
+  it("closes on Escape and returns focus to the trigger", async () => {
+    const user = userEvent.setup();
+    render(
+      <LanguageSwitcher
+        locale="es"
+        label="Idioma"
+        languageNames={{ es: "Español", en: "English" }}
+      />,
+    );
+    const trigger = screen.getByRole("button", { name: "Idioma: Español" });
+    await user.click(trigger);
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
   });
 });
