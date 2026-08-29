@@ -1,4 +1,5 @@
 import { getApp, getApps, initializeApp, type FirebaseApp } from "firebase/app";
+import { connectAuthEmulator, getAuth, type Auth } from "firebase/auth";
 import {
   connectFirestoreEmulator,
   getFirestore,
@@ -6,6 +7,7 @@ import {
 } from "firebase/firestore";
 
 import {
+  authEmulator,
   firebaseEnvironment,
   firebaseEnvironmentName,
   firestoreEmulator,
@@ -14,6 +16,7 @@ import {
 
 const LOCAL_PROJECT_ID = "demo-rating-app-local";
 const emulatorConnections = globalThis as typeof globalThis & {
+  __ratingAppAuthEmulators?: Set<string>;
   __ratingAppFirestoreEmulators?: Set<string>;
 };
 
@@ -24,9 +27,16 @@ export function getBrowserFirebaseApp(): FirebaseApp {
     );
   }
 
+  const localProjectId = firebaseEnvironment.projectId || LOCAL_PROJECT_ID;
   const options =
     firebaseEnvironmentName === "local"
-      ? { projectId: firebaseEnvironment.projectId ?? LOCAL_PROJECT_ID }
+      ? {
+          apiKey: firebaseEnvironment.apiKey || "demo-api-key",
+          authDomain:
+            firebaseEnvironment.authDomain ||
+            `${localProjectId}.firebaseapp.com`,
+          projectId: localProjectId,
+        }
       : firebaseEnvironment;
 
   return getApps()[0] ?? initializeApp(options);
@@ -53,6 +63,29 @@ export function getBrowserFirestore(): Firestore {
   }
 
   return database;
+}
+
+export function getBrowserAuth(): Auth {
+  const app = getBrowserFirebaseApp();
+  const auth = getAuth(app);
+
+  if (firebaseEnvironmentName === "local") {
+    if (!Number.isInteger(authEmulator.port)) {
+      throw new Error("Auth emulator port must be an integer.");
+    }
+    const connections = (emulatorConnections.__ratingAppAuthEmulators ??=
+      new Set<string>());
+    if (!connections.has(app.name)) {
+      connectAuthEmulator(
+        auth,
+        `http://${authEmulator.host}:${authEmulator.port}`,
+        { disableWarnings: true },
+      );
+      connections.add(app.name);
+    }
+  }
+
+  return auth;
 }
 
 export function getExistingBrowserFirebaseApp(): FirebaseApp | null {

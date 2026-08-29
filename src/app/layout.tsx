@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { DotGothic16 } from "next/font/google";
 
+import { VoterIdentityInitializer } from "@/components/voter-identity-initializer";
 import { getMessages } from "@/i18n/messages";
 import { getLocale } from "@/i18n/server";
 
@@ -23,7 +24,10 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   const locale = await getLocale();
   return (
     <html lang={locale} className={`h-full ${gameFont.variable}`}>
-      <body className="min-h-full">{children}</body>
+      <body className="min-h-full">
+        <VoterIdentityInitializer />
+        {children}
+      </body>
     </html>
   );
 }

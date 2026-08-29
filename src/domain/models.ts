@@ -74,6 +74,10 @@ export interface FootballSyncMetadata {
   lastFixtureDiscoveryAt?: string;
   updatedAt: string;
 }
+
+export interface VoterIdentity {
+  voterId: string;
+}
 export interface Player {
   id: EntityId;
   displayName: string;

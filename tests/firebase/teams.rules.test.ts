@@ -89,7 +89,7 @@ describe("Team persistence and rules", () => {
     });
   });
 
-  it("rejects arbitrary Team writes from unauthenticated and authenticated clients", async () => {
+  it("rejects arbitrary Team writes from unauthenticated and anonymous-identity clients", async () => {
     const unauthenticated = environment.unauthenticatedContext().firestore();
     const authenticated = environment
       .authenticatedContext("supporter-1")
