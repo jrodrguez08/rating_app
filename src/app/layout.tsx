@@ -13,7 +13,7 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function RootLayout({ children }: LayoutProps<"/">) {
   const locale = await getLocale();
   return (
-    <html lang={locale} className="h-full antialiased">
+    <html lang={locale} className="h-full">
       <body className="min-h-full">{children}</body>
     </html>
   );
