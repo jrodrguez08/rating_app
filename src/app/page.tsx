@@ -12,17 +12,17 @@ export default async function Home() {
 export function HomeContent({ locale }: { locale: Locale }) {
   const messages = getMessages(locale);
   return (
-    <AppShell locale={locale} messages={messages}>
-      <main id="main-content" className="page-shell py-8 sm:py-12">
-        <section aria-labelledby="club-heading" className="mb-8">
+    <AppShell locale={locale} messages={messages} theme={initialClub.theme}>
+      <main id="main-content" className="page-shell py-7 sm:py-10">
+        <section aria-labelledby="club-heading" className="mb-7">
           <p className="eyebrow">{messages.home.communityEyebrow}</p>
           <h1
             id="club-heading"
-            className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl"
+            className="mt-3 text-3xl font-extrabold leading-tight tracking-tight text-foreground sm:text-4xl"
           >
             {initialClub.displayName}
           </h1>
-          <p className="mt-3 max-w-xl text-base leading-7 text-muted">
+          <p className="mt-4 max-w-2xl text-base leading-7 text-muted">
             {messages.home.introduction}
           </p>
         </section>

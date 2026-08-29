@@ -6,6 +6,8 @@ Next.js App Router and strict TypeScript form the web application. Pages and lay
 
 `src/config` selects the initial club presentation. `src/domain` describes stable business concepts and provider-neutral ports. `src/lib/firebase/browser.ts` lazily initializes the web SDK only when called and configured. Local mode always connects Firestore to the explicitly configured emulator and never falls back to a cloud project. Development and production modes require complete Firebase Web configuration. Explicit scripts use the emulator's REST API as their privileged local boundary; Firebase Admin remains absent.
 
+Presentation uses semantic game tokens for structure and CSS custom properties for club primary/secondary colors. `AppShell` maps the selected `TeamPresentation.theme` into those properties at the presentation boundary; generic components never depend on Herediano-named colors. Tailwind utilities consume the tokens, while a small set of global conventions supplies crisp panels, status badges, controls, and hard shadows. This changes presentation only and does not localize or duplicate domain data.
+
 ## Internationalization
 
 Exactly `es` and `en` are defined in `src/i18n/config.ts`; `es` is the default and fallback. Server Components resolve the `rating-app-locale` cookie on each request. Missing, malformed, and unsupported values resolve to Spanish. The root layout uses the same result for localized metadata and `<html lang>`. A small Client Component renders the language switcher, persists a one-year same-site cookie, and calls `router.refresh()`; it receives its initial locale and labels from the server and does not own a competing locale default.

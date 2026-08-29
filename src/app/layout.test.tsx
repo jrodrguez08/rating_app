@@ -14,6 +14,10 @@ vi.mock("next/headers", () => ({
   }),
 }));
 
+vi.mock("next/font/google", () => ({
+  DotGothic16: () => ({ variable: "font-dot-gothic-test" }),
+}));
+
 import RootLayout, { generateMetadata } from "./layout";
 
 describe("RootLayout", () => {
@@ -26,8 +30,9 @@ describe("RootLayout", () => {
     const result = (await RootLayout({
       children: <main />,
       params: Promise.resolve({}),
-    })) as ReactElement<{ lang: string }>;
+    })) as ReactElement<{ lang: string; className: string }>;
     expect(result.props.lang).toBe(expected);
+    expect(result.props.className).toContain("font-dot-gothic-test");
   });
 
   it("localizes metadata with the resolved locale", async () => {

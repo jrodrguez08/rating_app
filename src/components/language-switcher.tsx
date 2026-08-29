@@ -6,6 +6,8 @@ import { useEffect, useRef, useState } from "react";
 import { persistLocale } from "@/i18n/client";
 import { locales, type Locale } from "@/i18n/config";
 
+import { ChevronDownIcon } from "./game-icons";
+
 interface LanguageSwitcherProps {
   locale: Locale;
   label: string;
@@ -62,18 +64,16 @@ export function LanguageSwitcher({
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
-        className="flex min-h-11 min-w-11 items-center justify-center gap-1 rounded-md px-2 text-sm font-bold text-muted"
+        className="button-utility score-font flex min-w-11 items-center justify-center gap-1 px-2 text-xs"
       >
         {locale.toUpperCase()}
-        <span aria-hidden="true" className="text-xs">
-          ▾
-        </span>
+        <ChevronDownIcon aria-hidden="true" className="size-3" />
       </button>
       {open ? (
         <div
           role="menu"
           aria-label={label}
-          className="absolute right-0 top-full z-40 mt-1 min-w-36 rounded-lg border border-border bg-white p-1 shadow-[var(--shadow-card)]"
+          className="absolute right-0 top-full z-40 mt-2 min-w-36 border-2 border-border bg-surface-raised p-1 shadow-[var(--shadow-panel)]"
         >
           {locales.map((option) => (
             <button
@@ -82,7 +82,7 @@ export function LanguageSwitcher({
               role="menuitemradio"
               aria-checked={option === locale}
               onClick={() => selectLocale(option)}
-              className="flex min-h-11 w-full items-center justify-between gap-4 rounded-md px-3 text-left text-sm font-semibold text-foreground hover:bg-stone-100"
+              className="flex min-h-11 w-full items-center justify-between gap-4 border border-transparent px-3 text-left text-sm font-semibold text-foreground hover:border-border hover:bg-surface"
             >
               {languageNames[option]}
               {option === locale ? <span aria-hidden="true">✓</span> : null}

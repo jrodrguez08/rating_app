@@ -2,26 +2,100 @@
 
 ## Direction
 
-Mobile-first, energetic, and clear. Herediano-inspired red and yellow are the initial theme, but components use semantic tokens (`brand`, `accent`, `surface`, `danger`) so another club can supply a different theme.
+Rating App's approved visual language is **16-bit sports game presentation with modern mobile product usability**. It should feel like an original football scoreboard interface: dark, compact, crisp, tactile, and immediately readable. Retro styling supplies identity; semantic HTML, familiar interactions, responsive layouts, and accessible touch targets supply usability.
 
-## Foundations
+Do not drift back to soft generic SaaS cards, dashboard control bars, glass effects, casino styling, or copied game interfaces. The system is club-neutral: game structure stays consistent while presentation configuration supplies club colors.
 
-- Typography: system sans-serif; bold, compact display headings; comfortable 1.5–1.75 line height for body text.
-- Spacing: 4px base rhythm; common gaps 8, 12, 16, 24, 32, and 48px.
-- Surfaces: warm canvas, white raised cards, high-contrast dark text, muted secondary text.
-- Borders: neutral 1px; accent borders communicate emphasis, not decoration.
-- Radius: 8px controls, 12px marks, 20px cards, pills for short statuses only.
-- Shadow: one restrained card elevation token.
-- Breakpoints: phone-first base; `sm` (640px) adjusts padding/type; larger breakpoints only when content needs them.
+## Tokens and theming
 
-## Components
+Generic components consume semantic CSS variables defined in `src/app/globals.css`:
 
-Buttons have a minimum 44px target, clear label, strong focus ring, and disabled semantics. Primary uses `brand`; secondary uses surface plus border; destructive uses `danger` with explicit wording. Cards group one concept and retain readable padding at 320px.
+- `--game-background`: near-black application canvas
+- `--game-surface`: shell and quiet-control surface
+- `--game-surface-raised`: menus and elevated controls
+- `--game-panel`: meaningful grouped content
+- `--game-text` / `--game-muted`: primary and secondary text
+- `--game-border`: crisp neutral outline
+- `--game-shadow`: hard offset shadow color
+- `--club-primary` / `--club-secondary` / `--club-on-primary`: theme inputs
+- `--game-focus`: keyboard focus
+- `--game-success`, `--game-live`, `--game-warning`, `--game-danger`: semantic states
 
-Future rating controls should use large discrete buttons, expose a fieldset/legend and selected state, support arrow/tab/number-key interaction where appropriate, and never rely on color alone. Status states pair text/icon with semantic success, warning, or danger color. Voting-window status must include explicit opening/closing information.
+The initial presentation maps Herediano red and gold from `src/config`; generic components must not introduce club-named tokens or one-off club hex values. Most screen area stays neutral so club colors preserve meaning. New club themes should replace configuration values without changing component structure.
 
-## Accessibility
+## Typography
 
-Use landmarks and heading order, labels for every control, visible keyboard focus, sufficient WCAG AA contrast, reduced-motion preferences, and live regions only for meaningful async changes. Do not disable zoom. Check at 320px width, 200% zoom, keyboard-only, and with a screen reader before shipping interactive work.
+Use two canonical roles:
 
-The compact language switcher shows the current locale code and reveals full text labels on demand; it exposes a meaningful name and current selection, retains 44px targets, and remains secondary to match/rating content. Mobile headers prioritize content density: use a quiet utility control and a text-navigation row with a restrained active indicator rather than filled control bars. Components must tolerate Spanish/English copy-length differences through flexible, content-driven sizing. Validate both locales when adding or changing visible UI.
+- **Game/score display:** DotGothic16, loaded at build time through `next/font/google` with Latin Extended coverage and exposed centrally as `--font-game` / `--font-score`. Apply it selectively to the wordmark, section labels, status badges, scores, kickoff times, ratings, countdowns, and short game-like headings.
+- **Body/UI:** the system sans-serif stack for navigation, club/player/coach names, paragraphs, instructions, menus, forms, and longer labels.
+
+Body paragraphs never use DotGothic16. Long proper names and explanatory text prioritize readability; a major club name may remain in the modern sans. Use the game role to create hierarchy rather than pixel-styling every character. DotGothic16 is a regular-weight face, so avoid synthetic heavy weights and excessive tracking. Short uppercase labels may use restrained tracking. Large numbers such as `2 - 1`, `11:00`, `8.7`, or a countdown should be visually immediate, high contrast, and minimally decorated.
+
+## Shape, borders, and shadows
+
+- Meaningful panels use 2px borders, 0–2px radius, and `4px 4px 0` hard shadows.
+- Compact controls use 2px borders and `2px 2px 0` hard shadows.
+- Inset information areas use a one-pixel border and no floating elevation.
+- Avoid large radii, oversized pills, blurred shadows, glow, and stacked card containers.
+- Small cut-corner or pixel-grid details are acceptable when they clarify hierarchy, but ornament must stay restrained.
+
+The reusable `.card`, `.game-inset`, `.status-badge`, `.button-primary`, `.button-secondary`, and `.button-utility` conventions are canonical. Use panels only for meaningful groupings.
+
+## App shell and navigation
+
+The compact header has an identity/utility row and a simple text-navigation row. The `R` mark uses a crisp club-colored block; the wordmark uses display typography without becoming an arcade banner. Navigation retains at least 40px vertical space and uses a small gold underline plus weight for `aria-current`, not giant buttons.
+
+The language switcher remains secondary: a bordered `ES`/`EN` utility control opens a small hard-shadow menu with full language names and semantic current state. It retains 44px targets, Escape and outside-click dismissal, focus restoration, and visible focus.
+
+## Panels and scoreboards
+
+A sports-game panel contains a restrained accent rail, compact status/competition label, strong short heading or scoreboard, readable body detail, and optional inset metadata. Future match panels should support home/away identity, safe abbreviation badges, official provider names, status, kickoff, and score without assuming a particular club.
+
+Future scoreboard states may show `VS`, kickoff time, score, `FT`, live minute, or voting countdown using display typography. Do not fabricate match data to demonstrate the primitive in production, and do not introduce a component until a real product surface consumes it.
+
+## Buttons and motion
+
+- **Primary:** club-primary surface, high-contrast label, crisp border, hard shadow.
+- **Secondary:** raised neutral surface with a clear border.
+- **Utility:** quieter game surface for compact actions such as locale selection.
+
+All buttons keep a minimum 44px target, visible label, keyboard focus, and disabled semantics. A press may move 1–2px and remove its hard shadow over 100–180ms. No continuous animation, flashing, glow, screen shake, or spectacle. Reduced-motion preferences collapse transitions.
+
+## Status badges
+
+Status badges are compact rectangular scoreboard labels with text and, when useful, a small icon. Scheduled, live, final, voting-open, voting-closed, and postponed states must remain distinguishable by wording or icon—not color alone. Live/error colors are accents, not full-panel defaults.
+
+## Iconography and team marks
+
+Use a small internal SVG set on a 16×16 grid with crisp geometric paths, `currentColor`, and no copied sprites. Decorative icons are hidden from assistive technology; meaningful icons need an accessible text equivalent. Do not add a broad icon dependency for a few concepts.
+
+Until an intentional provider/logo licensing strategy exists, team marks use safe initials, abbreviations, or simple themed blocks. Never invent or scrape official crests.
+
+## Future rating controls
+
+Ratings will use discrete values `1` through `10`, not a precision slider. Each value needs a large tap target, keyboard-operable form semantics, high contrast, and an unmistakable selected state. A selected value may use a tiny tactile snap/bounce and club-secondary highlight, but accessibility and input clarity take priority over nostalgia.
+
+## Spacing and responsive behavior
+
+Use a 4px base rhythm and tighter sports-scoreboard density: common gaps are 8, 12, 16, 20, 24, and 32px. Compact does not mean cramped. Body copy keeps comfortable line-height; actions keep touch separation.
+
+Design mobile-first at 320, 360, 390, and 430px. Hard shadows, long Spanish labels, navigation, and menus must not introduce horizontal scrolling. Desktop centers a bounded content column rather than inventing empty dashboards or unnecessary columns.
+
+## Internationalization
+
+Validate every visual component in Spanish and English. Prefer flexible wrapping and content-driven sizing over fixed widths. All visible product strings come from both translation resources. Club, competition, player, and coach names remain untranslated provider/domain data.
+
+## Accessibility checklist
+
+- WCAG AA text and control contrast on dark surfaces
+- visible high-contrast focus using `--game-focus`
+- semantic landmarks, headings, navigation, menu, and current-state attributes
+- at least 44px interactive targets
+- no status communicated by color alone
+- keyboard and screen-reader operation
+- reduced-motion support and no flashing
+- zoom remains enabled
+- checks at 320px and 200% zoom
+
+Pixel aesthetics never override modern usability.
