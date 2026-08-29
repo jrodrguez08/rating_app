@@ -47,6 +47,7 @@ export interface ProviderFixture {
 }
 
 export interface ProviderMatchParticipant {
+  externalTeamId: string;
   externalPlayerId: string;
   name: string;
   shirtNumber?: number;
@@ -59,6 +60,7 @@ export interface ProviderMatchParticipant {
 }
 
 export interface ProviderHeadCoach {
+  externalTeamId: string;
   externalCoachId: string;
   name: string;
   photoUrl?: string;

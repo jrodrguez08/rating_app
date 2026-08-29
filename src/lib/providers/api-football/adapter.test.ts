@@ -133,12 +133,14 @@ describe("ApiFootballAdapter", () => {
     const context = await adapter.getMatchContext("5001", "1234");
 
     expect(context.headCoach).toMatchObject({
+      externalTeamId: "1234",
       externalCoachId: "900",
       name: "Herediano Coach",
     });
     expect(context.participants).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
+          externalTeamId: "1234",
           externalPlayerId: "10",
           squadRole: "starter",
           participated: true,
@@ -176,6 +178,7 @@ describe("ApiFootballAdapter", () => {
     const context = await adapter.getMatchContext("5001", "2000");
 
     expect(context.headCoach.name).toBe("Opponent Coach");
+    expect(context.headCoach.externalTeamId).toBe("2000");
     expect(context.participants).toEqual([
       expect.objectContaining({
         externalPlayerId: "30",
@@ -183,6 +186,26 @@ describe("ApiFootballAdapter", () => {
         participated: true,
       }),
     ]);
+  });
+
+  it("selects the tracked Team by provider ID regardless of lineup ordering", async () => {
+    const reordered = structuredClone(matchContextResponse);
+    reordered[0].lineups.reverse();
+    const adapter = new ApiFootballAdapter(
+      "test-key",
+      vi.fn<typeof fetch>().mockResolvedValue(response(reordered)),
+    );
+
+    const context = await adapter.getMatchContext("5001", "1234");
+
+    expect(context.headCoach.name).toBe("Herediano Coach");
+    expect(context.headCoach.externalTeamId).toBe("1234");
+    expect(context.participants).toHaveLength(4);
+    expect(
+      context.participants.every(
+        ({ externalTeamId }) => externalTeamId === "1234",
+      ),
+    ).toBe(true);
   });
 
   it("fails clearly for incomplete lineups, malformed player IDs, and a missing tracked Team", async () => {

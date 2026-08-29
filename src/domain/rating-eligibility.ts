@@ -1,14 +1,17 @@
 import type { MatchParticipant } from "./models";
 
-/** Future ballots may include only provider-confirmed match participants. */
+/** Future ballots may include only confirmed participants for the tracked Team. */
 export function isParticipantRateable(
-  participant: Pick<MatchParticipant, "participated">,
+  participant: Pick<MatchParticipant, "teamId" | "participated">,
+  trackedTeamId: string,
 ): boolean {
-  return participant.participated;
+  return participant.teamId === trackedTeamId && participant.participated;
 }
 
 export function getRateableParticipants<
-  T extends Pick<MatchParticipant, "participated">,
->(participants: T[]): T[] {
-  return participants.filter(isParticipantRateable);
+  T extends Pick<MatchParticipant, "teamId" | "participated">,
+>(participants: T[], trackedTeamId: string): T[] {
+  return participants.filter((participant) =>
+    isParticipantRateable(participant, trackedTeamId),
+  );
 }

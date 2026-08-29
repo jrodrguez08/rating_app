@@ -291,8 +291,18 @@ export class ApiFootballAdapter implements FootballDataProvider {
 
     const lineup = record(trackedLineups[0], "tracked lineup");
     const participants = new Map<string, ProviderMatchParticipant>();
-    this.addLineupPlayers(participants, lineup.startXI, "starter");
-    this.addLineupPlayers(participants, lineup.substitutes, "substitute");
+    this.addLineupPlayers(
+      participants,
+      lineup.startXI,
+      "starter",
+      externalTeamId,
+    );
+    this.addLineupPlayers(
+      participants,
+      lineup.substitutes,
+      "substitute",
+      externalTeamId,
+    );
     if (participants.size === 0) {
       throw new ProviderError(
         "lineup-unavailable",
@@ -319,6 +329,7 @@ export class ApiFootballAdapter implements FootballDataProvider {
     return {
       participants: [...participants.values()],
       headCoach: {
+        externalTeamId,
         externalCoachId: String(number(coach.id, "lineup.coach.id")),
         name: string(coach.name, "lineup.coach.name"),
         ...(photoUrl === undefined ? {} : { photoUrl }),
@@ -330,6 +341,7 @@ export class ApiFootballAdapter implements FootballDataProvider {
     participants: Map<string, ProviderMatchParticipant>,
     value: unknown,
     squadRole: ProviderMatchParticipant["squadRole"],
+    externalTeamId: string,
   ) {
     for (const entryValue of array(value, `lineup.${squadRole}`)) {
       const entry = record(entryValue, `lineup.${squadRole} entry`);
@@ -351,6 +363,7 @@ export class ApiFootballAdapter implements FootballDataProvider {
         `lineup.${squadRole}.player.pos`,
       );
       participants.set(externalPlayerId, {
+        externalTeamId,
         externalPlayerId,
         name: string(player.name, `lineup.${squadRole}.player.name`),
         ...(shirtNumber === undefined ? {} : { shirtNumber }),

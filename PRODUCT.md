@@ -19,7 +19,7 @@ After closing, supporters can browse match results, MVPs, coach ratings, player 
 ## Product invariants
 
 - At most one ballot exists for a voter and match.
-- Eligibility is exactly confirmed match participation (`participated == true`), not squad membership, the bench, or the current roster.
+- Player eligibility requires both tracked-Team ownership and confirmed match participation (`teamId == trackedTeamId && participated == true`), not squad membership, the bench, the opponent, or the current roster. Only the tracked Team's head coach is rateable.
 - The tracked team may be home or away.
 - Aggregates are unavailable to voters during an active window.
 - Provider data is imported through a boundary and remains replaceable.

@@ -77,7 +77,9 @@ export type SquadRole = "starter" | "substitute";
 export interface MatchParticipant {
   matchId: EntityId;
   playerId: EntityId;
+  teamId: EntityId;
   externalProvider: string;
+  externalProviderTeamId: string;
   externalProviderPlayerId: string;
   playerName: string;
   shirtNumber?: number;
@@ -95,6 +97,7 @@ export interface CoachAssignment {
   matchId: EntityId;
   coachId: EntityId;
   teamId: EntityId;
+  externalProviderTeamId: string;
   role: "head-coach";
   coachName: string;
   createdAt: string;

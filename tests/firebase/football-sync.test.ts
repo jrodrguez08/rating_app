@@ -71,6 +71,7 @@ const fixtures: ProviderFixture[] = [
 const matchContext: ProviderMatchContext = {
   participants: [
     {
+      externalTeamId: "1234",
       externalPlayerId: "10",
       name: "Starter",
       shirtNumber: 1,
@@ -80,6 +81,7 @@ const matchContext: ProviderMatchContext = {
       captain: true,
     },
     {
+      externalTeamId: "1234",
       externalPlayerId: "20",
       name: "Entering Substitute",
       shirtNumber: 14,
@@ -89,6 +91,7 @@ const matchContext: ProviderMatchContext = {
       enteredAtMinute: 65,
     },
     {
+      externalTeamId: "1234",
       externalPlayerId: "21",
       name: "Unused Substitute",
       shirtNumber: 18,
@@ -96,8 +99,16 @@ const matchContext: ProviderMatchContext = {
       squadRole: "substitute",
       participated: false,
     },
+    {
+      externalTeamId: "2000",
+      externalPlayerId: "30",
+      name: "Opponent Starter",
+      squadRole: "starter",
+      participated: true,
+    },
   ],
   headCoach: {
+    externalTeamId: "1234",
     externalCoachId: "900",
     name: "Tracked Team Coach",
   },
@@ -303,6 +314,7 @@ describe("football synchronization persistence", () => {
         expect.objectContaining({
           id: "head-coach",
           teamId: persistedTeam.id,
+          externalProviderTeamId: "1234",
           coachName: "Tracked Team Coach",
         }),
       ],
@@ -328,11 +340,81 @@ describe("football synchronization persistence", () => {
     expect(late.players.updated).toBe(1);
     expect(late.participants.updated).toBe(1);
     expect(corrected).toMatchObject({
+      teamId: persistedTeam.id,
+      externalProviderTeamId: "1234",
       participated: true,
       enteredAtMinute: 80,
       playerName: "Unused Substitute Corrected",
       createdAt: firstCreatedAt,
     });
     expect(lateParticipants).toHaveLength(3);
+    expect(
+      lateParticipants.some(
+        (participant) => participant.externalProviderPlayerId === "30",
+      ),
+    ).toBe(false);
+  });
+
+  it("persists only tracked-Team participants when the tracked Team is away", async () => {
+    const store = new EmulatorFootballSyncStore(emulatorHost, projectId);
+    const team = await store.getTeam("club-sport-herediano");
+    await syncFootballData(team, new FixtureProvider(), store, {
+      now: new Date("2026-08-29T12:00:00.000Z"),
+    });
+    const matches = await collectionData("matches");
+    const awayMatchId = String(
+      matches.find((match) => match.externalProviderFixtureId === "5002")?.id,
+    );
+
+    const summary = await syncMatchParticipants(
+      awayMatchId,
+      new FixtureProvider(),
+      store,
+      new Date("2026-08-29T13:00:00.000Z"),
+    );
+    const participants = await collectionData(
+      `matches/${awayMatchId}/participants`,
+    );
+
+    expect(summary.participated).toBe(2);
+    expect(participants).toHaveLength(3);
+    expect(
+      participants.every(
+        (participant) =>
+          participant.teamId === team.id &&
+          participant.externalProviderTeamId === "1234",
+      ),
+    ).toBe(true);
+    expect(
+      participants.some(
+        (participant) => participant.externalProviderPlayerId === "30",
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects an opponent coach instead of creating a tracked-Team assignment", async () => {
+    const store = new EmulatorFootballSyncStore(emulatorHost, projectId);
+    const team = await store.getTeam("club-sport-herediano");
+    await syncFootballData(team, new FixtureProvider(), store, {
+      now: new Date("2026-08-29T12:00:00.000Z"),
+    });
+    const matches = await collectionData("matches");
+    const matchId = String(
+      matches.find((match) => match.externalProviderFixtureId === "5001")?.id,
+    );
+    const opponentCoachContext = structuredClone(matchContext);
+    opponentCoachContext.headCoach.externalTeamId = "2000";
+
+    await expect(
+      syncMatchParticipants(
+        matchId,
+        new FixtureProvider(fixtures, seasons, opponentCoachContext),
+        store,
+      ),
+    ).rejects.toThrow("not tracked Team");
+    expect(await collectionData("coaches")).toHaveLength(0);
+    expect(
+      await collectionData(`matches/${matchId}/coachAssignments`),
+    ).toHaveLength(0);
   });
 });

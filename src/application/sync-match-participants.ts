@@ -50,6 +50,7 @@ export async function syncMatchParticipants(
   if (team.externalProviderId === undefined) {
     throw new Error(`Team ${team.id} has no provider mapping.`);
   }
+  const externalTeamId = team.externalProviderId;
   if (match.externalProvider !== provider.name) {
     throw new Error(
       `Match ${match.id} belongs to ${match.externalProvider}, not ${provider.name}.`,
@@ -58,10 +59,23 @@ export async function syncMatchParticipants(
 
   const context = await provider.getMatchContext(
     match.externalProviderFixtureId,
-    team.externalProviderId,
+    externalTeamId,
   );
   const timestamp = now.toISOString();
-  const players: Player[] = context.participants.map((participant) => ({
+  const trackedParticipants = context.participants.filter(
+    (participant) => participant.externalTeamId === externalTeamId,
+  );
+  if (trackedParticipants.length === 0) {
+    throw new Error(
+      `Provider returned no participants for tracked Team ${externalTeamId}.`,
+    );
+  }
+  if (context.headCoach.externalTeamId !== externalTeamId) {
+    throw new Error(
+      `Provider returned a head coach for Team ${context.headCoach.externalTeamId}, not tracked Team ${externalTeamId}.`,
+    );
+  }
+  const players: Player[] = trackedParticipants.map((participant) => ({
     id: providerEntityId("player", provider.name, participant.externalPlayerId),
     displayName: participant.name,
     externalProvider: provider.name,
@@ -72,11 +86,13 @@ export async function syncMatchParticipants(
     createdAt: timestamp,
     updatedAt: timestamp,
   }));
-  const participants: MatchParticipant[] = context.participants.map(
+  const participants: MatchParticipant[] = trackedParticipants.map(
     (participant, index) => ({
       matchId: match.id,
       playerId: players[index].id,
+      teamId: team.id,
       externalProvider: provider.name,
+      externalProviderTeamId: externalTeamId,
       externalProviderPlayerId: participant.externalPlayerId,
       playerName: participant.name,
       ...(participant.shirtNumber === undefined
@@ -121,6 +137,7 @@ export async function syncMatchParticipants(
     matchId: match.id,
     coachId,
     teamId: team.id,
+    externalProviderTeamId: externalTeamId,
     role: "head-coach",
     coachName: coach.displayName,
     createdAt: timestamp,
