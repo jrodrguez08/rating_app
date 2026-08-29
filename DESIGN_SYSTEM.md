@@ -25,12 +25,12 @@ The initial presentation maps Herediano red and gold from `src/config`; generic 
 
 ## Typography
 
-Use two roles:
+Use two canonical roles:
 
-- **Score/display:** the system monospace stack (`--font-score`) with strong weight and controlled tracking for the wordmark, section labels, status badges, scores, kickoff times, ratings, and short high-impact headings. It provides a crisp scoreboard character without remote font downloads, bundled binaries, or long-copy readability costs.
-- **Body:** the system sans-serif stack for navigation, names, paragraphs, instructions, menus, and longer labels.
+- **Game/score display:** DotGothic16, loaded at build time through `next/font/google` with Latin Extended coverage and exposed centrally as `--font-game` / `--font-score`. Apply it selectively to the wordmark, section labels, status badges, scores, kickoff times, ratings, countdowns, and short game-like headings.
+- **Body/UI:** the system sans-serif stack for navigation, club/player/coach names, paragraphs, instructions, menus, forms, and longer labels.
 
-Never set paragraphs or entire screens in the display face. Large numbers such as `2 - 1`, `11:00`, `8.7`, or a countdown should be visually immediate, high contrast, and minimally decorated.
+Body paragraphs never use DotGothic16. Long proper names and explanatory text prioritize readability; a major club name may remain in the modern sans. Use the game role to create hierarchy rather than pixel-styling every character. DotGothic16 is a regular-weight face, so avoid synthetic heavy weights and excessive tracking. Short uppercase labels may use restrained tracking. Large numbers such as `2 - 1`, `11:00`, `8.7`, or a countdown should be visually immediate, high contrast, and minimally decorated.
 
 ## Shape, borders, and shadows
 

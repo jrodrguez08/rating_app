@@ -18,7 +18,7 @@ export function HomeContent({ locale }: { locale: Locale }) {
           <p className="eyebrow">{messages.home.communityEyebrow}</p>
           <h1
             id="club-heading"
-            className="score-font mt-3 text-3xl leading-tight text-foreground sm:text-4xl"
+            className="mt-3 text-3xl font-extrabold leading-tight tracking-tight text-foreground sm:text-4xl"
           >
             {initialClub.displayName}
           </h1>
