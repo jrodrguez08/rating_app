@@ -7,6 +7,23 @@ vi.mock("next/navigation", () => ({
 
 import { HomeContent } from "./page";
 
+const upcomingMatch = {
+  id: "match-1",
+  trackedTeamId: "club-sport-herediano",
+  competitionId: "competition-1",
+  seasonId: "season-1",
+  homeTeam: { externalProviderId: "815", name: "CS Herediano" },
+  awayTeam: { externalProviderId: "2000", name: "Opponent FC" },
+  kickoffAt: "2026-08-30T23:00:00.000Z",
+  status: "scheduled" as const,
+  ratingState: "not_ready" as const,
+  score: { home: null, away: null },
+  externalProvider: "api-football",
+  externalProviderFixtureId: "5001",
+  createdAt: "2026-08-01T00:00:00.000Z",
+  updatedAt: "2026-08-01T00:00:00.000Z",
+};
+
 describe("Home", () => {
   it("renders the current product UI in default Spanish", () => {
     render(<HomeContent locale="es" />);
@@ -31,6 +48,54 @@ describe("Home", () => {
     expect(
       screen.getByText(/results stay hidden while voting is open/i),
     ).toBeInTheDocument();
+  });
+
+  it("renders real upcoming match context without assuming the tracked Team is home", () => {
+    render(
+      <HomeContent
+        locale="es"
+        match={{
+          ...upcomingMatch,
+          homeTeam: { externalProviderId: "2000", name: "Opponent FC" },
+          awayTeam: { externalProviderId: "815", name: "CS Herediano" },
+        }}
+      />,
+    );
+    expect(
+      screen.getByRole("heading", { name: "Pr\u00f3ximo partido" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Opponent FC")).toBeInTheDocument();
+    expect(screen.getByText("CS Herediano")).toBeInTheDocument();
+    expect(screen.getByText("VS")).toBeInTheDocument();
+  });
+
+  it("communicates live, preparing, and ready states with text", () => {
+    const states = [
+      {
+        status: "live" as const,
+        ratingState: "not_ready" as const,
+        title: "Match in progress",
+      },
+      {
+        status: "finished" as const,
+        ratingState: "preparing_rating" as const,
+        title: "Preparing the rating",
+      },
+      {
+        status: "finished" as const,
+        ratingState: "rating_ready" as const,
+        title: "The match is ready to rate",
+      },
+    ];
+    for (const state of states) {
+      const { unmount } = render(
+        <HomeContent locale="en" match={{ ...upcomingMatch, ...state }} />,
+      );
+      expect(
+        screen.getByRole("heading", { name: state.title }),
+      ).toBeInTheDocument();
+      unmount();
+    }
   });
 
   it("exposes semantic primary navigation with future destinations disabled", () => {

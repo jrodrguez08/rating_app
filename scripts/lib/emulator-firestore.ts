@@ -1,14 +1,20 @@
+import { preserveMonotonicMatchStatus } from "@/domain/match-status";
 import type {
   Coach,
   CoachAssignment,
   Competition,
+  FootballSyncMetadata,
   Match,
   MatchParticipant,
   Player,
   Season,
   Team,
 } from "@/domain/models";
-import type { FootballSyncStore, SyncWriteCounts } from "@/domain/ports";
+import type {
+  FootballSyncStore,
+  MatchLifecycleStore,
+  SyncWriteCounts,
+} from "@/domain/ports";
 
 const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
 
@@ -41,7 +47,17 @@ function parseHost(value: string): { host: string; port: number } {
 }
 
 function encode(value: unknown, key?: string): FirestoreValue {
-  if (key === "createdAt" || key === "updatedAt" || key === "kickoffAt") {
+  if (
+    key === "createdAt" ||
+    key === "updatedAt" ||
+    key === "kickoffAt" ||
+    key === "lastProviderSyncAt" ||
+    key === "participantSyncedAt" ||
+    key === "ratingReadyAt" ||
+    key === "votingOpensAt" ||
+    key === "votingClosesAt" ||
+    key === "lastFixtureDiscoveryAt"
+  ) {
     if (typeof value !== "string" || Number.isNaN(new Date(value).getTime())) {
       throw new Error(`${key} must be an ISO timestamp.`);
     }
@@ -109,7 +125,9 @@ function sortObject(value: unknown): unknown {
   );
 }
 
-export class EmulatorFootballSyncStore implements FootballSyncStore {
+export class EmulatorFootballSyncStore
+  implements FootballSyncStore, MatchLifecycleStore
+{
   private readonly baseUrl: string;
 
   constructor(
@@ -140,6 +158,73 @@ export class EmulatorFootballSyncStore implements FootballSyncStore {
     return value as unknown as Match;
   }
 
+  async listMatches(trackedTeamId: string): Promise<Match[]> {
+    const values = await this.list("matches");
+    return values.filter(
+      (value) => value.trackedTeamId === trackedTeamId,
+    ) as unknown as Match[];
+  }
+
+  async updateMatchLifecycle(match: Match): Promise<void> {
+    await this.put(
+      "matches",
+      match.id,
+      match as unknown as Record<string, unknown>,
+      match.createdAt,
+    );
+  }
+
+  async countRateableParticipants(
+    matchId: string,
+    teamId: string,
+  ): Promise<number> {
+    const participants = await this.list(
+      `matches/${encodeURIComponent(matchId)}/participants`,
+    );
+    return participants.filter(
+      (participant) =>
+        participant.teamId === teamId && participant.participated === true,
+    ).length;
+  }
+
+  async hasTrackedTeamHeadCoach(
+    matchId: string,
+    teamId: string,
+  ): Promise<boolean> {
+    const assignment = await this.get(
+      `matches/${encodeURIComponent(matchId)}/coachAssignments`,
+      "head-coach",
+    );
+    return assignment?.teamId === teamId && assignment.role === "head-coach";
+  }
+
+  async getSyncMetadata(teamId: string): Promise<FootballSyncMetadata | null> {
+    return (await this.get(
+      "footballSyncMetadata",
+      teamId,
+    )) as unknown as FootballSyncMetadata | null;
+  }
+
+  async setSyncMetadata(metadata: FootballSyncMetadata): Promise<void> {
+    const existing = await this.get("footballSyncMetadata", metadata.teamId);
+    if (existing === null) {
+      await this.create(
+        "footballSyncMetadata",
+        metadata.teamId,
+        metadata as unknown as Record<string, unknown>,
+      );
+      return;
+    }
+    await this.put(
+      "footballSyncMetadata",
+      metadata.teamId,
+      metadata as unknown as Record<string, unknown>,
+      typeof existing.createdAt === "string"
+        ? existing.createdAt
+        : metadata.updatedAt,
+    );
+  }
+
   async updateTeamProviderId(
     team: Team,
     externalProviderId: string,
@@ -162,7 +247,7 @@ export class EmulatorFootballSyncStore implements FootballSyncStore {
   }
 
   upsertMatches(matches: Match[]): Promise<SyncWriteCounts> {
-    return this.upsert("matches", matches);
+    return this.upsert("matches", matches, true);
   }
 
   upsertPlayers(players: Player[]): Promise<SyncWriteCounts> {
@@ -207,6 +292,7 @@ export class EmulatorFootballSyncStore implements FootballSyncStore {
       | (MatchParticipant & { id: string })
       | (CoachAssignment & { id: string })
     >,
+    preserveLifecycle = false,
   ): Promise<SyncWriteCounts> {
     const counts = { created: 0, updated: 0, unchanged: 0 };
     for (const value of values) {
@@ -218,21 +304,26 @@ export class EmulatorFootballSyncStore implements FootballSyncStore {
           value as unknown as Record<string, unknown>,
         );
         counts.created += 1;
-      } else if (
-        comparable(existing) ===
-        comparable(value as unknown as Record<string, unknown>)
-      ) {
-        counts.unchanged += 1;
       } else {
-        await this.put(
-          collection,
-          value.id,
-          { ...existing, ...value },
-          typeof existing.createdAt === "string"
-            ? existing.createdAt
-            : value.createdAt,
-        );
-        counts.updated += 1;
+        const candidate = preserveLifecycle
+          ? preserveMatchLifecycle(existing, value as Match)
+          : value;
+        if (
+          comparable(existing) ===
+          comparable(candidate as unknown as Record<string, unknown>)
+        )
+          counts.unchanged += 1;
+        else {
+          await this.put(
+            collection,
+            value.id,
+            { ...existing, ...candidate },
+            typeof existing.createdAt === "string"
+              ? existing.createdAt
+              : value.createdAt,
+          );
+          counts.updated += 1;
+        }
       }
     }
     return counts;
@@ -250,6 +341,19 @@ export class EmulatorFootballSyncStore implements FootballSyncStore {
       throw new Error(`Firestore read failed (${response.status}).`);
     const document = (await response.json()) as RestDocument;
     return { id, ...decodeFields(document.fields) };
+  }
+
+  private async list(collection: string): Promise<Record<string, unknown>[]> {
+    const response = await fetch(`${this.baseUrl}/${collection}`, {
+      headers: { Authorization: "Bearer owner" },
+    });
+    if (!response.ok)
+      throw new Error(`Firestore list failed (${response.status}).`);
+    const body = (await response.json()) as { documents?: RestDocument[] };
+    return (body.documents ?? []).map((document) => ({
+      id: document.name.split("/").at(-1),
+      ...decodeFields(document.fields),
+    }));
   }
 
   private async create(
@@ -298,4 +402,46 @@ function withoutId(value: Record<string, unknown>) {
   const document = { ...value };
   delete document.id;
   return document;
+}
+
+function preserveMatchLifecycle(
+  existing: Record<string, unknown>,
+  incoming: Match,
+): Match {
+  const ratingState =
+    typeof existing.ratingState === "string"
+      ? (existing.ratingState as Match["ratingState"])
+      : incoming.ratingState;
+  const status =
+    typeof existing.status === "string"
+      ? preserveMonotonicMatchStatus(
+          existing.status as Match["status"],
+          incoming.status,
+          ratingState,
+        )
+      : incoming.status;
+  return {
+    ...incoming,
+    createdAt:
+      typeof existing.createdAt === "string"
+        ? existing.createdAt
+        : incoming.createdAt,
+    ratingState,
+    status,
+    ...(typeof existing.lastProviderSyncAt === "string"
+      ? { lastProviderSyncAt: existing.lastProviderSyncAt }
+      : {}),
+    ...(typeof existing.participantSyncedAt === "string"
+      ? { participantSyncedAt: existing.participantSyncedAt }
+      : {}),
+    ...(typeof existing.ratingReadyAt === "string"
+      ? { ratingReadyAt: existing.ratingReadyAt }
+      : {}),
+    ...(typeof existing.votingOpensAt === "string"
+      ? { votingOpensAt: existing.votingOpensAt }
+      : {}),
+    ...(typeof existing.votingClosesAt === "string"
+      ? { votingClosesAt: existing.votingClosesAt }
+      : {}),
+  };
 }

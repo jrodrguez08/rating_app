@@ -4,7 +4,7 @@ Mobile-first supporter ratings for football matches. The first community is Club
 
 ## Foundation status
 
-The repository now includes Spanish/English localization and emulator-only, manually invoked API-Football sync for bounded competition/season/fixture data plus a selected match's participants and tracked Team head coach. It does **not** yet authenticate users, automate match lifecycle transitions, accept ballots, or show results.
+The repository now includes Spanish/English localization, tracked-Team football persistence, match-aware lifecycle synchronization, and an optional lifecycle-aware Home scoreboard. A trusted server route can refresh relevant fixtures, finalize participants/head coach after `FT`, and establish a stable two-hour future voting window. It does **not** yet authenticate voters, accept ballots, or show results.
 
 ## Localization
 
@@ -37,6 +37,7 @@ npm run test:watch    # Vitest watch mode
 npm run test:firebase # Firestore persistence and security-rule tests
 npm run sync:football # import bounded API-Football data into the emulator
 npm run sync:match-participants -- <match-id> # import one match's squad, participants, and coach
+npm run sync:lifecycle # run match-aware lifecycle logic against the emulator
 npm run build         # production build
 npm run verify        # canonical complete local/CI quality gate
 ```
@@ -68,6 +69,22 @@ To exercise the real provider manually, set the server-only `API_FOOTBALL_KEY` i
 After fixture sync, choose a persisted internal match ID and run `npm run sync:match-participants -- <match-id>`. The command loads that Match and its tracked Team, makes one combined fixture-detail request, and upserts only that Team's `players`, match-scoped `participants`, `coaches`, and deterministic `head-coach` assignment. Stable provider Team IDs—not home/away position or response order—scope the import. Starters are confirmed participants. Bench players become participants only through a stable-ID substitution event or positive provider minutes; unused or unconfirmed substitutes remain non-rateable. Future eligibility requires both the persisted tracked Team ID and `participated: true`, so opponent players and coaches cannot enter the MVP rating set. Repeated runs preserve identities and `createdAt`, while later provider data may safely improve participation and minute snapshots. Missing lineups, tracked-Team data, or coach data fail without inventing eligibility.
 
 `teams/{teamId}` is public-readable and denies all browser writes. Synced `competitions`, `seasons`, `matches`, `players`, `coaches`, participants, and coach assignments remain browser deny-all until a product surface requires carefully scoped reads. The Firebase CLI is intentionally not a project dependency because its large dependency tree is unnecessary for application builds. CI installs a pinned CLI version separately and runs the emulator suite after `npm run verify`.
+
+## Scheduled lifecycle setup
+
+The internal `POST /api/internal/match-lifecycle` route reuses the same lifecycle service as `npm run sync:lifecycle`. It requires these server-only Vercel variables:
+
+- `CRON_SECRET`
+- `API_FOOTBALL_KEY`
+- `FIREBASE_ADMIN_PROJECT_ID`
+- `FIREBASE_ADMIN_CLIENT_EMAIL`
+- `FIREBASE_ADMIN_PRIVATE_KEY` with newlines escaped as `\\n`
+
+Do not use `NEXT_PUBLIC_` for any of them and do not commit a service-account file. Configure Firebase Admin credentials for an explicit development project before a production project. The route is stateless and Vercel-compatible; emulator tests use test doubles/local REST and never cloud credentials.
+
+The `Match lifecycle trigger` GitHub workflow is manually dispatchable and scheduled every 30 minutes. Add repository secrets `LIFECYCLE_SYNC_URL` (the full deployed endpoint URL) and `CRON_SECRET` (the same value configured on Vercel) only after the endpoint is deployed. Until both exist, the workflow skips successfully, avoiding recurring calls to a nonexistent deployment. Each configured run is a lightweight HTTP trigger; persisted match state performs most idle early exits without an API-Football request. Fixture discovery runs at most twice daily when no upcoming match is known, focused polling increases near/live matches, and frequent polling stops once the rating window exists. This avoids new paid scheduler infrastructure but GitHub/Vercel plan usage should be monitored rather than treated as an unconditional billing guarantee.
+
+Rating App stores provider fixture `status` separately from product `ratingState`. `FT` first enters `preparing_rating`; only a successful final sync with at least 11 rateable tracked-Team participants and its head coach creates `ratingReadyAt`, `votingOpensAt`, and an immutable `votingClosesAt` two hours later. Postponed, cancelled, abandoned, failed, and stale historical fixtures do not open a window.
 
 To use a cloud development project later, register a Web app, set `NEXT_PUBLIC_FIREBASE_ENVIRONMENT=development`, and provide every public Firebase value in `.env.local`. Do not reuse production values. No production credentials, Admin SDK, or deployed Firebase resources are required for this milestone.
 

@@ -7,6 +7,7 @@ import {
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { syncFootballData } from "@/application/sync-football";
+import { runMatchLifecycle } from "@/application/match-lifecycle";
 import { syncMatchParticipants } from "@/application/sync-match-participants";
 import type {
   FootballDataProvider,
@@ -141,6 +142,11 @@ class FixtureProvider implements FootballDataProvider {
   async getFixtures(): Promise<ProviderFixture[]> {
     this.requestCount += 1;
     return this.fixtureValues;
+  }
+
+  async getFixture(): Promise<ProviderFixture> {
+    this.requestCount += 1;
+    return this.fixtureValues[0];
   }
 
   async getMatchContext(): Promise<ProviderMatchContext> {
@@ -416,5 +422,59 @@ describe("football synchronization persistence", () => {
     expect(
       await collectionData(`matches/${matchId}/coachAssignments`),
     ).toHaveLength(0);
+  });
+
+  it("persists rating readiness and an immutable two-hour window after final tracked-Team synchronization", async () => {
+    const store = new EmulatorFootballSyncStore(emulatorHost, projectId);
+    const team = await store.getTeam("club-sport-herediano");
+    await syncFootballData(team, new FixtureProvider(), store, {
+      now: new Date("2026-08-29T12:00:00.000Z"),
+    });
+    const readyContext: ProviderMatchContext = {
+      participants: Array.from({ length: 11 }, (_, index) => ({
+        externalTeamId: "1234",
+        externalPlayerId: String(100 + index),
+        name: `Starter ${index + 1}`,
+        squadRole: "starter" as const,
+        participated: true,
+      })),
+      headCoach: {
+        externalTeamId: "1234",
+        externalCoachId: "900",
+        name: "Tracked Team Coach",
+      },
+    };
+    const provider = new FixtureProvider(fixtures, seasons, readyContext);
+    const now = new Date("2026-08-20T10:00:00.000Z");
+    const dependencies = {
+      teamId: team.id,
+      provider,
+      store,
+      now: () => now,
+      discoverFixtures: async () => undefined,
+      syncParticipants: async (matchId: string) => {
+        await syncMatchParticipants(matchId, provider, store, now);
+      },
+    };
+
+    const first = await runMatchLifecycle(dependencies);
+    const ready = await store.getMatch(first.matchId ?? "missing");
+    const second = await runMatchLifecycle({
+      ...dependencies,
+      now: () => new Date("2026-08-20T10:30:00.000Z"),
+    });
+    const repeated = await store.getMatch(ready.id);
+
+    expect(first.action).toBe("rating_ready");
+    expect(ready).toMatchObject({
+      ratingState: "rating_ready",
+      participantSyncedAt: now.toISOString(),
+      ratingReadyAt: now.toISOString(),
+      votingOpensAt: now.toISOString(),
+      votingClosesAt: "2026-08-20T12:00:00.000Z",
+    });
+    expect(second.action).toBe("idle");
+    expect(repeated.votingOpensAt).toBe(ready.votingOpensAt);
+    expect(repeated.votingClosesAt).toBe(ready.votingClosesAt);
   });
 });
