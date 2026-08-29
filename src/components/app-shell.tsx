@@ -1,26 +1,37 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
-const navigation = [
-  { href: "/", label: "Home", planned: false },
-  { href: "/matches", label: "Matches", planned: true },
-  { href: "/players", label: "Players", planned: true },
-] as const;
+import type { Locale } from "@/i18n/config";
+import type { Messages } from "@/i18n/messages";
 
-export function AppShell({ children }: { children: ReactNode }) {
+import { LanguageSwitcher } from "./language-switcher";
+
+interface AppShellProps {
+  children: ReactNode;
+  locale: Locale;
+  messages: Messages;
+}
+
+export function AppShell({ children, locale, messages }: AppShellProps) {
+  const navigation = [
+    { href: "/", label: messages.navigation.home, planned: false },
+    { href: "/matches", label: messages.navigation.matches, planned: true },
+    { href: "/players", label: messages.navigation.players, planned: true },
+  ] as const;
+
   return (
     <div className="min-h-screen">
       <a
         href="#main-content"
         className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-white focus:px-4 focus:py-3"
       >
-        Skip to content
+        {messages.accessibility.skipToContent}
       </a>
       <header className="border-b border-border bg-white">
-        <div className="page-shell flex min-h-18 items-center justify-between gap-4">
+        <div className="page-shell flex min-h-18 flex-wrap items-center justify-between gap-2 py-2 sm:gap-4">
           <Link
             href="/"
-            aria-label="Rating App home"
+            aria-label={messages.accessibility.appHome}
             className="flex min-h-11 items-center gap-3 rounded-md"
           >
             <span
@@ -31,7 +42,18 @@ export function AppShell({ children }: { children: ReactNode }) {
             </span>
             <span className="font-extrabold tracking-tight">Rating App</span>
           </Link>
-          <nav aria-label="Primary navigation">
+          <LanguageSwitcher
+            locale={locale}
+            label={messages.common.language}
+            languageNames={{
+              es: messages.common.spanish,
+              en: messages.common.english,
+            }}
+          />
+          <nav
+            aria-label={messages.navigation.label}
+            className="order-last w-full sm:order-none sm:w-auto"
+          >
             <ul className="flex items-center gap-1">
               {navigation.map((item) => (
                 <li key={item.href}>
@@ -59,7 +81,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </header>
       {children}
       <footer className="page-shell border-t border-border py-6 text-sm text-muted">
-        Built for supporters. Ready to grow club by club.
+        {messages.footer.supporting}
       </footer>
     </div>
   );

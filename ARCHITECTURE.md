@@ -6,6 +6,14 @@ Next.js App Router and strict TypeScript form the web application. Pages and lay
 
 `src/config` selects the initial club presentation. `src/domain` describes stable business concepts and provider-neutral ports. `src/lib/firebase/browser.ts` lazily initializes the web SDK only when called and configured. Local mode always connects Firestore to the explicitly configured emulator and never falls back to a cloud project. Development and production modes require complete Firebase Web configuration. Explicit scripts use the emulator's REST API as their privileged local boundary; Firebase Admin remains absent.
 
+## Internationalization
+
+Exactly `es` and `en` are defined in `src/i18n/config.ts`; `es` is the default and fallback. Server Components resolve the `rating-app-locale` cookie on each request. Missing, malformed, and unsupported values resolve to Spanish. The root layout uses the same result for localized metadata and `<html lang>`. A small Client Component renders the language switcher, persists a one-year same-site cookie, and calls `router.refresh()`; it receives its initial locale and labels from the server and does not own a competing locale default.
+
+Routes remain stable and locale-neutral (`/`, with future `/matches` and `/players`) because the current application does not need locale-specific URLs or duplicated route trees. Message resources are bundled TypeScript objects under `src/i18n/messages`; the English resource is statically checked against the Spanish canonical shape, with a runtime alignment test. Translation lookup does not perform network requests. Product-facing dates and numbers use centralized native `Intl` helpers with `es-CR` or `en-US` and Costa Rica display time where appropriate; persisted timestamps remain UTC.
+
+Translations cover presentation labels only. Provider/domain names—including teams, competitions, players, and coaches—remain authoritative proper nouns and are not copied into localized persistence fields. Locale selection and club theme are independent.
+
 ## Proposed Firestore model
 
 Top-level collections use generic IDs:
