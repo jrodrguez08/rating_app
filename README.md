@@ -4,7 +4,7 @@ Mobile-first supporter ratings for football matches. The first community is Club
 
 ## Foundation status
 
-The repository now includes Spanish/English localization, tracked-Team football persistence, match-aware lifecycle synchronization, and an optional lifecycle-aware Home scoreboard. A trusted server route can refresh relevant fixtures, finalize participants/head coach after `FT`, and establish a stable two-hour future voting window. It does **not** yet authenticate voters, accept ballots, or show results.
+The repository now includes Spanish/English localization, tracked-Team football persistence, match-aware lifecycle synchronization, an optional lifecycle-aware Home scoreboard, and persistent low-friction voter identity through Firebase Anonymous Authentication. A trusted server route can refresh relevant fixtures, finalize participants/head coach after `FT`, and establish a stable two-hour future voting window. It does **not** yet accept ballots or show results.
 
 ## Localization
 
@@ -34,7 +34,7 @@ npm run lint          # ESLint
 npm run typecheck     # strict TypeScript check
 npm test              # all Vitest tests once
 npm run test:watch    # Vitest watch mode
-npm run test:firebase # Firestore persistence and security-rule tests
+npm run test:firebase # Auth/Firestore emulator integration and security-rule tests
 npm run sync:football # import bounded API-Football data into the emulator
 npm run sync:match-participants -- <match-id> # import one match's squad, participants, and coach
 npm run sync:lifecycle # run match-aware lifecycle logic against the emulator
@@ -46,7 +46,7 @@ npm run verify        # canonical complete local/CI quality gate
 
 Firebase environments are explicit:
 
-- `local` always uses the Firestore Emulator and defaults to the safe `demo-rating-app-local` project ID.
+- `local` always uses the Auth and Firestore emulators and defaults to the safe `demo-rating-app-local` project ID.
 - `development` requires a complete Firebase Web configuration for a separate cloud development project.
 - `production` requires a complete production Web configuration and must never be used for local seeding or tests.
 
@@ -56,13 +56,21 @@ For local persistence work, install Java and Firebase CLI 15.28.2 separately, co
 npm run firebase:emulators
 ```
 
-Firestore runs on 8080 and the Emulator UI on 4000. In another terminal, explicitly bootstrap the deterministic initial Team:
+Auth runs on 9099, Firestore on 8080, and the Emulator UI on 4000. In another terminal, explicitly bootstrap the deterministic initial Team:
 
 ```bash
 npm run seed:firebase
 ```
 
-The bootstrap targets `127.0.0.1:8080` by default, accepts only a local host and `demo-*` project ID, creates `teams/club-sport-herediano` only when absent, and never runs during app startup. Run `npm run test:firebase` to start an isolated emulator, verify persistence and rules, then stop it.
+The bootstrap targets Firestore at `127.0.0.1:8080` by default, accepts only a local host and `demo-*` project ID, creates `teams/club-sport-herediano` only when absent, and never runs during app startup. Browser Auth uses `127.0.0.1:9099` in local mode. Run `npm run test:firebase` to start isolated Auth and Firestore emulators, verify identity, persistence, and rules, then stop them.
+
+## Voter identity
+
+The browser quietly ensures a Firebase anonymous user on first visit. Firebase UID is the canonical `voterId`, Firebase's native persistence reuses it on normal reloads, and no `voters/{uid}` document, login screen, logout/reset control, or raw UID display is created. Concurrent initialization calls share one sign-in attempt. In local mode Auth must use the emulator; malformed hosted configuration fails instead of falling back to cloud behavior.
+
+Anonymous authentication identifies a browser profile, not a person. Clearing storage, incognito, another browser/device, or another anonymous account can produce a different UID. Rating App does not use fingerprinting. Future provider linking may upgrade the same Firebase account while preserving its UID where Firebase supports it; automatic anonymous-account cleanup is not assumed.
+
+Authentication does not grant general database access. Current rules still deny authenticated clients access to matches, lifecycle data, participants, coaches, and ballots. The future ballot is planned at `matches/{matchId}/ballots/{voterId}` and must bind the path to `request.auth.uid` plus voting-window, eligibility, rating, and create-only validation. Ballot submission is not implemented in this milestone.
 
 To exercise the real provider manually, set the server-only `API_FOOTBALL_KEY` in `.env.local`, keep the emulator running, seed the Team, then run `npm run sync:football`. The command resolves an exact Team name-and-country match once, fetches a bounded 120-day history and 60-day future window, and upserts only fixtures involving that Team. It makes one metadata request and one fixture request per distinct provider season overlapping the window; the initial unmapped run adds one Team lookup. It reports created, updated, and unchanged counts. Never prefix this key with `NEXT_PUBLIC_` or expose it to browser code.
 

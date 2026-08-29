@@ -6,9 +6,9 @@ Rating App gives a small football supporter community a fair, simple way to rate
 
 ## Current foundation milestone
 
-Implemented now: a mobile-first shell with an original 16-bit sports-game visual language, Herediano as the initial configured club, accessible Spanish/English localization, generic domain types, and Firestore-backed football persistence. Manual and scheduled server-side API-Football synchronization can discover fixtures, focus on the relevant match, synchronize its tracked-Team participants/head coach after `FT`, establish an idempotent two-hour future voting window only when rating-ready, and show honest upcoming/live/preparing/ready match context on Home when trusted server persistence is configured.
+Implemented now: a mobile-first shell with an original 16-bit sports-game visual language, Herediano as the initial configured club, accessible Spanish/English localization, generic domain types, and Firestore-backed football persistence. Manual and scheduled server-side API-Football synchronization can discover fixtures, focus on the relevant match, synchronize its tracked-Team participants/head coach after `FT`, establish an idempotent two-hour future voting window only when rating-ready, and show honest upcoming/live/preparing/ready match context on Home when trusted server persistence is configured. Firebase Anonymous Authentication quietly establishes and persists the canonical voter UID without a login screen.
 
-Not implemented now: cloud Team administration, voter authentication, ballot submission, ratings, aggregates/results, history pages, notifications, or administration. Lifecycle readiness and timestamps exist, but the ready Home state explicitly does not claim the ballot is implemented.
+Not implemented now: cloud Team administration, ballot submission, ratings, aggregates/results, identity-provider linking, history pages, notifications, or administration. Anonymous identity is not yet authorization to vote; lifecycle readiness and timestamps exist, but the ready Home state explicitly does not claim the ballot is implemented.
 
 ## MVP (planned)
 

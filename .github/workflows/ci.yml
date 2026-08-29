@@ -32,5 +32,5 @@ jobs:
           java-version: 21
       - name: Install Firebase CLI
         run: npm install --global firebase-tools@15.28.2
-      - name: Test Firestore integration and rules
+      - name: Test Firebase Auth, Firestore integration, and rules
         run: npm run test:firebase

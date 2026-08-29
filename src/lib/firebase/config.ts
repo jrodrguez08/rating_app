@@ -23,6 +23,11 @@ export const firestoreEmulator = {
   port: Number(process.env.NEXT_PUBLIC_FIRESTORE_EMULATOR_PORT ?? "8080"),
 };
 
+export const authEmulator = {
+  host: process.env.NEXT_PUBLIC_AUTH_EMULATOR_HOST ?? "127.0.0.1",
+  port: Number(process.env.NEXT_PUBLIC_AUTH_EMULATOR_PORT ?? "9099"),
+};
+
 export const isFirebaseConfigured =
   firebaseEnvironmentName === "local" ||
   (firebaseEnvironmentName !== null &&
