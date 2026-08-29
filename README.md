@@ -4,7 +4,7 @@ Mobile-first supporter ratings for football matches. The first community is Club
 
 ## Foundation status
 
-This milestone provides the application shell, design tokens, domain contracts, Firebase boundaries, emulator configuration, and testing/tooling. It does **not** yet authenticate users, sync matches, accept ballots, or show results.
+The repository now includes an emulator-only, manually invoked API-Football sync for the configured Team's bounded competition, season, and fixture data. It does **not** yet authenticate users, sync lineups or participants, accept ballots, or show results.
 
 ## Developer workflow
 
@@ -29,6 +29,7 @@ npm run typecheck     # strict TypeScript check
 npm test              # all Vitest tests once
 npm run test:watch    # Vitest watch mode
 npm run test:firebase # Firestore persistence and security-rule tests
+npm run sync:football # import bounded API-Football data into the emulator
 npm run build         # production build
 npm run verify        # canonical complete local/CI quality gate
 ```
@@ -55,7 +56,9 @@ npm run seed:firebase
 
 The bootstrap targets `127.0.0.1:8080` by default, accepts only a local host and `demo-*` project ID, creates `teams/club-sport-herediano` only when absent, and never runs during app startup. Run `npm run test:firebase` to start an isolated emulator, verify persistence and rules, then stop it.
 
-`teams/{teamId}` is public-readable and denies all browser writes. Every other collection remains deny-all. The Firebase CLI is intentionally not a project dependency because its large dependency tree is unnecessary for application builds. CI installs a pinned CLI version separately and runs the emulator suite after `npm run verify`.
+To exercise the real provider manually, set the server-only `API_FOOTBALL_KEY` in `.env.local`, keep the emulator running, seed the Team, then run `npm run sync:football`. The command resolves an exact Team name-and-country match once, fetches a bounded 120-day history and 60-day future window, and upserts only fixtures involving that Team. A first run normally uses three provider requests; later runs reuse the persisted Team mapping and normally use two. It reports created, updated, and unchanged counts. Never prefix this key with `NEXT_PUBLIC_` or expose it to browser code.
+
+`teams/{teamId}` is public-readable and denies all browser writes. Synced `competitions`, `seasons`, and `matches` remain browser deny-all until a product surface requires carefully scoped reads. The Firebase CLI is intentionally not a project dependency because its large dependency tree is unnecessary for application builds. CI installs a pinned CLI version separately and runs the emulator suite after `npm run verify`.
 
 To use a cloud development project later, register a Web app, set `NEXT_PUBLIC_FIREBASE_ENVIRONMENT=development`, and provide every public Firebase value in `.env.local`. Do not reuse production values. No production credentials, Admin SDK, or deployed Firebase resources are required for this milestone.
 
@@ -72,6 +75,9 @@ There is no pre-commit framework yet. At this repository size, the canonical loc
 - `src/config`: initial community/club presentation configuration
 - `src/domain`: provider-neutral entities and ports
 - `src/lib/firebase`: browser and future privileged-server boundaries
+- `src/lib/providers`: provider adapters behind domain ports
+- `src/application`: provider-neutral synchronization orchestration
+- `scripts`: explicit emulator bootstrap and sync entry points
 - `firestore.rules`, `firebase.json`: secure default and local emulator shape
 
 Read [PRODUCT.md](PRODUCT.md), [ARCHITECTURE.md](ARCHITECTURE.md), [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md), and [AGENTS.md](AGENTS.md) before product changes.

@@ -5,6 +5,7 @@ import type { Team } from "@/domain/models";
 export interface TeamDocument {
   displayName: string;
   shortName: string;
+  countryName: string;
   countryCode: string;
   brandingKey: string;
   externalProviderId?: string;
@@ -56,6 +57,7 @@ export function teamFromDocument(id: string, value: unknown): Team {
     id,
     displayName: requireString(value, "displayName"),
     shortName: requireString(value, "shortName"),
+    countryName: requireString(value, "countryName"),
     countryCode: requireString(value, "countryCode"),
     brandingKey: requireString(value, "brandingKey"),
     ...(externalProviderId === undefined ? {} : { externalProviderId }),
@@ -68,6 +70,7 @@ export function teamToDocument(team: Team): TeamDocument {
   return {
     displayName: team.displayName,
     shortName: team.shortName,
+    countryName: team.countryName,
     countryCode: team.countryCode,
     brandingKey: team.brandingKey,
     ...(team.externalProviderId === undefined

@@ -19,6 +19,7 @@
     "test:firebase:run": "vitest run --config vitest.firebase.config.mts",
     "firebase:emulators": "firebase emulators:start --only firestore",
     "seed:firebase": "node scripts/seed-development.mjs",
+    "sync:football": "tsx --env-file=.env.local scripts/sync-football.ts",
     "verify": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
@@ -43,6 +44,7 @@
     "jsdom": "^29.1.1",
     "prettier": "^3.9.6",
     "tailwindcss": "^4",
+    "tsx": "^4.23.12",
     "typescript": "^5",
     "vitest": "^4.1.11"
   }

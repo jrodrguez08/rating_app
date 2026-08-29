@@ -3,6 +3,7 @@ export interface Team {
   id: EntityId;
   displayName: string;
   shortName: string;
+  countryName: string;
   countryCode: string;
   externalProviderId?: string;
   brandingKey: string;
@@ -12,32 +13,55 @@ export interface Team {
 export interface Competition {
   id: EntityId;
   name: string;
+  countryName: string;
   countryCode?: string;
-  externalProviderId?: string;
+  type: "league" | "cup";
+  externalProvider: string;
+  externalProviderId: string;
+  createdAt: string;
+  updatedAt: string;
 }
 export interface Season {
   id: EntityId;
   competitionId: EntityId;
   name: string;
-  startsAt: string;
-  endsAt: string;
+  externalProvider: string;
+  externalProviderSeason: number;
+  startsAt?: string;
+  endsAt?: string;
+  isCurrent: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 export type MatchStatus =
-  "scheduled" | "live" | "finished" | "postponed" | "cancelled";
+  | "scheduled"
+  | "live"
+  | "finished"
+  | "postponed"
+  | "suspended"
+  | "cancelled"
+  | "abandoned";
+export interface MatchTeamSnapshot {
+  externalProviderId: string;
+  name: string;
+  logoUrl?: string;
+}
 export interface Match {
   id: EntityId;
-  teamId: EntityId;
-  opponentTeamId: EntityId;
+  trackedTeamId: EntityId;
   competitionId: EntityId;
   seasonId: EntityId;
-  homeTeamId: EntityId;
-  awayTeamId: EntityId;
+  homeTeam: MatchTeamSnapshot;
+  awayTeam: MatchTeamSnapshot;
   kickoffAt: string;
   status: MatchStatus;
-  score?: { home: number; away: number };
+  score: { home: number | null; away: number | null };
   votingOpensAt?: string;
   votingClosesAt?: string;
-  externalProviderFixtureId?: string;
+  externalProvider: string;
+  externalProviderFixtureId: string;
+  createdAt: string;
+  updatedAt: string;
 }
 export interface Player {
   id: EntityId;
