@@ -172,6 +172,7 @@ export async function syncFootballData(
       awayTeam: fixture.awayTeam,
       kickoffAt: fixture.kickoffAt,
       status: fixture.status,
+      ratingState: "not_ready",
       score: fixture.score,
       externalProvider: provider.name,
       externalProviderFixtureId: fixture.externalFixtureId,

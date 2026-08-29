@@ -21,10 +21,12 @@
     "seed:firebase": "node scripts/seed-development.mjs",
     "sync:football": "tsx --env-file=.env.local scripts/sync-football.ts",
     "sync:match-participants": "tsx --env-file=.env.local scripts/sync-match-participants.ts",
+    "sync:lifecycle": "tsx --env-file=.env.local scripts/sync-lifecycle.ts",
     "verify": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
     "firebase": "^12.18.0",
+    "firebase-admin": "^13.5.0",
     "next": "16.3.3",
     "react": "19.2.8",
     "react-dom": "19.2.8"

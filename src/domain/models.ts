@@ -41,6 +41,8 @@ export type MatchStatus =
   | "suspended"
   | "cancelled"
   | "abandoned";
+export type RatingState =
+  "not_ready" | "preparing_rating" | "rating_ready" | "rating_closed";
 export interface MatchTeamSnapshot {
   externalProviderId: string;
   name: string;
@@ -55,12 +57,21 @@ export interface Match {
   awayTeam: MatchTeamSnapshot;
   kickoffAt: string;
   status: MatchStatus;
+  ratingState: RatingState;
   score: { home: number | null; away: number | null };
+  lastProviderSyncAt?: string;
+  participantSyncedAt?: string;
+  ratingReadyAt?: string;
   votingOpensAt?: string;
   votingClosesAt?: string;
   externalProvider: string;
   externalProviderFixtureId: string;
   createdAt: string;
+  updatedAt: string;
+}
+export interface FootballSyncMetadata {
+  teamId: EntityId;
+  lastFixtureDiscoveryAt?: string;
   updatedAt: string;
 }
 export interface Player {

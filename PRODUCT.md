@@ -6,9 +6,9 @@ Rating App gives a small football supporter community a fair, simple way to rate
 
 ## Current foundation milestone
 
-Implemented now: a mobile-first shell with an original 16-bit sports-game visual language, Herediano as the initial configured club, an honest inactive-voting state, future navigation affordances, accessible semantics, Spanish/English product localization, generic domain types, project infrastructure, and a Firestore-backed Team persistence foundation. Spanish is the deterministic default and fallback; supporters can persist English without authentication. Club Sport Herediano is the first deterministic Team record and can be bootstrapped explicitly in the local emulator. Manual server-side API-Football imports can persist bounded competition/season/fixture data and, for a chosen persisted match, its squad, confirmed participants, and tracked Team head coach in the emulator.
+Implemented now: a mobile-first shell with an original 16-bit sports-game visual language, Herediano as the initial configured club, accessible Spanish/English localization, generic domain types, and Firestore-backed football persistence. Manual and scheduled server-side API-Football synchronization can discover fixtures, focus on the relevant match, synchronize its tracked-Team participants/head coach after `FT`, establish an idempotent two-hour future voting window only when rating-ready, and show honest upcoming/live/preparing/ready match context on Home when trusted server persistence is configured.
 
-Not implemented now: cloud Team administration, automatic synchronization or voting-window lifecycle, authentication, voting, ratings, aggregates, history pages, notifications, or administration. Synced football data is not exposed in the UI, which still uses the configured presentation fallback and must not imply these features exist.
+Not implemented now: cloud Team administration, voter authentication, ballot submission, ratings, aggregates/results, history pages, notifications, or administration. Lifecycle readiness and timestamps exist, but the ready Home state explicitly does not claim the ballot is implemented.
 
 ## MVP (planned)
 
@@ -21,6 +21,7 @@ After closing, supporters can browse match results, MVPs, coach ratings, player 
 - At most one ballot exists for a voter and match.
 - Player eligibility requires both tracked-Team ownership and confirmed match participation (`teamId == trackedTeamId && participated == true`), not squad membership, the bench, the opponent, or the current roster. Only the tracked Team's head coach is rateable.
 - The tracked team may be home or away.
+- Provider final status is insufficient by itself: a voting window starts only after valid tracked-Team participant and head-coach readiness, lasts two hours from readiness, and is never extended by retries.
 - Aggregates are unavailable to voters during an active window.
 - Provider data is imported through a boundary and remains replaceable.
 - Herediano is initial configuration and branding, not a special domain entity.

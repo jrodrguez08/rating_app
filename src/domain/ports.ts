@@ -4,6 +4,7 @@ import type {
   Coach,
   CoachAssignment,
   EntityId,
+  FootballSyncMetadata,
   Match,
   MatchParticipant,
   Player,
@@ -88,10 +89,20 @@ export interface FootballDataProvider {
     window: FixtureWindow,
     competitionSeasons: ProviderCompetitionSeason[],
   ): Promise<ProviderFixture[]>;
+  getFixture(externalFixtureId: string): Promise<ProviderFixture>;
   getMatchContext(
     externalFixtureId: string,
     externalTeamId: string,
   ): Promise<ProviderMatchContext>;
+}
+
+export interface MatchLifecycleStore extends FootballSyncStore {
+  listMatches(trackedTeamId: string): Promise<Match[]>;
+  updateMatchLifecycle(match: Match): Promise<void>;
+  countRateableParticipants(matchId: string, teamId: string): Promise<number>;
+  hasTrackedTeamHeadCoach(matchId: string, teamId: string): Promise<boolean>;
+  getSyncMetadata(teamId: string): Promise<FootballSyncMetadata | null>;
+  setSyncMetadata(metadata: FootballSyncMetadata): Promise<void>;
 }
 
 export interface FootballSyncStore {

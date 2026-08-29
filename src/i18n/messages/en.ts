@@ -33,6 +33,32 @@ export const enMessages = {
       privacy:
         "Results stay hidden while voting is open to keep every rating independent.",
     },
+    matchLifecycle: {
+      versus: "VS",
+      upcoming: {
+        label: "Next match",
+        title: "Next match",
+        description:
+          "Voting will open after the match finishes and participants are confirmed.",
+      },
+      live: {
+        label: "Live",
+        title: "Match in progress",
+        description: "Come back after the final whistle to rate the team.",
+      },
+      preparing: {
+        label: "Match finished",
+        title: "Preparing the rating",
+        description:
+          "We are confirming participants and the head coach before opening voting.",
+      },
+      ready: {
+        label: "Voting available",
+        title: "The match is ready to rate",
+        description:
+          "The two-hour window is active. The ballot will arrive in the next milestone.",
+      },
+    },
   },
   footer: {
     supporting: "Built for supporters. Ready to grow club by club.",

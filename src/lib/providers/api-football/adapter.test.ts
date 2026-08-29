@@ -124,6 +124,25 @@ describe("ApiFootballAdapter", () => {
     expect(requestedUrl).toContain("season=2026");
   });
 
+  it("refreshes one known fixture without a broad season query", async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(response([fixtureResponse[0]]));
+    const adapter = new ApiFootballAdapter("test-key", fetcher);
+
+    const fixture = await adapter.getFixture("5001");
+
+    expect(fixture).toMatchObject({
+      externalFixtureId: "5001",
+      status: "finished",
+      score: { home: 2, away: 1 },
+    });
+    const requestedUrl = String(fetcher.mock.calls[0][0]);
+    expect(requestedUrl).toContain("id=5001");
+    expect(requestedUrl).not.toContain("season=");
+    expect(adapter.requestCount).toBe(1);
+  });
+
   it("reconciles starters, entering substitutes, unused substitutes, and tracked Team coach", async () => {
     const fetcher = vi
       .fn<typeof fetch>()

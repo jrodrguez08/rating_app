@@ -220,28 +220,26 @@ export class ApiFootballAdapter implements FootballDataProvider {
         })),
       );
     }
-    return response.map((value) => {
-      const item = record(value, "fixture response item");
-      const fixture = record(item.fixture, "fixture");
-      const league = record(item.league, "fixture.league");
-      const teams = record(item.teams, "fixture.teams");
-      const goals = record(item.goals, "fixture.goals");
-      return {
-        externalFixtureId: String(number(fixture.id, "fixture.id")),
-        externalCompetitionId: String(number(league.id, "fixture.league.id")),
-        providerSeason: number(league.season, "fixture.league.season"),
-        kickoffAt: utcTimestamp(fixture.date, "fixture.date"),
-        status: mapApiFootballStatus(
-          record(fixture.status, "fixture.status").short,
-        ),
-        homeTeam: this.parseFixtureTeam(teams.home, "fixture.teams.home"),
-        awayTeam: this.parseFixtureTeam(teams.away, "fixture.teams.away"),
-        score: {
-          home: nullableScore(goals.home, "fixture.goals.home"),
-          away: nullableScore(goals.away, "fixture.goals.away"),
-        },
-      };
+    return response.map((value) => this.parseFixture(value));
+  }
+
+  async getFixture(externalFixtureId: string): Promise<ProviderFixture> {
+    const response = await this.request("/fixtures", {
+      id: externalFixtureId,
+      timezone: "UTC",
     });
+    if (response.length === 0) {
+      throw new ProviderError(
+        "fixture-not-found",
+        `Fixture ${externalFixtureId} was not found.`,
+      );
+    }
+    if (response.length !== 1) {
+      return malformed(
+        `fixture ${externalFixtureId} returned multiple records.`,
+      );
+    }
+    return this.parseFixture(response[0]);
   }
 
   async getMatchContext(
@@ -462,6 +460,29 @@ export class ApiFootballAdapter implements FootballDataProvider {
       externalProviderId: String(number(team.id, `${label}.id`)),
       name: string(team.name, `${label}.name`),
       ...(logoUrl === undefined ? {} : { logoUrl }),
+    };
+  }
+
+  private parseFixture(value: unknown): ProviderFixture {
+    const item = record(value, "fixture response item");
+    const fixture = record(item.fixture, "fixture");
+    const league = record(item.league, "fixture.league");
+    const teams = record(item.teams, "fixture.teams");
+    const goals = record(item.goals, "fixture.goals");
+    return {
+      externalFixtureId: String(number(fixture.id, "fixture.id")),
+      externalCompetitionId: String(number(league.id, "fixture.league.id")),
+      providerSeason: number(league.season, "fixture.league.season"),
+      kickoffAt: utcTimestamp(fixture.date, "fixture.date"),
+      status: mapApiFootballStatus(
+        record(fixture.status, "fixture.status").short,
+      ),
+      homeTeam: this.parseFixtureTeam(teams.home, "fixture.teams.home"),
+      awayTeam: this.parseFixtureTeam(teams.away, "fixture.teams.away"),
+      score: {
+        home: nullableScore(goals.home, "fixture.goals.home"),
+        away: nullableScore(goals.away, "fixture.goals.away"),
+      },
     };
   }
 
