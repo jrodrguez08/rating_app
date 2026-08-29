@@ -78,6 +78,10 @@ Ratings use a five-column grid of discrete values `1` through `10`, not a precis
 
 Submission uses one focused confirmation dialog because ballots are immutable. It explains that ratings cannot be changed, traps keyboard focus, supports Escape/cancel, and restores focus to the triggering button. Recoverable errors preserve every selected rating. Submitted, closed, not-open, and unavailable states use explicit localized text and never reveal individual or aggregate results.
 
+## Match results
+
+Final results use a scorecard hierarchy, not an analytics dashboard. The match score leads, a crisp secondary-accent block gives player MVP or co-MVP the strongest emphasis, ranked players use numbered inset rows, and the coach sits in a separate panel. Display averages use one decimal in score typography; names remain readable sans and wrap safely. Ranking and MVP labels must be explicit rather than color-only. Do not add traffic-light rating colors, glow, or casino treatment.
+
 ## Spacing and responsive behavior
 
 Use a 4px base rhythm and tighter sports-scoreboard density: common gaps are 8, 12, 16, 20, 24, and 32px. Compact does not mean cramped. Body copy keeps comfortable line-height; actions keep touch separation.

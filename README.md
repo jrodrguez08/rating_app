@@ -4,7 +4,7 @@ Mobile-first supporter ratings for football matches. The first community is Club
 
 ## Foundation status
 
-The repository now includes Spanish/English localization, tracked-Team football persistence, match-aware lifecycle synchronization, a lifecycle-aware Home scoreboard, persistent low-friction voter identity through Firebase Anonymous Authentication, and the match rating ballot. A trusted server route accepts exactly one complete, participant-only ballot per Firebase UID during the stable server-controlled voting window. Results and aggregates are not implemented.
+The repository now includes Spanish/English localization, tracked-Team football persistence, match-aware lifecycle synchronization, a lifecycle-aware Home scoreboard, persistent low-friction voter identity through Firebase Anonymous Authentication, the match rating ballot, and public post-voting results. A trusted server route accepts exactly one complete, participant-only ballot per Firebase UID during the stable server-controlled voting window. No aggregate is exposed before trusted close time; afterward the lifecycle creates one immutable summary and Home links to `/matches/{matchId}/results`.
 
 ## Localization
 
@@ -73,6 +73,12 @@ The browser quietly ensures a Firebase anonymous user on first visit. Firebase U
 Anonymous authentication identifies a browser profile, not a person. Clearing storage, incognito, another browser/device, or another anonymous account can produce a different UID. Rating App does not use fingerprinting. Future provider linking may upgrade the same Firebase account while preserving its UID where Firebase supports it; automatic anonymous-account cleanup is not assumed.
 
 Authentication does not grant general database access. Current rules deny authenticated clients access to matches, lifecycle data, participants, coaches, and ballots. The browser sends its Firebase ID token to the trusted `GET`/`POST /api/matches/{matchId}/ballot` boundary; the server verifies the token and derives `voterId` rather than accepting identity from the payload. Inside a Firestore transaction it reloads the authoritative match, exact tracked-Team participants, head coach, and deterministic `matches/{matchId}/ballots/{voterId}` path. It validates the server-controlled window, exact participant keys, coach identity, and integer ratings from 1 through 10 before a create-only write with a server timestamp. Repeated or concurrent submissions cannot edit the first ballot. Individual ballots are never readable through the client SDK.
+
+## Post-voting results
+
+The existing lifecycle trigger finalizes a match at `now >= votingClosesAt`. Trusted server code reads the immutable ballots once, reuses the canonical exact-ballot validator, and atomically creates `matches/{matchId}/results/summary` while setting `ratingState` to `rating_closed`. A retry returns the existing summary without changing `generatedAt`. Firestore clients cannot read or write either ballots or results; the server-rendered results route exposes only sanitized aggregates and checks trusted time before reading them.
+
+The summary stores unrounded numeric player and coach averages; the UI displays one decimal. One ballot is enough. Zero ballots creates a `no_votes` result without division, and all players tied at the exact highest average are co-MVPs in canonical participant order. The coach is shown separately and never enters MVP ranking. The current small-community design performs one bounded ballot collection read at close; history pages, match archives, season/career averages, leaderboards, account upgrades, and broader anti-abuse remain deferred.
 
 To exercise the real provider manually, set the server-only `API_FOOTBALL_KEY` in `.env.local`, keep the emulator running, seed the Team, then run `npm run sync:football`. The command resolves an exact Team name-and-country match once, fetches a bounded 120-day history and 60-day future window, and upserts only fixtures involving that Team. It makes one metadata request and one fixture request per distinct provider season overlapping the window; the initial unmapped run adds one Team lookup. It reports created, updated, and unchanged counts. Never prefix this key with `NEXT_PUBLIC_` or expose it to browser code.
 

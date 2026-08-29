@@ -1,5 +1,7 @@
 import { preserveMonotonicMatchStatus } from "@/domain/match-status";
+import { aggregateMatchResult } from "@/domain/result-aggregation";
 import type {
+  Ballot,
   Coach,
   CoachAssignment,
   Competition,
@@ -25,6 +27,7 @@ type FirestoreValue =
   | { booleanValue: boolean }
   | { nullValue: null }
   | { timestampValue: string }
+  | { arrayValue: { values?: FirestoreValue[] } }
   | { mapValue: { fields: Record<string, FirestoreValue> } };
 
 interface RestDocument {
@@ -56,6 +59,7 @@ function encode(value: unknown, key?: string): FirestoreValue {
     key === "ratingReadyAt" ||
     key === "votingOpensAt" ||
     key === "votingClosesAt" ||
+    key === "generatedAt" ||
     key === "lastFixtureDiscoveryAt"
   ) {
     if (typeof value !== "string" || Number.isNaN(new Date(value).getTime())) {
@@ -70,6 +74,9 @@ function encode(value: unknown, key?: string): FirestoreValue {
     return Number.isInteger(value)
       ? { integerValue: String(value) }
       : { doubleValue: value };
+  }
+  if (Array.isArray(value)) {
+    return { arrayValue: { values: value.map((field) => encode(field)) } };
   }
   if (typeof value === "object" && value !== null && !Array.isArray(value)) {
     return {
@@ -97,6 +104,7 @@ function decode(value: FirestoreValue): unknown {
   if ("nullValue" in value) return null;
   if ("timestampValue" in value)
     return new Date(value.timestampValue).toISOString();
+  if ("arrayValue" in value) return (value.arrayValue.values ?? []).map(decode);
   return decodeFields(value.mapValue.fields);
 }
 
@@ -196,6 +204,57 @@ export class EmulatorFootballSyncStore
       "head-coach",
     );
     return assignment?.teamId === teamId && assignment.role === "head-coach";
+  }
+
+  async finalizeMatchResult(matchId: string, now: Date): Promise<void> {
+    const match = await this.getMatch(matchId);
+    const collection = `matches/${encodeURIComponent(matchId)}/results`;
+    const existing = await this.get(collection, "summary");
+    if (existing !== null) {
+      if (match.ratingState !== "rating_closed") {
+        await this.updateMatchLifecycle({
+          ...match,
+          ratingState: "rating_closed",
+          updatedAt: now.toISOString(),
+        });
+      }
+      return;
+    }
+    if (
+      match.status !== "finished" ||
+      match.ratingState !== "rating_ready" ||
+      match.votingClosesAt === undefined ||
+      now < new Date(match.votingClosesAt)
+    ) {
+      throw new Error("Match is not eligible for result finalization.");
+    }
+    const [participants, coach, ballots] = await Promise.all([
+      this.list(`matches/${encodeURIComponent(matchId)}/participants`),
+      this.get(
+        `matches/${encodeURIComponent(matchId)}/coachAssignments`,
+        "head-coach",
+      ),
+      this.list(`matches/${encodeURIComponent(matchId)}/ballots`),
+    ]);
+    if (coach === null) throw new Error("Head coach assignment is missing.");
+    const result = aggregateMatchResult({
+      matchId,
+      teamId: match.trackedTeamId,
+      participants: participants as unknown as MatchParticipant[],
+      coach: coach as unknown as CoachAssignment,
+      ballots: ballots as unknown as Ballot[],
+      generatedAt: now.toISOString(),
+    });
+    await this.create(
+      collection,
+      "summary",
+      result as unknown as Record<string, unknown>,
+    );
+    await this.updateMatchLifecycle({
+      ...match,
+      ratingState: "rating_closed",
+      updatedAt: now.toISOString(),
+    });
   }
 
   async getSyncMetadata(teamId: string): Promise<FootballSyncMetadata | null> {

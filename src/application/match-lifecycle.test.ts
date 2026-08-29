@@ -76,6 +76,17 @@ class MemoryStore implements MatchLifecycleStore {
   async hasTrackedTeamHeadCoach() {
     return this.hasCoach;
   }
+  async finalizeMatchResult(matchId: string, now: Date) {
+    this.matches = this.matches.map((value) =>
+      value.id === matchId
+        ? {
+            ...value,
+            ratingState: "rating_closed",
+            updatedAt: now.toISOString(),
+          }
+        : value,
+    );
+  }
   async getSyncMetadata() {
     return this.metadata;
   }

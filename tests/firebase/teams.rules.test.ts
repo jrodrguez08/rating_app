@@ -160,4 +160,21 @@ describe("Team persistence and rules", () => {
     await assertFails(ballot.update({ playerRatings: { player: 9 } }));
     await assertFails(ballot.delete());
   });
+
+  it("keeps finalized result documents server-read and server-write only", async () => {
+    await environment.withSecurityRulesDisabled(async (context) => {
+      await context
+        .firestore()
+        .doc("matches/example/results/summary")
+        .set({ ballotCount: 2 });
+    });
+    const database = environment
+      .authenticatedContext("supporter-1")
+      .firestore();
+    const result = database.doc("matches/example/results/summary");
+    await assertFails(result.get());
+    await assertFails(result.set({ ballotCount: 99 }));
+    await assertFails(result.update({ ballotCount: 99 }));
+    await assertFails(result.delete());
+  });
 });

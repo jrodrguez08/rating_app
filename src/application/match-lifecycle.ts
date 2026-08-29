@@ -91,16 +91,16 @@ export async function runMatchLifecycle({
     currentTime >= new Date(match.votingClosesAt) &&
     match.ratingState !== "rating_closed"
   ) {
-    await store.updateMatchLifecycle({
-      ...match,
-      ratingState: "rating_closed",
-      updatedAt: currentTime.toISOString(),
-    });
-    return {
-      action: "rating_closed",
-      matchId: match.id,
-      providerRequests: provider.requestCount,
-    };
+    try {
+      await store.finalizeMatchResult(match.id, currentTime);
+      return {
+        action: "rating_closed",
+        matchId: match.id,
+        providerRequests: provider.requestCount,
+      };
+    } catch (error) {
+      return retryable(provider, match.id, error);
+    }
   }
 
   if (
@@ -211,8 +211,11 @@ export function selectRelevantMatch(
         match.votingClosesAt !== undefined &&
         now < new Date(match.votingClosesAt),
     ) ??
-    byKickoff.find((match) => match.ratingState === "rating_ready") ??
     byKickoff.find((match) => match.status === "live") ??
+    [...byKickoff]
+      .reverse()
+      .find((match) => match.ratingState === "rating_closed") ??
+    byKickoff.find((match) => match.ratingState === "rating_ready") ??
     byKickoff.find(
       (match) =>
         match.status === "finished" &&
