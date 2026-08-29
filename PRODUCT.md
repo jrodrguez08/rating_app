@@ -1,0 +1,34 @@
+# Product
+
+## Purpose and audience
+
+Rating App gives a small football supporter community a fair, simple way to rate the people who shaped a match. The first audience is a WhatsApp group of Club Sport Herediano supporters in Costa Rica.
+
+## Current foundation milestone
+
+Implemented now: a mobile-first shell showing Herediano as the initial configured club, an honest inactive-voting state, future navigation affordances, accessible semantics, generic domain types, and project infrastructure.
+
+Not implemented now: live match data, authentication, voting, ratings, aggregates, history pages, notifications, administration, or API-Football integration. The UI must not imply these exist.
+
+## MVP (planned)
+
+After a match finishes, voting opens for approximately two hours. An authenticated supporter sees every Herediano player who actually played—not unused squad members—and the match's head coach. They submit one complete ballot. Aggregate results remain hidden until voting closes.
+
+After closing, supporters can browse match results, MVPs, coach ratings, player match history, and player averages. Match and player history must be durable, not inferred from the current roster.
+
+## Product invariants
+
+- At most one ballot exists for a voter and match.
+- Eligibility comes from match participation, not squad membership or current roster.
+- The tracked team may be home or away.
+- Aggregates are unavailable to voters during an active window.
+- Provider data is imported through a boundary and remains replaceable.
+- Herediano is initial configuration and branding, not a special domain entity.
+
+## Non-goals for the initial MVP
+
+Social feeds, comments, fantasy football, betting, player-to-player comparisons, complex moderation, paid subscriptions, and general-purpose multi-tenant administration are excluded.
+
+## Future direction
+
+The same team, competition, season, match, participant, ballot, and result concepts can support more clubs and supporter communities. Add teams through data and theming; do not fork the domain or create club-named collections.
