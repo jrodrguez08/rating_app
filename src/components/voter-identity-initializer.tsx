@@ -2,13 +2,18 @@
 
 import { useEffect } from "react";
 
+import { reportVoterIdentityFailure } from "@/lib/firebase/voter-identity-diagnostics";
 import { ensureAnonymousVoter } from "@/lib/firebase/voter-auth";
 
 export function VoterIdentityInitializer() {
   useEffect(() => {
-    void ensureAnonymousVoter().catch(() => {
-      console.error("Unable to prepare the voter session.");
+    let active = true;
+    void ensureAnonymousVoter().catch((error: unknown) => {
+      if (active) reportVoterIdentityFailure(error);
     });
+    return () => {
+      active = false;
+    };
   }, []);
 
   return null;
