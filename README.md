@@ -2,6 +2,8 @@
 
 Mobile-first supporter ratings for football matches. The first community is Club Sport Herediano, while the domain remains club-neutral.
 
+Production is not deployed. See [PRODUCTION_RUNBOOK.md](PRODUCTION_RUNBOOK.md) for the controlled pilot configuration and rollout procedure.
+
 ## Foundation status
 
 The repository now includes Spanish/English localization, tracked-Team football persistence, match-aware lifecycle synchronization, a lifecycle-aware Home scoreboard, persistent low-friction voter identity through Firebase Anonymous Authentication, the match rating ballot, and public post-voting results. A trusted server route accepts exactly one complete, participant-only ballot per Firebase UID during the stable server-controlled voting window. No aggregate is exposed before trusted close time; afterward the lifecycle creates one immutable summary and Home links to `/matches/{matchId}/results`.
@@ -40,6 +42,7 @@ npm run test:firebase # Auth/Firestore emulator integration and security-rule te
 npm run sync:football # import bounded API-Football data into the emulator
 npm run sync:match-participants -- <match-id> # import one match's squad, participants, and coach
 npm run sync:lifecycle # run match-aware lifecycle logic against the emulator
+npm run bootstrap:production-team -- ... # guarded production Team bootstrap; see runbook
 npm run build         # production build
 npm run verify        # canonical complete local/CI quality gate
 ```
@@ -97,6 +100,8 @@ The internal `POST /api/internal/match-lifecycle` route reuses the same lifecycl
 - `FIREBASE_ADMIN_PRIVATE_KEY` with newlines escaped as `\\n`
 
 Do not use `NEXT_PUBLIC_` for any of them and do not commit a service-account file. Configure Firebase Admin credentials for an explicit development project before a production project. The route is stateless and Vercel-compatible; emulator tests use test doubles/local REST and never cloud credentials.
+
+An authenticated `GET /api/internal/health` performs a read-only configuration and canonical Team readiness check. It returns only `ready`, `not_ready`, or `unauthorized`, uses the same `CRON_SECRET`, never calls API-Football, and is intended for controlled deployment smoke tests.
 
 The `Match lifecycle trigger` GitHub workflow is manually dispatchable and scheduled every 30 minutes. Add repository secrets `LIFECYCLE_SYNC_URL` (the full deployed endpoint URL) and `CRON_SECRET` (the same value configured on Vercel) only after the endpoint is deployed. Until both exist, the workflow skips successfully, avoiding recurring calls to a nonexistent deployment. Each configured run is a lightweight HTTP trigger; persisted match state performs most idle early exits without an API-Football request. Fixture discovery runs at most twice daily when no upcoming match is known, focused polling increases near/live matches, and frequent polling stops once the rating window exists. This avoids new paid scheduler infrastructure but GitHub/Vercel plan usage should be monitored rather than treated as an unconditional billing guarantee.
 

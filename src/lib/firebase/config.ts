@@ -32,3 +32,10 @@ export const isFirebaseConfigured =
   firebaseEnvironmentName === "local" ||
   (firebaseEnvironmentName !== null &&
     Object.values(firebaseEnvironment).every(Boolean));
+
+export const isFirebaseEnvironmentSafe =
+  isFirebaseConfigured &&
+  (firebaseEnvironmentName === "local"
+    ? !firebaseEnvironment.projectId ||
+      firebaseEnvironment.projectId.startsWith("demo-")
+    : !firebaseEnvironment.projectId?.startsWith("demo-"));

@@ -23,8 +23,9 @@ jobs:
         if: env.LIFECYCLE_SYNC_URL != '' && env.CRON_SECRET != ''
         run: >-
           curl --fail --silent --show-error
-          --retry 2 --retry-all-errors
-          --max-time 90
+          --connect-timeout 10
+          --retry 1 --retry-all-errors --retry-max-time 100
+          --max-time 45
           --request POST
           --header "Authorization: Bearer ${CRON_SECRET}"
           "${LIFECYCLE_SYNC_URL}"

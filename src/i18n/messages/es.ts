@@ -31,6 +31,14 @@ export const esMessages = {
       privacy:
         "Los resultados permanecen ocultos mientras la votación está abierta para mantener cada calificación independiente.",
     },
+    lifecycleUnavailable: {
+      status: "Servicio no disponible",
+      title: "No pudimos cargar el partido",
+      description:
+        "La información del partido no está disponible temporalmente. Intenta de nuevo en unos minutos.",
+      privacy:
+        "Tus calificaciones y los resultados privados permanecen protegidos.",
+    },
     matchLifecycle: {
       versus: "VS",
       upcoming: {

@@ -69,6 +69,19 @@ describe("browser Firebase Auth", () => {
     );
     expect(getAuth).not.toHaveBeenCalled();
   });
+
+  it("rejects a demo project in production without connecting an emulator", async () => {
+    stubCompleteDevelopmentConfig();
+    vi.stubEnv("NEXT_PUBLIC_FIREBASE_ENVIRONMENT", "production");
+    vi.stubEnv("NEXT_PUBLIC_FIREBASE_PROJECT_ID", "demo-production");
+    const { getBrowserAuth } = await import("./browser");
+
+    expect(() => getBrowserAuth()).toThrow(
+      "Firebase environment configuration is missing or invalid",
+    );
+    expect(connectAuthEmulator).not.toHaveBeenCalled();
+    expect(getAuth).not.toHaveBeenCalled();
+  });
 });
 
 function stubCompleteDevelopmentConfig() {

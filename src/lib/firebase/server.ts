@@ -34,6 +34,7 @@ import type {
   MatchLifecycleStore,
   SyncWriteCounts,
 } from "@/domain/ports";
+import { readFirebaseAdminRuntimeConfig } from "@/lib/server/environment";
 
 const TIMESTAMP_FIELDS = new Set([
   "createdAt",
@@ -48,20 +49,20 @@ const TIMESTAMP_FIELDS = new Set([
 ]);
 
 export function getServerFirestore(): Firestore {
-  if (getApps().length === 0) {
-    const projectId = required("FIREBASE_ADMIN_PROJECT_ID");
-    const emulator = process.env.FIRESTORE_EMULATOR_HOST !== undefined;
+  const config = readFirebaseAdminRuntimeConfig();
+  if (config.emulator) {
+    process.env.FIRESTORE_EMULATOR_HOST = config.firestoreEmulatorHost;
+    process.env.FIREBASE_AUTH_EMULATOR_HOST = config.authEmulatorHost;
+  }
+  if (!getApps().some((app) => app.name === "[DEFAULT]")) {
     initializeApp({
-      projectId,
-      credential: emulator
+      projectId: config.projectId,
+      credential: config.emulator
         ? applicationDefault()
         : cert({
-            projectId,
-            clientEmail: required("FIREBASE_ADMIN_CLIENT_EMAIL"),
-            privateKey: required("FIREBASE_ADMIN_PRIVATE_KEY").replace(
-              /\\n/g,
-              "\n",
-            ),
+            projectId: config.projectId,
+            clientEmail: config.clientEmail!,
+            privateKey: config.privateKey!,
           }),
     });
   }
@@ -501,12 +502,6 @@ function compareParticipants(
   );
 }
 
-function required(name: string): string {
-  const value = process.env[name];
-  if (value === undefined || value.trim() === "")
-    throw new Error(`${name} is required for trusted server persistence.`);
-  return value;
-}
 function toDocument(value: object): Record<string, unknown> {
   return Object.fromEntries(
     Object.entries(value)

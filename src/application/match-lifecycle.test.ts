@@ -342,6 +342,60 @@ describe("match lifecycle synchronization", () => {
     );
   });
 
+  it("does not let a finalized result block preparing or the next fixture", () => {
+    const closed = match({
+      id: "closed",
+      status: "finished",
+      ratingState: "rating_closed",
+      kickoffAt: "2026-08-28T20:00:00.000Z",
+    });
+    const preparing = match({
+      id: "preparing",
+      status: "finished",
+      ratingState: "preparing_rating",
+      kickoffAt: "2026-08-29T17:00:00.000Z",
+    });
+    const upcoming = match({
+      id: "upcoming",
+      kickoffAt: "2026-08-30T20:00:00.000Z",
+    });
+    expect(selectRelevantMatch([closed, preparing, upcoming], NOW)?.id).toBe(
+      "preparing",
+    );
+    expect(selectRelevantMatch([closed, upcoming], NOW)?.id).toBe("upcoming");
+  });
+
+  it("discovers and selects a next fixture after finalization", async () => {
+    const store = new MemoryStore([
+      match({
+        id: "closed",
+        status: "finished",
+        ratingState: "rating_closed",
+        kickoffAt: "2026-08-28T20:00:00.000Z",
+      }),
+    ]);
+    store.metadata = null;
+    const result = await runMatchLifecycle({
+      teamId: "tracked-team",
+      store,
+      provider: new FixtureProvider(fixture("scheduled")),
+      now: () => NOW,
+      discoverFixtures: async () => {
+        store.matches.push(
+          match({
+            id: "next-match",
+            kickoffAt: "2026-08-30T20:00:00.000Z",
+          }),
+        );
+      },
+      syncParticipants: async () => undefined,
+    });
+    expect(result).toMatchObject({
+      action: "discovered",
+      matchId: "next-match",
+    });
+  });
+
   it("does not open rating windows for stale historical finished fixtures", () => {
     const historical = match({
       id: "historical",

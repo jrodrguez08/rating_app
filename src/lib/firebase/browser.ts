@@ -12,6 +12,7 @@ import {
   firebaseEnvironmentName,
   firestoreEmulator,
   isFirebaseConfigured,
+  isFirebaseEnvironmentSafe,
 } from "./config";
 
 const LOCAL_PROJECT_ID = "demo-rating-app-local";
@@ -21,7 +22,7 @@ const emulatorConnections = globalThis as typeof globalThis & {
 };
 
 export function getBrowserFirebaseApp(): FirebaseApp {
-  if (!isFirebaseConfigured) {
+  if (!isFirebaseConfigured || !isFirebaseEnvironmentSafe) {
     throw new Error(
       "Firebase environment configuration is missing or invalid. See .env.example.",
     );

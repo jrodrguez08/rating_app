@@ -33,6 +33,13 @@ export const enMessages = {
       privacy:
         "Results stay hidden while voting is open to keep every rating independent.",
     },
+    lifecycleUnavailable: {
+      status: "Service unavailable",
+      title: "We couldn't load the match",
+      description:
+        "Match information is temporarily unavailable. Try again in a few minutes.",
+      privacy: "Your ratings and private results remain protected.",
+    },
     matchLifecycle: {
       versus: "VS",
       upcoming: {
