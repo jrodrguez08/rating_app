@@ -12,6 +12,8 @@ At trusted close time, the same lifecycle creates one immutable aggregate summar
 
 Not implemented now: cloud Team administration, identity-provider linking, history/archive pages, season leaderboards, notifications, or administration. Individual ballot data remains private at all times, and aggregates remain unavailable before close.
 
+The codebase includes guarded production configuration and bootstrap boundaries for a controlled pilot, but no production Firebase or Vercel environment has been configured or deployed.
+
 ## MVP
 
 After a match finishes, voting opens for approximately two hours. An authenticated supporter sees every Herediano player who actually played—not unused squad members—and the match's head coach. They submit one complete ballot. Aggregate results remain hidden until voting closes.

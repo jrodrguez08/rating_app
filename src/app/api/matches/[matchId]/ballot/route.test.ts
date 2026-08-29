@@ -100,7 +100,11 @@ describe("ballot API", () => {
 
   it("fails closed for malformed JSON and persistence failures", async () => {
     const malformed = await POST(
-      new Request("http://local/api", { method: "POST", body: "{" }),
+      new Request("http://local/api", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{",
+      }),
       context,
     );
     expect(malformed.status).toBe(400);
@@ -111,5 +115,33 @@ describe("ballot API", () => {
     await expect(unavailable.json()).resolves.toEqual({
       status: "data_unavailable",
     });
+  });
+
+  it("rejects unsupported media, oversized payloads, and invalid match IDs", async () => {
+    const unsupported = await POST(
+      new Request("http://local/api", { method: "POST", body: "{}" }),
+      context,
+    );
+    expect(unsupported.status).toBe(415);
+
+    const oversized = await POST(
+      new Request("http://local/api", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value: "x".repeat(17 * 1024) }),
+      }),
+      context,
+    );
+    expect(oversized.status).toBe(413);
+
+    const invalidContext = { params: Promise.resolve({ matchId: "../bad" }) };
+    const invalid = await GET(new Request("http://local/api"), invalidContext);
+    expect(invalid.status).toBe(400);
+    expect(mocks.hasSubmitted).not.toHaveBeenCalled();
+  });
+
+  it("marks every API response as non-cacheable", async () => {
+    const response = await GET(new Request("http://local/api"), context);
+    expect(response.headers.get("cache-control")).toBe("no-store");
   });
 });

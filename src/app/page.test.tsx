@@ -50,6 +50,14 @@ describe("Home", () => {
     ).toBeInTheDocument();
   });
 
+  it("renders a localized safe persistence failure instead of an empty state", () => {
+    render(<HomeContent locale="en" unavailable />);
+    expect(
+      screen.getByRole("heading", { name: "We couldn't load the match" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("No active rating")).not.toBeInTheDocument();
+  });
+
   it("renders real upcoming match context without assuming the tracked Team is home", () => {
     render(
       <HomeContent

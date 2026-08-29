@@ -5,6 +5,9 @@ import { getMessages } from "@/i18n/messages";
 import { getLocale } from "@/i18n/server";
 import { AdminResultService } from "@/lib/firebase/server";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export default async function MatchResultsPage({
   params,
 }: {
@@ -19,7 +22,7 @@ export default async function MatchResultsPage({
   try {
     pageState = await new AdminResultService().getPageState(matchId);
   } catch {
-    // Keep the public route fail-closed when trusted data cannot load.
+    console.error("Result page data is temporarily unavailable.", { matchId });
   }
   return (
     <AppShell

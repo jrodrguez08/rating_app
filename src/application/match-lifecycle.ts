@@ -212,10 +212,6 @@ export function selectRelevantMatch(
         now < new Date(match.votingClosesAt),
     ) ??
     byKickoff.find((match) => match.status === "live") ??
-    [...byKickoff]
-      .reverse()
-      .find((match) => match.ratingState === "rating_closed") ??
-    byKickoff.find((match) => match.ratingState === "rating_ready") ??
     byKickoff.find(
       (match) =>
         match.status === "finished" &&
@@ -227,7 +223,11 @@ export function selectRelevantMatch(
     byKickoff.find(
       (match) =>
         match.status === "scheduled" && new Date(match.kickoffAt) >= now,
-    )
+    ) ??
+    [...byKickoff]
+      .reverse()
+      .find((match) => match.ratingState === "rating_closed") ??
+    byKickoff.find((match) => match.ratingState === "rating_ready")
   );
 }
 

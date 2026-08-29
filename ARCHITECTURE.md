@@ -30,7 +30,7 @@ matches/{matchId}
 matches/{matchId}/participants/{playerId}
 matches/{matchId}/coachAssignments/{coachId}
 matches/{matchId}/ballots/{voterId}
-matches/{matchId}/aggregates/summary
+matches/{matchId}/results/summary
 players/{playerId}/matchSummaries/{matchId}
 players/{playerId}/statistics/{seasonOrCareerId}
 ```
@@ -96,3 +96,9 @@ Every match references a tracked `teamId`; community and theme configuration sel
 ## Deployment and cost
 
 Deploy the Next.js app to a platform compatible with its server runtime (initially Vercel is suitable) and use Firebase Auth/Firestore free tiers. Prefer static/server rendering, cached provider imports, compact ballot documents, materialized aggregates, and bounded reads. Cloud Functions and scheduled imports are deferred until needed; monitor quotas before opening beyond the initial group.
+
+Hosted runtime configuration is validated centrally before Firebase Admin use. Development and production reject emulator hosts, demo projects, mismatched Web/Admin project IDs, missing credentials, and malformed private keys. Local trusted reads derive Auth/Firestore emulator hosts from explicit local configuration, so unified development cannot silently reach cloud Firebase. Home, ballot, and result routes are force-dynamic with zero revalidation; ballot and lifecycle responses are explicitly `no-store`.
+
+Production begins with one separately guarded, idempotent Team bootstrap that requires production mode, an exact non-demo project confirmation, the stable provider Team ID, and Firebase Admin credentials. Existing emulator seed/sync scripts remain incapable of hosted writes. Once the Team exists, the authenticated lifecycle endpoint uses the normal bounded discovery path to create competition, season, and fixture state. The authenticated read-only `/api/internal/health` endpoint verifies runtime configuration and the canonical Team read without exposing configuration values.
+
+No production environment or deployment is currently configured. `PRODUCTION_RUNBOOK.md` is the operational source for controlled pilot setup, verification, scheduler activation, rollback, and secret rotation.

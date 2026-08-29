@@ -8,23 +8,32 @@ import { getMessages } from "@/i18n/messages";
 import { getLocale } from "@/i18n/server";
 import { getLifecycleHomeMatch } from "@/lib/firebase/lifecycle-read";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export default async function Home() {
   const locale = await getLocale();
   let match: Match | null = null;
+  let unavailable = false;
   try {
     match = await getLifecycleHomeMatch(initialClub.teamId);
   } catch {
-    // The honest empty state remains available when server persistence is not configured.
+    unavailable = true;
+    console.error("Home lifecycle data is temporarily unavailable.");
   }
-  return <HomeContent locale={locale} match={match} />;
+  return (
+    <HomeContent locale={locale} match={match} unavailable={unavailable} />
+  );
 }
 
 export function HomeContent({
   locale,
   match = null,
+  unavailable = false,
 }: {
   locale: Locale;
   match?: Match | null;
+  unavailable?: boolean;
 }) {
   const messages = getMessages(locale);
   return (
@@ -43,7 +52,13 @@ export function HomeContent({
           </p>
         </section>
         {match === null ? (
-          <EmptyRatingState messages={messages.home.noActiveRating} />
+          <EmptyRatingState
+            messages={
+              unavailable
+                ? messages.home.lifecycleUnavailable
+                : messages.home.noActiveRating
+            }
+          />
         ) : (
           <MatchLifecyclePanel
             match={match}

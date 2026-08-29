@@ -27,3 +27,4 @@ Before product-code changes, read this file completely along with `PRODUCT.md`, 
 - Do not edit or commit generated output such as `.next`, coverage, emulator data, `next-env.d.ts`, or TypeScript build-info files.
 - Use `npm run verify` as the complete local quality gate: formatting, lint, strict typecheck, all tests, and production build. Also run `git diff --check` before handoff. Wait for every process to exit and never report a command as passing while it is still running.
 - Keep Git changes scoped and preserve unrelated user work. CI must use `npm ci` and invoke the same canonical verification command without production credentials.
+- Production must never use demo projects or emulator hosts. Keep local seed/sync commands emulator-only; production mutations require an explicit trusted path, exact project confirmation, and the complete verification gate.
