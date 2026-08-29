@@ -1,9 +1,13 @@
 export type EntityId = string;
 export interface Team {
   id: EntityId;
-  name: string;
+  displayName: string;
+  shortName: string;
   countryCode: string;
   externalProviderId?: string;
+  brandingKey: string;
+  createdAt: string;
+  updatedAt: string;
 }
 export interface Competition {
   id: EntityId;

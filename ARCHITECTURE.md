@@ -4,7 +4,7 @@
 
 Next.js App Router and strict TypeScript form the web application. Pages and layouts are Server Components by default; use Client Components only for browser state or interaction. Tailwind CSS consumes semantic tokens. Domain types and ports do not import Firebase or React.
 
-`src/config` selects the initial club presentation. `src/domain` describes stable business concepts. `src/lib/firebase/browser.ts` lazily initializes the web SDK only when called and configured. A separate server module reserves the privileged boundary; Firebase Admin is deliberately absent until a concrete server use case exists.
+`src/config` selects the initial club presentation. `src/domain` describes stable business concepts. `src/lib/firebase/browser.ts` lazily initializes the web SDK only when called and configured. Local mode always connects Firestore to the explicitly configured emulator and never falls back to a cloud project. Development and production modes require complete Firebase Web configuration. A separate server module reserves the privileged boundary; Firebase Admin remains absent because browser reads and an emulator-only bootstrap cover this milestone.
 
 ## Proposed Firestore model
 
@@ -25,6 +25,10 @@ players/{playerId}/matchSummaries/{matchId}
 players/{playerId}/statistics/{seasonOrCareerId}
 ```
 
+The implemented `teams/{teamId}` document contains `displayName`, `shortName`, `countryCode`, `brandingKey`, optional `externalProviderId`, and Firestore `createdAt`/`updatedAt` timestamps. `club-sport-herediano` is the stable initial ID. The seed JSON is the canonical basic Team data; presentation configuration derives its identity and names from that record while keeping theme colors in source code. Firestore snapshots are converted and runtime-validated at the persistence boundary before becoming domain `Team` values.
+
+An explicit emulator-only script ensures the initial document exists. It requires a local emulator host and a `demo-*` project ID, creates only when absent, and leaves an existing record untouched. It never runs during application rendering or startup.
+
 A match stores tracked team, opponent, home/away IDs, competition, season, kickoff, status, score, provider fixture ID, and voting bounds. A participant stores squad role (`starter` or `substitute`), `participated`, and optional entry/exit minutes. Ballot queries and validation must include only `participated == true` records.
 
 A completed ballot is one document containing a map of player IDs to ratings and one coach rating. Its document ID is the authenticated `voterId` inside the match's `ballots` subcollection. A Firestore transaction creates only if absent; security rules require `request.auth.uid == voterId`, immutable match/voter identity, a valid open window, and eligible rating keys. A server-controlled match state is authoritative. This deterministic path plus transaction and rules enforces `one voter + one match` without a per-score write explosion.
@@ -35,7 +39,7 @@ On accepted ballot creation, a future trusted Cloud Function transaction updates
 
 ## Authentication and security
 
-Start with Firebase Anonymous Authentication for low friction. Domain data keys by Firebase UID, so upgrading or linking an anonymous account to Google, email link, or another provider preserves identity. Authentication is not authorization: Firestore rules validate document ownership, match state, window bounds, rating ranges, and allowed keys. Default rules currently deny every read and write.
+Start with Firebase Anonymous Authentication for low friction. Domain data keys by Firebase UID, so upgrading or linking an anonymous account to Google, email link, or another provider preserves identity. Authentication is not authorization: future Firestore rules will validate document ownership, match state, window bounds, rating ranges, and allowed keys. Team documents are intentionally public-readable because the product displays club identity without authentication; all browser Team writes remain denied, and every other collection remains deny-all. Development bootstrap uses the emulator's privileged REST context and cannot target a non-local host or non-demo project.
 
 Never expose Admin credentials to the browser. Public Firebase web configuration is not secret, but belongs in environment-specific files. Use separate development/production projects and emulators for local work. Validate App Check and abuse controls before public launch.
 

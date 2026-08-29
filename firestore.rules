@@ -1,7 +1,13 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Foundation default: deny all. Add least-privilege rules with each capability.
-    match /{document=**} { allow read, write: if false; }
+    match /teams/{teamId} {
+      allow read: if true;
+      allow create, update, delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
   }
 }

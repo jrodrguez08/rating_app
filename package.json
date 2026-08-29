@@ -15,6 +15,10 @@
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:firebase": "firebase emulators:exec --only firestore \"npm run test:firebase:run\"",
+    "test:firebase:run": "vitest run --config vitest.firebase.config.mts",
+    "firebase:emulators": "firebase emulators:start --only firestore",
+    "seed:firebase": "node scripts/seed-development.mjs",
     "verify": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
@@ -24,6 +28,7 @@
     "react-dom": "19.2.8"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",

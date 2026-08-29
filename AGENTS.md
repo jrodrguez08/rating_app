@@ -13,6 +13,8 @@ Before product-code changes, read this file completely along with `PRODUCT.md`, 
 - Update meaningful tests when behavior changes. Test outcomes and accessibility semantics, not implementation trivia.
 - Update source-of-truth documentation when product or architecture truths change.
 - Never commit secrets or local environment files. Keep `.env.example` placeholder-only and keep local work on emulators or an explicit development Firebase project.
+- Treat `teams/{teamId}` as public-readable and client-write-denied. Seed only through the explicit emulator bootstrap; never seed from rendering or application startup and never weaken rules for convenience.
+- Run `npm run test:firebase` for Firestore persistence or rules changes. It requires Java and the externally installed Firebase CLI; CI runs it separately from the standard gate.
 - Do not edit or commit generated output such as `.next`, coverage, emulator data, `next-env.d.ts`, or TypeScript build-info files.
 - Use `npm run verify` as the complete local quality gate: formatting, lint, strict typecheck, all tests, and production build. Also run `git diff --check` before handoff. Wait for every process to exit and never report a command as passing while it is still running.
 - Keep Git changes scoped and preserve unrelated user work. CI must use `npm ci` and invoke the same canonical verification command without production credentials.
