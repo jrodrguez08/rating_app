@@ -38,7 +38,30 @@ export async function ensureDevelopmentTeam({
     headers: { Authorization: "Bearer owner" },
   });
 
-  if (existing.ok) return { created: false, teamId: initialTeam.id };
+  if (existing.ok) {
+    const document = await existing.json();
+    if (document.fields?.countryName === undefined) {
+      const migrated = await fetch(
+        `${baseUrl}/teams/${initialTeam.id}?updateMask.fieldPaths=countryName`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: "Bearer owner",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            fields: { countryName: stringValue(initialTeam.countryName) },
+          }),
+        },
+      );
+      if (!migrated.ok) {
+        throw new Error(
+          `Could not add Team country name (${migrated.status}).`,
+        );
+      }
+    }
+    return { created: false, teamId: initialTeam.id };
+  }
   if (existing.status !== 404) {
     throw new Error(`Could not inspect Team document (${existing.status}).`);
   }
@@ -54,6 +77,7 @@ export async function ensureDevelopmentTeam({
       fields: {
         displayName: stringValue(initialTeam.displayName),
         shortName: stringValue(initialTeam.shortName),
+        countryName: stringValue(initialTeam.countryName),
         countryCode: stringValue(initialTeam.countryCode),
         brandingKey: stringValue(initialTeam.brandingKey),
         createdAt: { timestampValue: now },

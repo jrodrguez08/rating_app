@@ -14,6 +14,8 @@ Before product-code changes, read this file completely along with `PRODUCT.md`, 
 - Update source-of-truth documentation when product or architecture truths change.
 - Never commit secrets or local environment files. Keep `.env.example` placeholder-only and keep local work on emulators or an explicit development Firebase project.
 - Treat `teams/{teamId}` as public-readable and client-write-denied. Seed only through the explicit emulator bootstrap; never seed from rendering or application startup and never weaken rules for convenience.
+- Keep football providers behind `FootballDataProvider`. Never import provider DTOs into UI or domain models, expose `API_FOOTBALL_KEY` to the browser, or run privileged sync persistence against a non-local or non-`demo-*` Firebase target.
+- Preserve sync idempotency and bounded provider reads. Match imports must handle the tracked Team as home or away and must not imply that lineups, participants, coaches, or voting data were synchronized.
 - Run `npm run test:firebase` for Firestore persistence or rules changes. It requires Java and the externally installed Firebase CLI; CI runs it separately from the standard gate.
 - Do not edit or commit generated output such as `.next`, coverage, emulator data, `next-env.d.ts`, or TypeScript build-info files.
 - Use `npm run verify` as the complete local quality gate: formatting, lint, strict typecheck, all tests, and production build. Also run `git diff --check` before handoff. Wait for every process to exit and never report a command as passing while it is still running.

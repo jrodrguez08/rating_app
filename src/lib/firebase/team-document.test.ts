@@ -9,6 +9,7 @@ const team: Team = {
   id: "test-team",
   displayName: "Test Football Club",
   shortName: "Test FC",
+  countryName: "Costa Rica",
   countryCode: "CR",
   brandingKey: "test-fc",
   createdAt: "2026-01-02T03:04:05.000Z",
@@ -30,6 +31,7 @@ describe("Team Firestore conversion", () => {
       teamFromDocument("broken", {
         displayName: "Broken FC",
         shortName: "Broken",
+        countryName: "Costa Rica",
         countryCode: "CR",
         brandingKey: "broken",
         createdAt: "not-a-timestamp",

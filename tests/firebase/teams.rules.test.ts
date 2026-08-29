@@ -83,6 +83,7 @@ describe("Team persistence and rules", () => {
       id: "club-sport-herediano",
       displayName: "Club Sport Herediano",
       shortName: "Herediano",
+      countryName: "Costa Rica",
       countryCode: "CR",
       brandingKey: "herediano",
     });
@@ -121,4 +122,15 @@ describe("Team persistence and rules", () => {
     );
     await assertFails(reference.delete());
   });
+
+  it.each(["competitions", "seasons", "matches"])(
+    "keeps %s client reads and writes denied until a browsing feature needs them",
+    async (collection) => {
+      const database = environment.unauthenticatedContext().firestore();
+      const reference = database.doc(`${collection}/example`);
+
+      await assertFails(reference.get());
+      await assertFails(reference.set({ name: "Not allowed" }));
+    },
+  );
 });

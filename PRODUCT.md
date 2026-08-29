@@ -6,9 +6,9 @@ Rating App gives a small football supporter community a fair, simple way to rate
 
 ## Current foundation milestone
 
-Implemented now: a mobile-first shell showing Herediano as the initial configured club, an honest inactive-voting state, future navigation affordances, accessible semantics, generic domain types, project infrastructure, and a Firestore-backed Team persistence foundation. Club Sport Herediano is the first deterministic Team record and can be bootstrapped explicitly in the local emulator.
+Implemented now: a mobile-first shell showing Herediano as the initial configured club, an honest inactive-voting state, future navigation affordances, accessible semantics, generic domain types, project infrastructure, and a Firestore-backed Team persistence foundation. Club Sport Herediano is the first deterministic Team record and can be bootstrapped explicitly in the local emulator. A manual server-side API-Football import can resolve that Team and persist its competitions, seasons, and bounded recent/upcoming fixtures in the emulator.
 
-Not implemented now: cloud Team administration, live match data, authentication, voting, ratings, aggregates, history pages, notifications, administration, or API-Football integration. The UI still uses the configured presentation fallback and must not imply these exist.
+Not implemented now: cloud Team administration, automatic or live synchronization, lineups, participants, coaches, authentication, voting, ratings, aggregates, history pages, notifications, or administration. Synced data is not exposed in the UI, which still uses the configured presentation fallback and must not imply these features exist.
 
 ## MVP (planned)
 
