@@ -1,44 +1,65 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
-const navigation = [
-  { href: "/", label: "Home", planned: false },
-  { href: "/matches", label: "Matches", planned: true },
-  { href: "/players", label: "Players", planned: true },
-] as const;
+import type { Locale } from "@/i18n/config";
+import type { Messages } from "@/i18n/messages";
 
-export function AppShell({ children }: { children: ReactNode }) {
+import { LanguageSwitcher } from "./language-switcher";
+
+interface AppShellProps {
+  children: ReactNode;
+  locale: Locale;
+  messages: Messages;
+}
+
+export function AppShell({ children, locale, messages }: AppShellProps) {
+  const navigation = [
+    { href: "/", label: messages.navigation.home, planned: false },
+    { href: "/matches", label: messages.navigation.matches, planned: true },
+    { href: "/players", label: messages.navigation.players, planned: true },
+  ] as const;
+
   return (
     <div className="min-h-screen">
       <a
         href="#main-content"
         className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-white focus:px-4 focus:py-3"
       >
-        Skip to content
+        {messages.accessibility.skipToContent}
       </a>
       <header className="border-b border-border bg-white">
-        <div className="page-shell flex min-h-18 items-center justify-between gap-4">
-          <Link
-            href="/"
-            aria-label="Rating App home"
-            className="flex min-h-11 items-center gap-3 rounded-md"
-          >
-            <span
-              aria-hidden="true"
-              className="grid size-9 place-items-center rounded-xl bg-brand font-black text-white"
+        <div className="page-shell">
+          <div className="flex min-h-14 items-center justify-between gap-3">
+            <Link
+              href="/"
+              aria-label={messages.accessibility.appHome}
+              className="flex min-h-11 items-center gap-2 rounded-md"
             >
-              R
-            </span>
-            <span className="font-extrabold tracking-tight">Rating App</span>
-          </Link>
-          <nav aria-label="Primary navigation">
-            <ul className="flex items-center gap-1">
+              <span
+                aria-hidden="true"
+                className="grid size-8 place-items-center rounded-lg bg-brand text-sm font-black text-white"
+              >
+                R
+              </span>
+              <span className="font-extrabold tracking-tight">Rating App</span>
+            </Link>
+            <LanguageSwitcher
+              locale={locale}
+              label={messages.common.language}
+              languageNames={{
+                es: messages.common.spanish,
+                en: messages.common.english,
+              }}
+            />
+          </div>
+          <nav aria-label={messages.navigation.label}>
+            <ul className="flex min-h-10 items-end gap-5">
               {navigation.map((item) => (
                 <li key={item.href}>
                   {item.planned ? (
                     <span
                       aria-disabled="true"
-                      className="flex min-h-11 items-center rounded-lg px-3 text-sm font-semibold text-muted opacity-65"
+                      className="flex min-h-10 items-center border-b-2 border-transparent text-sm font-semibold text-muted opacity-65"
                     >
                       {item.label}
                     </span>
@@ -46,7 +67,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                     <Link
                       href={item.href}
                       aria-current="page"
-                      className="flex min-h-11 items-center rounded-lg bg-red-50 px-3 text-sm font-bold text-brand"
+                      className="flex min-h-10 items-center border-b-2 border-brand text-sm font-bold text-brand"
                     >
                       {item.label}
                     </Link>
@@ -59,7 +80,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </header>
       {children}
       <footer className="page-shell border-t border-border py-6 text-sm text-muted">
-        Built for supporters. Ready to grow club by club.
+        {messages.footer.supporting}
       </footer>
     </div>
   );

@@ -1,15 +1,19 @@
 import type { Metadata } from "next";
+
+import { getMessages } from "@/i18n/messages";
+import { getLocale } from "@/i18n/server";
+
 import "./globals.css";
 
-export const metadata: Metadata = {
-  title: "Rating App",
-  description:
-    "Supporter ratings for the players and coaches who shape the match.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const messages = getMessages(await getLocale());
+  return messages.metadata;
+}
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  const locale = await getLocale();
   return (
-    <html lang="en" className="h-full antialiased">
+    <html lang={locale} className="h-full antialiased">
       <body className="min-h-full">{children}</body>
     </html>
   );

@@ -23,3 +23,5 @@ Future rating controls should use large discrete buttons, expose a fieldset/lege
 ## Accessibility
 
 Use landmarks and heading order, labels for every control, visible keyboard focus, sufficient WCAG AA contrast, reduced-motion preferences, and live regions only for meaningful async changes. Do not disable zoom. Check at 320px width, 200% zoom, keyboard-only, and with a screen reader before shipping interactive work.
+
+The compact language switcher shows the current locale code and reveals full text labels on demand; it exposes a meaningful name and current selection, retains 44px targets, and remains secondary to match/rating content. Mobile headers prioritize content density: use a quiet utility control and a text-navigation row with a restrained active indicator rather than filled control bars. Components must tolerate Spanish/English copy-length differences through flexible, content-driven sizing. Validate both locales when adding or changing visible UI.

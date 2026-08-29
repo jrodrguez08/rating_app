@@ -4,7 +4,13 @@ Mobile-first supporter ratings for football matches. The first community is Club
 
 ## Foundation status
 
-The repository now includes an emulator-only, manually invoked API-Football sync for the configured Team's bounded competition, season, and fixture data. It does **not** yet authenticate users, sync lineups or participants, accept ballots, or show results.
+The repository now includes Spanish/English localization and an emulator-only, manually invoked API-Football sync for the configured Team's bounded competition, season, and fixture data. It does **not** yet authenticate users, sync lineups or participants, accept ballots, or show results.
+
+## Localization
+
+Spanish (`es`) is the default and fallback product locale; English (`en`) is equally supported. The language switcher writes a validated `rating-app-locale` cookie and refreshes the current route so Server Components, metadata, and `<html lang>` agree without hydration mismatch. Routes remain locale-neutral—there are no `/es` or `/en` route trees.
+
+Typed, build-time message resources live in `src/i18n/messages`. Every visible product string must be present in both resources. `src/i18n/format.ts` centralizes product date and number formatting with native `Intl`, using `es-CR` and `en-US`; persisted timestamps remain UTC. Club, competition, player, and coach proper nouns remain untranslated provider/domain data.
 
 ## Developer workflow
 
@@ -77,6 +83,7 @@ There is no pre-commit framework yet. At this repository size, the canonical loc
 - `src/lib/firebase`: browser and future privileged-server boundaries
 - `src/lib/providers`: provider adapters behind domain ports
 - `src/application`: provider-neutral synchronization orchestration
+- `src/i18n`: locale config, typed messages, cookie resolution, and formatters
 - `scripts`: explicit emulator bootstrap and sync entry points
 - `firestore.rules`, `firebase.json`: secure default and local emulator shape
 
