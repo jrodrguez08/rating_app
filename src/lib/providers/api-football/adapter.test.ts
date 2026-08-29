@@ -36,8 +36,8 @@ describe("ApiFootballAdapter", () => {
       }),
     ).resolves.toEqual({
       externalProviderId: "1234",
-      name: "Herediano",
-      countryName: "Costa Rica",
+      name: "CS Herediano",
+      countryName: "Costa-Rica",
     });
     expect(fetcher).toHaveBeenCalledWith(
       expect.objectContaining({ pathname: "/teams" }),
@@ -84,15 +84,27 @@ describe("ApiFootballAdapter", () => {
   });
 
   it("normalizes fixture dates, scores, statuses, and home/away orientation", async () => {
-    const adapter = new ApiFootballAdapter(
-      "test-key",
-      vi.fn<typeof fetch>().mockResolvedValue(response(fixtureResponse)),
-    );
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(response(fixtureResponse));
+    const adapter = new ApiFootballAdapter("test-key", fetcher);
 
-    const fixtures = await adapter.getFixtures("1234", {
-      from: "2026-05-01",
-      to: "2026-10-01",
-    });
+    const fixtures = await adapter.getFixtures(
+      "1234",
+      { from: "2026-05-01", to: "2026-10-01" },
+      [
+        {
+          externalCompetitionId: "71",
+          competitionName: "Primera Division",
+          countryName: "Costa Rica",
+          type: "league",
+          providerSeason: 2026,
+          startsAt: "2026-01-01T00:00:00.000Z",
+          endsAt: "2026-12-31T00:00:00.000Z",
+          isCurrent: true,
+        },
+      ],
+    );
     expect(fixtures[0]).toMatchObject({
       externalFixtureId: "5001",
       kickoffAt: "2026-08-20T08:00:00.000Z",
@@ -107,6 +119,8 @@ describe("ApiFootballAdapter", () => {
       awayTeam: { externalProviderId: "1234" },
       score: { home: null, away: null },
     });
+    const requestedUrl = String(fetcher.mock.calls[0][0]);
+    expect(requestedUrl).toContain("season=2026");
   });
 
   it.each([
@@ -128,7 +142,16 @@ describe("ApiFootballAdapter", () => {
       vi.fn<typeof fetch>().mockResolvedValue(response(malformed)),
     );
     await expect(
-      adapter.getFixtures("1234", { from: "2026-01-01", to: "2026-12-31" }),
+      adapter.getFixtures("1234", { from: "2026-01-01", to: "2026-12-31" }, [
+        {
+          externalCompetitionId: "71",
+          competitionName: "Primera Division",
+          countryName: "Costa Rica",
+          type: "league",
+          providerSeason: 2026,
+          isCurrent: true,
+        },
+      ]),
     ).rejects.toMatchObject({ code: "malformed-response" });
   });
 });

@@ -2,8 +2,8 @@ export const teamSearchResponse = [
   {
     team: {
       id: 1234,
-      name: "Herediano",
-      country: "Costa Rica",
+      name: "CS Herediano",
+      country: "Costa-Rica",
     },
   },
 ];

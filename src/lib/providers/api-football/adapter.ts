@@ -112,6 +112,7 @@ export class ApiFootballAdapter implements FootballDataProvider {
       normalize(lookup.displayName),
       normalize(lookup.shortName),
       normalize(lookup.displayName.replace(/^club sport\s+/i, "")),
+      normalize(lookup.displayName.replace(/^club sport\s+/i, "CS ")),
     ]);
     const matches = response
       .map((value) => {
@@ -184,13 +185,27 @@ export class ApiFootballAdapter implements FootballDataProvider {
   async getFixtures(
     externalTeamId: string,
     window: FixtureWindow,
+    competitionSeasons: ProviderCompetitionSeason[],
   ): Promise<ProviderFixture[]> {
-    const response = await this.request("/fixtures", {
-      team: externalTeamId,
-      from: window.from,
-      to: window.to,
-      timezone: "UTC",
-    });
+    const seasons = [
+      ...new Set(
+        competitionSeasons
+          .filter((season) => overlapsWindow(season, window))
+          .map((season) => season.providerSeason),
+      ),
+    ];
+    const response: unknown[] = [];
+    for (const season of seasons) {
+      response.push(
+        ...(await this.request("/fixtures", {
+          team: externalTeamId,
+          season: String(season),
+          from: window.from,
+          to: window.to,
+          timezone: "UTC",
+        })),
+      );
+    }
     return response.map((value) => {
       const item = record(value, "fixture response item");
       const fixture = record(item.fixture, "fixture");
@@ -275,4 +290,16 @@ export class ApiFootballAdapter implements FootballDataProvider {
     }
     return array(envelope.response, "response.response");
   }
+}
+
+function overlapsWindow(
+  season: ProviderCompetitionSeason,
+  window: FixtureWindow,
+): boolean {
+  const from = `${window.from}T00:00:00.000Z`;
+  const to = `${window.to}T23:59:59.999Z`;
+  return (
+    (season.startsAt === undefined || season.startsAt <= to) &&
+    (season.endsAt === undefined || season.endsAt >= from)
+  );
 }

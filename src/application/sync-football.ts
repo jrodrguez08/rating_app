@@ -89,10 +89,12 @@ export async function syncFootballData(
     throw new Error("Team provider mapping was not established.");
   }
 
-  const [availableSeasons, fixtures] = await Promise.all([
-    provider.getCompetitionSeasons(externalTeamId),
-    provider.getFixtures(externalTeamId, window),
-  ]);
+  const availableSeasons = await provider.getCompetitionSeasons(externalTeamId);
+  const fixtures = await provider.getFixtures(
+    externalTeamId,
+    window,
+    availableSeasons,
+  );
   const seasonMetadata = new Map(
     availableSeasons.map((season) => [
       seasonKey(season.externalCompetitionId, season.providerSeason),

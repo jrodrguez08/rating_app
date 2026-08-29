@@ -57,6 +57,7 @@ export interface FootballDataProvider {
   getFixtures(
     externalTeamId: string,
     window: FixtureWindow,
+    competitionSeasons: ProviderCompetitionSeason[],
   ): Promise<ProviderFixture[]>;
 }
 
