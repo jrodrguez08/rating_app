@@ -27,7 +27,7 @@ export function EmptyRatingState({
         <p className="mt-3 max-w-2xl leading-7 text-muted">
           {messages.description}
         </p>
-        <p className="game-inset mt-6 border-l-4 border-l-accent p-4 text-sm font-semibold leading-6 text-foreground">
+        <p className="game-inset mt-5 border-l-2 border-l-accent p-3 text-sm font-medium leading-6 text-foreground">
           {messages.privacy}
         </p>
       </div>
