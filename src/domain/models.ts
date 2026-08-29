@@ -131,7 +131,31 @@ export interface Ballot {
   id: EntityId;
   matchId: EntityId;
   voterId: EntityId;
+  teamId: EntityId;
   submittedAt: string;
+  playerRatings: Record<EntityId, number>;
+  coachRating: { coachId: EntityId; rating: number };
+}
+
+export interface BallotPlayer {
+  id: EntityId;
+  name: string;
+  position?: string;
+  substitute: boolean;
+}
+
+export interface BallotContext {
+  matchId: EntityId;
+  teamId: EntityId;
+  homeTeamName: string;
+  awayTeamName: string;
+  score: { home: number | null; away: number | null };
+  votingClosesAt: string;
+  players: BallotPlayer[];
+  coach: { id: EntityId; name: string };
+}
+
+export interface BallotRatings {
   playerRatings: Record<EntityId, number>;
   coachRating: { coachId: EntityId; rating: number };
 }

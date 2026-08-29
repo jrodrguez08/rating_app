@@ -72,9 +72,11 @@ Use a small internal SVG set on a 16×16 grid with crisp geometric paths, `curre
 
 Until an intentional provider/logo licensing strategy exists, team marks use safe initials, abbreviations, or simple themed blocks. Never invent or scrape official crests.
 
-## Future rating controls
+## Rating controls
 
-Ratings will use discrete values `1` through `10`, not a precision slider. Each value needs a large tap target, keyboard-operable form semantics, high contrast, and an unmistakable selected state. A selected value may use a tiny tactile snap/bounce and club-secondary highlight, but accessibility and input clarity take priority over nostalgia.
+Ratings use a five-column grid of discrete values `1` through `10`, not a precision slider. Each player and the head coach has a labeled fieldset; every value is a 44px-or-larger button with `aria-pressed`, keyboard operation, high contrast, and an unmistakable club-secondary selected state. The complete-count and sticky submission action remain visible on narrow screens without covering the final control.
+
+Submission uses one focused confirmation dialog because ballots are immutable. It explains that ratings cannot be changed, traps keyboard focus, supports Escape/cancel, and restores focus to the triggering button. Recoverable errors preserve every selected rating. Submitted, closed, not-open, and unavailable states use explicit localized text and never reveal individual or aggregate results.
 
 ## Spacing and responsive behavior
 

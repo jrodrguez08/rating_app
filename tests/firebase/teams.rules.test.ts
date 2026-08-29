@@ -141,4 +141,23 @@ describe("Team persistence and rules", () => {
       await assertFails(reference.set({ name: "Not allowed" }));
     },
   );
+
+  it("keeps ballot documents inaccessible to all client SDK operations", async () => {
+    await environment.withSecurityRulesDisabled(async (context) => {
+      await context
+        .firestore()
+        .doc("matches/example/ballots/supporter-1")
+        .set({ voterId: "supporter-1", playerRatings: { player: 8 } });
+    });
+    const database = environment
+      .authenticatedContext("supporter-1")
+      .firestore();
+    const ballot = database.doc("matches/example/ballots/supporter-1");
+
+    await assertFails(ballot.get());
+    await assertFails(database.collection("matches/example/ballots").get());
+    await assertFails(ballot.set({ voterId: "supporter-1" }));
+    await assertFails(ballot.update({ playerRatings: { player: 9 } }));
+    await assertFails(ballot.delete());
+  });
 });

@@ -6,11 +6,11 @@ Rating App gives a small football supporter community a fair, simple way to rate
 
 ## Current foundation milestone
 
-Implemented now: a mobile-first shell with an original 16-bit sports-game visual language, Herediano as the initial configured club, accessible Spanish/English localization, generic domain types, and Firestore-backed football persistence. Manual and scheduled server-side API-Football synchronization can discover fixtures, focus on the relevant match, synchronize its tracked-Team participants/head coach after `FT`, establish an idempotent two-hour future voting window only when rating-ready, and show honest upcoming/live/preparing/ready match context on Home when trusted server persistence is configured. Firebase Anonymous Authentication quietly establishes and persists the canonical voter UID without a login screen.
+Implemented now: a mobile-first shell with an original 16-bit sports-game visual language, Herediano as the initial configured club, accessible Spanish/English localization, generic domain types, and Firestore-backed football persistence. Manual and scheduled server-side API-Football synchronization can discover fixtures, focus on the relevant match, synchronize its tracked-Team participants/head coach after `FT`, and establish an idempotent two-hour future voting window only when rating-ready. Firebase Anonymous Authentication quietly establishes and persists the canonical voter UID without a login screen. During that trusted window, the Home call to action opens a complete player-and-head-coach ballot; one validated, immutable ballot is stored per match and Firebase UID.
 
-Not implemented now: cloud Team administration, ballot submission, ratings, aggregates/results, identity-provider linking, history pages, notifications, or administration. Anonymous identity is not yet authorization to vote; lifecycle readiness and timestamps exist, but the ready Home state explicitly does not claim the ballot is implemented.
+Not implemented now: cloud Team administration, aggregates/results, identity-provider linking, history pages, notifications, or administration. Individual ballot data remains private and results remain unavailable.
 
-## MVP (planned)
+## MVP
 
 After a match finishes, voting opens for approximately two hours. An authenticated supporter sees every Herediano player who actually played—not unused squad members—and the match's head coach. They submit one complete ballot. Aggregate results remain hidden until voting closes.
 
