@@ -4,16 +4,20 @@ import {
   getApps,
   initializeApp,
 } from "firebase-admin/app";
+import { getAuth, type Auth } from "firebase-admin/auth";
 import {
+  FieldValue,
   getFirestore,
   Timestamp,
   type Firestore,
 } from "firebase-admin/firestore";
 
+import { validateBallotRatings } from "@/domain/ballot-validation";
 import { preserveMonotonicMatchStatus } from "@/domain/match-status";
 import type {
   Coach,
   CoachAssignment,
+  BallotContext,
   Competition,
   FootballSyncMetadata,
   Match,
@@ -59,6 +63,164 @@ export function getServerFirestore(): Firestore {
     });
   }
   return getFirestore();
+}
+
+export function getServerAuth(): Auth {
+  getServerFirestore();
+  return getAuth();
+}
+
+export type BallotPageState =
+  | { state: "active"; context: BallotContext }
+  | { state: "not_open" | "closed" | "unavailable" };
+
+export type BallotSubmissionResult =
+  | { status: "created" }
+  | {
+      status:
+        | "already_submitted"
+        | "not_open"
+        | "closed"
+        | "data_unavailable"
+        | "invalid_ballot";
+    };
+
+export class AdminBallotService {
+  constructor(private readonly database = getServerFirestore()) {}
+
+  async getPageState(
+    matchId: string,
+    now = new Date(),
+  ): Promise<BallotPageState> {
+    const matchSnapshot = await this.database.doc(`matches/${matchId}`).get();
+    if (!matchSnapshot.exists) return { state: "unavailable" };
+    const match = fromDocument<Match>(matchSnapshot);
+    const windowState = getWindowState(match, now);
+    if (windowState !== "active") return { state: windowState };
+
+    const [participantSnapshot, coachSnapshot] = await Promise.all([
+      this.database.collection(`matches/${matchId}/participants`).get(),
+      this.database.doc(`matches/${matchId}/coachAssignments/head-coach`).get(),
+    ]);
+    const players = participantSnapshot.docs
+      .map((document) =>
+        fromDocument<MatchParticipant & { id: string }>(document),
+      )
+      .filter(
+        (participant) =>
+          participant.teamId === match.trackedTeamId &&
+          participant.participated,
+      )
+      .sort(compareParticipants)
+      .map((participant) => ({
+        id: participant.playerId,
+        name: participant.playerName,
+        ...(participant.position === undefined
+          ? {}
+          : { position: participant.position }),
+        substitute: participant.squadRole === "substitute",
+      }));
+    const coach = coachSnapshot.exists
+      ? fromDocument<CoachAssignment & { id: string }>(coachSnapshot)
+      : null;
+    if (
+      players.length === 0 ||
+      coach === null ||
+      coach.teamId !== match.trackedTeamId
+    ) {
+      return { state: "unavailable" };
+    }
+    return {
+      state: "active",
+      context: {
+        matchId: match.id,
+        teamId: match.trackedTeamId,
+        homeTeamName: match.homeTeam.name,
+        awayTeamName: match.awayTeam.name,
+        score: match.score,
+        votingClosesAt: match.votingClosesAt!,
+        players,
+        coach: { id: coach.coachId, name: coach.coachName },
+      },
+    };
+  }
+
+  async hasSubmitted(matchId: string, voterId: string): Promise<boolean> {
+    return (
+      await this.database.doc(`matches/${matchId}/ballots/${voterId}`).get()
+    ).exists;
+  }
+
+  async submit(
+    matchId: string,
+    voterId: string,
+    input: unknown,
+    now = new Date(),
+  ): Promise<BallotSubmissionResult> {
+    return this.database.runTransaction(async (transaction) => {
+      const matchReference = this.database.doc(`matches/${matchId}`);
+      const participantQuery = this.database.collection(
+        `matches/${matchId}/participants`,
+      );
+      const coachReference = this.database.doc(
+        `matches/${matchId}/coachAssignments/head-coach`,
+      );
+      const ballotReference = this.database.doc(
+        `matches/${matchId}/ballots/${voterId}`,
+      );
+      const [
+        matchSnapshot,
+        participantSnapshot,
+        coachSnapshot,
+        ballotSnapshot,
+      ] = await Promise.all([
+        transaction.get(matchReference),
+        transaction.get(participantQuery),
+        transaction.get(coachReference),
+        transaction.get(ballotReference),
+      ]);
+      if (ballotSnapshot.exists) return { status: "already_submitted" };
+      if (!matchSnapshot.exists) return { status: "data_unavailable" };
+      const match = fromDocument<Match>(matchSnapshot);
+      const windowState = getWindowState(match, now);
+      if (windowState !== "active") return { status: windowState };
+
+      const eligiblePlayerIds = participantSnapshot.docs
+        .map((document) => document.data() as Partial<MatchParticipant>)
+        .filter(
+          (participant) =>
+            participant.teamId === match.trackedTeamId &&
+            participant.participated === true,
+        )
+        .map((participant) => participant.playerId)
+        .filter((playerId): playerId is string => typeof playerId === "string");
+      const coach = coachSnapshot.data() as
+        Partial<CoachAssignment> | undefined;
+      if (
+        eligiblePlayerIds.length === 0 ||
+        coach?.teamId !== match.trackedTeamId ||
+        typeof coach.coachId !== "string"
+      ) {
+        return { status: "data_unavailable" };
+      }
+      const validation = validateBallotRatings(
+        eligiblePlayerIds,
+        coach.coachId,
+        input,
+      );
+      if (!validation.valid) return { status: validation.reason };
+
+      transaction.create(ballotReference, {
+        matchId,
+        voterId,
+        teamId: match.trackedTeamId,
+        submittedAt: FieldValue.serverTimestamp(),
+        playerRatings: validation.ratings.playerRatings,
+        coachRating: validation.ratings.coachRating,
+      });
+      return { status: "created" };
+    });
+  }
 }
 
 export class AdminFootballSyncStore
@@ -192,10 +354,50 @@ export class AdminFootballSyncStore
   }
 }
 
+function getWindowState(
+  match: Match,
+  now: Date,
+): "active" | "not_open" | "closed" {
+  if (
+    match.ratingState !== "rating_ready" ||
+    match.votingOpensAt === undefined ||
+    match.votingClosesAt === undefined
+  ) {
+    return "not_open";
+  }
+  if (now < new Date(match.votingOpensAt)) return "not_open";
+  if (now >= new Date(match.votingClosesAt)) return "closed";
+  return "active";
+}
+
+function compareParticipants(
+  left: MatchParticipant,
+  right: MatchParticipant,
+): number {
+  const positionRank = (position: string | undefined) => {
+    const normalized = position?.toLowerCase() ?? "";
+    if (normalized.includes("goal") || normalized === "g") return 0;
+    if (normalized.includes("def") || normalized === "d") return 1;
+    if (normalized.includes("mid") || normalized === "m") return 2;
+    if (
+      normalized.includes("att") ||
+      normalized.includes("for") ||
+      normalized === "f"
+    )
+      return 3;
+    return 4;
+  };
+  return (
+    positionRank(left.position) - positionRank(right.position) ||
+    Number(left.shirtNumber ?? 999) - Number(right.shirtNumber ?? 999) ||
+    left.playerName.localeCompare(right.playerName)
+  );
+}
+
 function required(name: string): string {
   const value = process.env[name];
   if (value === undefined || value.trim() === "")
-    throw new Error(`${name} is required for trusted lifecycle persistence.`);
+    throw new Error(`${name} is required for trusted server persistence.`);
   return value;
 }
 function toDocument(value: object): Record<string, unknown> {

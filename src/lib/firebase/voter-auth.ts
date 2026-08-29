@@ -33,6 +33,13 @@ export function ensureAnonymousVoter(): Promise<VoterIdentity> {
   return sharedAttempt;
 }
 
+export async function getVoterIdToken(): Promise<string> {
+  await ensureAnonymousVoter();
+  const user = getBrowserAuth().currentUser;
+  if (user === null) throw new VoterIdentityError("unavailable");
+  return user.getIdToken();
+}
+
 async function prepareAnonymousVoter(): Promise<VoterIdentity> {
   const auth = getBrowserAuth();
   await auth.authStateReady();

@@ -4,7 +4,7 @@ Mobile-first supporter ratings for football matches. The first community is Club
 
 ## Foundation status
 
-The repository now includes Spanish/English localization, tracked-Team football persistence, match-aware lifecycle synchronization, an optional lifecycle-aware Home scoreboard, and persistent low-friction voter identity through Firebase Anonymous Authentication. A trusted server route can refresh relevant fixtures, finalize participants/head coach after `FT`, and establish a stable two-hour future voting window. It does **not** yet accept ballots or show results.
+The repository now includes Spanish/English localization, tracked-Team football persistence, match-aware lifecycle synchronization, a lifecycle-aware Home scoreboard, persistent low-friction voter identity through Firebase Anonymous Authentication, and the match rating ballot. A trusted server route accepts exactly one complete, participant-only ballot per Firebase UID during the stable server-controlled voting window. Results and aggregates are not implemented.
 
 ## Localization
 
@@ -70,7 +70,7 @@ The browser quietly ensures a Firebase anonymous user on first visit. Firebase U
 
 Anonymous authentication identifies a browser profile, not a person. Clearing storage, incognito, another browser/device, or another anonymous account can produce a different UID. Rating App does not use fingerprinting. Future provider linking may upgrade the same Firebase account while preserving its UID where Firebase supports it; automatic anonymous-account cleanup is not assumed.
 
-Authentication does not grant general database access. Current rules still deny authenticated clients access to matches, lifecycle data, participants, coaches, and ballots. The future ballot is planned at `matches/{matchId}/ballots/{voterId}` and must bind the path to `request.auth.uid` plus voting-window, eligibility, rating, and create-only validation. Ballot submission is not implemented in this milestone.
+Authentication does not grant general database access. Current rules deny authenticated clients access to matches, lifecycle data, participants, coaches, and ballots. The browser sends its Firebase ID token to the trusted `GET`/`POST /api/matches/{matchId}/ballot` boundary; the server verifies the token and derives `voterId` rather than accepting identity from the payload. Inside a Firestore transaction it reloads the authoritative match, exact tracked-Team participants, head coach, and deterministic `matches/{matchId}/ballots/{voterId}` path. It validates the server-controlled window, exact participant keys, coach identity, and integer ratings from 1 through 10 before a create-only write with a server timestamp. Repeated or concurrent submissions cannot edit the first ballot. Individual ballots are never readable through the client SDK.
 
 To exercise the real provider manually, set the server-only `API_FOOTBALL_KEY` in `.env.local`, keep the emulator running, seed the Team, then run `npm run sync:football`. The command resolves an exact Team name-and-country match once, fetches a bounded 120-day history and 60-day future window, and upserts only fixtures involving that Team. It makes one metadata request and one fixture request per distinct provider season overlapping the window; the initial unmapped run adds one Team lookup. It reports created, updated, and unchanged counts. Never prefix this key with `NEXT_PUBLIC_` or expose it to browser code.
 

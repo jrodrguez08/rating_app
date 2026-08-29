@@ -12,9 +12,16 @@ interface AppShellProps {
   locale: Locale;
   messages: Messages;
   theme: TeamPresentation["theme"];
+  currentHref?: "/" | null;
 }
 
-export function AppShell({ children, locale, messages, theme }: AppShellProps) {
+export function AppShell({
+  children,
+  locale,
+  messages,
+  theme,
+  currentHref = "/",
+}: AppShellProps) {
   const navigation = [
     { href: "/", label: messages.navigation.home, planned: false },
     { href: "/matches", label: messages.navigation.matches, planned: true },
@@ -77,7 +84,9 @@ export function AppShell({ children, locale, messages, theme }: AppShellProps) {
                   ) : (
                     <Link
                       href={item.href}
-                      aria-current="page"
+                      aria-current={
+                        item.href === currentHref ? "page" : undefined
+                      }
                       className="flex min-h-10 items-center border-b-2 border-accent text-sm font-extrabold text-foreground"
                     >
                       {item.label}

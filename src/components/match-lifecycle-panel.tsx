@@ -3,6 +3,8 @@ import type { Locale } from "@/i18n/config";
 import { formatDate } from "@/i18n/format";
 import type { Messages } from "@/i18n/messages";
 
+import { BallotEntry } from "./ballot-entry";
+
 export function MatchLifecyclePanel({
   match,
   locale,
@@ -52,8 +54,22 @@ export function MatchLifecyclePanel({
         <p className="game-inset mt-5 border-l-2 border-l-accent p-3 text-sm font-medium leading-6 text-foreground">
           {state.description}
         </p>
+        {isVotingOpen(match) ? (
+          <BallotEntry matchId={match.id} messages={messages.ready} />
+        ) : null}
       </div>
     </section>
+  );
+}
+
+function isVotingOpen(match: Match): boolean {
+  const now = Date.now();
+  return (
+    match.ratingState === "rating_ready" &&
+    match.votingOpensAt !== undefined &&
+    match.votingClosesAt !== undefined &&
+    now >= new Date(match.votingOpensAt).getTime() &&
+    now < new Date(match.votingClosesAt).getTime()
   );
 }
 
