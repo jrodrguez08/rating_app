@@ -6,4 +6,5 @@ export const firebaseEnvironment = {
   messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
-export const isFirebaseConfigured = Object.values(firebaseEnvironment).every(Boolean);
+export const isFirebaseConfigured =
+  Object.values(firebaseEnvironment).every(Boolean);
