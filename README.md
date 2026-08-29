@@ -28,25 +28,36 @@ npm run lint          # ESLint
 npm run typecheck     # strict TypeScript check
 npm test              # all Vitest tests once
 npm run test:watch    # Vitest watch mode
+npm run test:firebase # Firestore persistence and security-rule tests
 npm run build         # production build
 npm run verify        # canonical complete local/CI quality gate
 ```
 
 ## Firebase setup
 
-1. Create separate Firebase projects for development and production when persistence work begins.
-2. Register a Web app and copy its public config values into `.env.local` (never commit that file).
-3. Enable Anonymous Authentication for the initial voter identity strategy.
-4. Create a Firestore database. Keep the deny-all rules until a tested feature introduces narrower rules.
-5. Install the Firebase CLI separately, select a throwaway project ID, and run:
+Firebase environments are explicit:
+
+- `local` always uses the Firestore Emulator and defaults to the safe `demo-rating-app-local` project ID.
+- `development` requires a complete Firebase Web configuration for a separate cloud development project.
+- `production` requires a complete production Web configuration and must never be used for local seeding or tests.
+
+For local persistence work, install Java and Firebase CLI 15.28.2 separately, copy `.env.example` to `.env.local`, and run:
 
 ```bash
-firebase emulators:start --only auth,firestore
+npm run firebase:emulators
 ```
 
-Auth runs on 9099, Firestore on 8080, and the Emulator UI on 4000. The Firebase CLI is intentionally not a project dependency because its large dependency tree is unnecessary for application builds. The deny-all Firestore rules remain active in emulator development.
+Firestore runs on 8080 and the Emulator UI on 4000. In another terminal, explicitly bootstrap the deterministic initial Team:
 
-No production credentials, Admin SDK, or deployed Firebase resources are required for this milestone.
+```bash
+npm run seed:firebase
+```
+
+The bootstrap targets `127.0.0.1:8080` by default, accepts only a local host and `demo-*` project ID, creates `teams/club-sport-herediano` only when absent, and never runs during app startup. Run `npm run test:firebase` to start an isolated emulator, verify persistence and rules, then stop it.
+
+`teams/{teamId}` is public-readable and denies all browser writes. Every other collection remains deny-all. The Firebase CLI is intentionally not a project dependency because its large dependency tree is unnecessary for application builds. CI installs a pinned CLI version separately and runs the emulator suite after `npm run verify`.
+
+To use a cloud development project later, register a Web app, set `NEXT_PUBLIC_FIREBASE_ENVIRONMENT=development`, and provide every public Firebase value in `.env.local`. Do not reuse production values. No production credentials, Admin SDK, or deployed Firebase resources are required for this milestone.
 
 ## Repository guardrails
 

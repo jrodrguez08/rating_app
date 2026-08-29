@@ -25,3 +25,7 @@ jobs:
         run: npm ci
       - name: Verify
         run: npm run verify
+      - name: Install Firebase CLI
+        run: npm install --global firebase-tools@15.28.2
+      - name: Test Firestore integration and rules
+        run: npm run test:firebase
