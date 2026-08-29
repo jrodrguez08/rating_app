@@ -4,7 +4,7 @@ Mobile-first supporter ratings for football matches. The first community is Club
 
 ## Foundation status
 
-The repository now includes Spanish/English localization and an emulator-only, manually invoked API-Football sync for the configured Team's bounded competition, season, and fixture data. It does **not** yet authenticate users, sync lineups or participants, accept ballots, or show results.
+The repository now includes Spanish/English localization and emulator-only, manually invoked API-Football sync for bounded competition/season/fixture data plus a selected match's participants and tracked Team head coach. It does **not** yet authenticate users, automate match lifecycle transitions, accept ballots, or show results.
 
 ## Localization
 
@@ -36,6 +36,7 @@ npm test              # all Vitest tests once
 npm run test:watch    # Vitest watch mode
 npm run test:firebase # Firestore persistence and security-rule tests
 npm run sync:football # import bounded API-Football data into the emulator
+npm run sync:match-participants -- <match-id> # import one match's squad, participants, and coach
 npm run build         # production build
 npm run verify        # canonical complete local/CI quality gate
 ```
@@ -64,7 +65,9 @@ The bootstrap targets `127.0.0.1:8080` by default, accepts only a local host and
 
 To exercise the real provider manually, set the server-only `API_FOOTBALL_KEY` in `.env.local`, keep the emulator running, seed the Team, then run `npm run sync:football`. The command resolves an exact Team name-and-country match once, fetches a bounded 120-day history and 60-day future window, and upserts only fixtures involving that Team. It makes one metadata request and one fixture request per distinct provider season overlapping the window; the initial unmapped run adds one Team lookup. It reports created, updated, and unchanged counts. Never prefix this key with `NEXT_PUBLIC_` or expose it to browser code.
 
-`teams/{teamId}` is public-readable and denies all browser writes. Synced `competitions`, `seasons`, and `matches` remain browser deny-all until a product surface requires carefully scoped reads. The Firebase CLI is intentionally not a project dependency because its large dependency tree is unnecessary for application builds. CI installs a pinned CLI version separately and runs the emulator suite after `npm run verify`.
+After fixture sync, choose a persisted internal match ID and run `npm run sync:match-participants -- <match-id>`. The command loads that Match and its tracked Team, makes one combined fixture-detail request, and upserts only that Team's `players`, match-scoped `participants`, `coaches`, and deterministic `head-coach` assignment. Stable provider Team IDs—not home/away position or response order—scope the import. Starters are confirmed participants. Bench players become participants only through a stable-ID substitution event or positive provider minutes; unused or unconfirmed substitutes remain non-rateable. Future eligibility requires both the persisted tracked Team ID and `participated: true`, so opponent players and coaches cannot enter the MVP rating set. Repeated runs preserve identities and `createdAt`, while later provider data may safely improve participation and minute snapshots. Missing lineups, tracked-Team data, or coach data fail without inventing eligibility.
+
+`teams/{teamId}` is public-readable and denies all browser writes. Synced `competitions`, `seasons`, `matches`, `players`, `coaches`, participants, and coach assignments remain browser deny-all until a product surface requires carefully scoped reads. The Firebase CLI is intentionally not a project dependency because its large dependency tree is unnecessary for application builds. CI installs a pinned CLI version separately and runs the emulator suite after `npm run verify`.
 
 To use a cloud development project later, register a Web app, set `NEXT_PUBLIC_FIREBASE_ENVIRONMENT=development`, and provide every public Firebase value in `.env.local`. Do not reuse production values. No production credentials, Admin SDK, or deployed Firebase resources are required for this milestone.
 

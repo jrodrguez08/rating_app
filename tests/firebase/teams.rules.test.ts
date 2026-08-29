@@ -123,7 +123,15 @@ describe("Team persistence and rules", () => {
     await assertFails(reference.delete());
   });
 
-  it.each(["competitions", "seasons", "matches"])(
+  it.each([
+    "competitions",
+    "seasons",
+    "matches",
+    "players",
+    "coaches",
+    "matches/example/participants",
+    "matches/example/coachAssignments",
+  ])(
     "keeps %s client reads and writes denied until a browsing feature needs them",
     async (collection) => {
       const database = environment.unauthenticatedContext().firestore();

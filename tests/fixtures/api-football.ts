@@ -67,3 +67,75 @@ export const fixtureResponse = [
     goals: { home: null, away: null },
   },
 ];
+
+export const matchContextResponse = [
+  {
+    fixture: { id: 5001 },
+    lineups: [
+      {
+        team: { id: 1234, name: "Herediano" },
+        coach: {
+          id: 900,
+          name: "Herediano Coach",
+          photo: "https://img.test/coach.png",
+        },
+        startXI: [
+          { player: { id: 10, name: "Goalkeeper", number: 1, pos: "G" } },
+          { player: { id: 11, name: "Starter Out", number: 4, pos: "D" } },
+        ],
+        substitutes: [
+          { player: { id: 20, name: "Substitute In", number: 14, pos: "M" } },
+          {
+            player: { id: 21, name: "Unused Substitute", number: 18, pos: "F" },
+          },
+        ],
+      },
+      {
+        team: { id: 2000, name: "Opponent" },
+        coach: { id: 901, name: "Opponent Coach", photo: null },
+        startXI: [
+          { player: { id: 30, name: "Opponent Player", number: 1, pos: "G" } },
+        ],
+        substitutes: [],
+      },
+    ],
+    events: [
+      {
+        time: { elapsed: 65, extra: null },
+        team: { id: 1234 },
+        player: { id: 11, name: "Starter Out" },
+        assist: { id: 20, name: "Substitute In" },
+        type: "subst",
+        detail: "Substitution 1",
+      },
+      {
+        time: { elapsed: 65, extra: null },
+        team: { id: 1234 },
+        player: { id: 11, name: "Starter Out" },
+        assist: { id: 20, name: "Substitute In" },
+        type: "subst",
+        detail: "Substitution 1",
+      },
+    ],
+    players: [
+      {
+        team: { id: 1234, name: "Herediano" },
+        players: [
+          {
+            player: { id: 10, name: "Goalkeeper" },
+            statistics: [
+              { games: { minutes: 90, position: "G", captain: true } },
+            ],
+          },
+          {
+            player: { id: 20, name: "Substitute In" },
+            statistics: [
+              { games: { minutes: 25, position: "M", captain: false } },
+            ],
+          },
+        ],
+      },
+      { team: { id: 2000 }, players: [] },
+    ],
+  },
+];

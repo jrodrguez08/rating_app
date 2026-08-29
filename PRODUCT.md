@@ -6,9 +6,9 @@ Rating App gives a small football supporter community a fair, simple way to rate
 
 ## Current foundation milestone
 
-Implemented now: a mobile-first shell with an original 16-bit sports-game visual language, Herediano as the initial configured club, an honest inactive-voting state, future navigation affordances, accessible semantics, Spanish/English product localization, generic domain types, project infrastructure, and a Firestore-backed Team persistence foundation. Spanish is the deterministic default and fallback; supporters can persist English without authentication. Club Sport Herediano is the first deterministic Team record and can be bootstrapped explicitly in the local emulator. A manual server-side API-Football import can resolve that Team and persist its competitions, seasons, and bounded recent/upcoming fixtures in the emulator.
+Implemented now: a mobile-first shell with an original 16-bit sports-game visual language, Herediano as the initial configured club, an honest inactive-voting state, future navigation affordances, accessible semantics, Spanish/English product localization, generic domain types, project infrastructure, and a Firestore-backed Team persistence foundation. Spanish is the deterministic default and fallback; supporters can persist English without authentication. Club Sport Herediano is the first deterministic Team record and can be bootstrapped explicitly in the local emulator. Manual server-side API-Football imports can persist bounded competition/season/fixture data and, for a chosen persisted match, its squad, confirmed participants, and tracked Team head coach in the emulator.
 
-Not implemented now: cloud Team administration, automatic or live synchronization, lineups, participants, coaches, authentication, voting, ratings, aggregates, history pages, notifications, or administration. Synced data is not exposed in the UI, which still uses the configured presentation fallback and must not imply these features exist.
+Not implemented now: cloud Team administration, automatic synchronization or voting-window lifecycle, authentication, voting, ratings, aggregates, history pages, notifications, or administration. Synced football data is not exposed in the UI, which still uses the configured presentation fallback and must not imply these features exist.
 
 ## MVP (planned)
 
@@ -19,7 +19,7 @@ After closing, supporters can browse match results, MVPs, coach ratings, player 
 ## Product invariants
 
 - At most one ballot exists for a voter and match.
-- Eligibility comes from match participation, not squad membership or current roster.
+- Player eligibility requires both tracked-Team ownership and confirmed match participation (`teamId == trackedTeamId && participated == true`), not squad membership, the bench, the opponent, or the current roster. Only the tracked Team's head coach is rateable.
 - The tracked team may be home or away.
 - Aggregates are unavailable to voters during an active window.
 - Provider data is imported through a boundary and remains replaceable.
