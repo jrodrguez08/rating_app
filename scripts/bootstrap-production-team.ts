@@ -40,7 +40,7 @@ export function parseProductionBootstrapArguments(
   return { projectId, providerTeamId };
 }
 
-async function main() {
+export async function main() {
   const arguments_ = parseProductionBootstrapArguments(process.argv.slice(2));
   const config = readFirebaseAdminRuntimeConfig();
   if (config.environment !== "production" || config.emulator) {
@@ -113,5 +113,8 @@ function usageError() {
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
-  await main();
+  void main().catch(() => {
+    console.error("Production Team bootstrap failed.");
+    process.exitCode = 1;
+  });
 }
