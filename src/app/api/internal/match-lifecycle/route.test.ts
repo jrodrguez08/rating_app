@@ -59,7 +59,8 @@ describe("POST /api/internal/match-lifecycle", () => {
       action: "preparing_rating",
       matchId: "match-1",
       providerRequests: 2,
-      reason: "Readiness incomplete: 10 rateable participants; head coach present.",
+      reason:
+        "Readiness incomplete: 10 rateable participants; head coach present.",
     });
     const response = await POST(
       new Request("http://local.test", {
@@ -72,7 +73,8 @@ describe("POST /api/internal/match-lifecycle", () => {
       action: "preparing_rating",
       matchId: "match-1",
       providerRequests: 2,
-      reason: "Readiness incomplete: 10 rateable participants; head coach present.",
+      reason:
+        "Readiness incomplete: 10 rateable participants; head coach present.",
     });
   });
 
