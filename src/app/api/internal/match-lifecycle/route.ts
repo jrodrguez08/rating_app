@@ -33,12 +33,18 @@ export async function POST(request: Request) {
         action: result.action,
         matchId: result.matchId,
         providerRequests: result.providerRequests,
+        ...(result.action === "preparing_rating" && result.reason
+          ? { reason: result.reason }
+          : {}),
       });
     }
     const safeResult = {
       action: result.action,
       ...(result.matchId ? { matchId: result.matchId } : {}),
       providerRequests: result.providerRequests,
+      ...(result.action === "preparing_rating" && result.reason
+        ? { reason: result.reason }
+        : {}),
     };
     return json(safeResult, result.action === "retryable_error" ? 503 : 200);
   } catch {
