@@ -12,8 +12,11 @@ const upcomingMatch = {
   trackedTeamId: "club-sport-herediano",
   competitionId: "competition-1",
   seasonId: "season-1",
-  homeTeam: { externalProviderId: "815", name: "CS Herediano" },
-  awayTeam: { externalProviderId: "2000", name: "Opponent FC" },
+  homeTeam: {
+    externalProviderId: "cartagines-provider-id",
+    name: "CS Cartagin\u00e9s",
+  },
+  awayTeam: { externalProviderId: "815", name: "CS Herediano" },
   kickoffAt: "2026-08-30T23:00:00.000Z",
   status: "scheduled" as const,
   ratingState: "not_ready" as const,
@@ -30,6 +33,10 @@ describe("Home", () => {
     expect(
       screen.getByRole("heading", { name: "Club Sport Herediano" }),
     ).toBeInTheDocument();
+    expect(screen.getByText("Heredia por Media Calle")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Comunidad inicial de aficionados"),
+    ).not.toBeInTheDocument();
     expect(
       screen.getByRole("heading", {
         name: "No hay una calificación activa",
@@ -42,6 +49,10 @@ describe("Home", () => {
 
   it("renders the same product UI in English", () => {
     render(<HomeContent locale="en" />);
+    expect(screen.getByText("Heredia por Media Calle")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Initial supporter community"),
+    ).not.toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: "No active rating" }),
     ).toBeInTheDocument();
@@ -58,26 +69,29 @@ describe("Home", () => {
     expect(screen.queryByText("No active rating")).not.toBeInTheDocument();
   });
 
-  it("renders real upcoming match context without assuming the tracked Team is home", () => {
-    render(
-      <HomeContent
-        locale="es"
-        match={{
-          ...upcomingMatch,
-          homeTeam: { externalProviderId: "2000", name: "Opponent FC" },
-          awayTeam: { externalProviderId: "815", name: "CS Herediano" },
-        }}
-      />,
-    );
+  it("makes the real upcoming matchup primary without a repeated heading", () => {
+    render(<HomeContent locale="es" match={upcomingMatch} />);
     expect(
       screen.getByRole("heading", { name: "Pr\u00f3ximo partido" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("Opponent FC")).toBeInTheDocument();
+    expect(screen.getAllByText("Pr\u00f3ximo partido")).toHaveLength(1);
+    expect(screen.getByText("CS Cartagin\u00e9s")).toBeInTheDocument();
     expect(screen.getByText("CS Herediano")).toBeInTheDocument();
     expect(screen.getByText("VS")).toBeInTheDocument();
+    expect(screen.getAllByTestId("team-badge")).toHaveLength(2);
   });
 
-  it("communicates live, preparing, and ready states with text", () => {
+  it("keeps the upcoming state localized in English", () => {
+    render(<HomeContent locale="en" match={upcomingMatch} />);
+    expect(
+      screen.getByRole("heading", { name: "Next match" }),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("Next match")).toHaveLength(1);
+    expect(screen.getByText("CS Cartagin\u00e9s")).toBeInTheDocument();
+    expect(screen.getByText("CS Herediano")).toBeInTheDocument();
+  });
+
+  it("communicates live, preparing, ready, and results states with text", () => {
     const states = [
       {
         status: "live" as const,
@@ -93,6 +107,11 @@ describe("Home", () => {
         status: "finished" as const,
         ratingState: "rating_ready" as const,
         title: "The match is ready to rate",
+      },
+      {
+        status: "finished" as const,
+        ratingState: "rating_closed" as const,
+        title: "Community results",
       },
     ];
     for (const state of states) {

@@ -70,7 +70,7 @@ Status badges are compact rectangular scoreboard labels with text and, when usef
 
 Use a small internal SVG set on a 16×16 grid with crisp geometric paths, `currentColor`, and no copied sprites. Decorative icons are hidden from assistive technology; meaningful icons need an accessible text equivalent. Do not add a broad icon dependency for a few concepts.
 
-Until an intentional provider/logo licensing strategy exists, team marks use safe initials, abbreviations, or simple themed blocks. Never invent or scrape official crests.
+Until an intentional provider/logo licensing strategy exists, team marks use original simplified shields with safe initials or abbreviations, flat traditional presentation colors, hard pixel-like geometry, and a neutral fallback for unknown teams. Team-name text must remain present; shields are supplementary and decorative. Never copy, invent, or scrape official crests.
 
 ## Rating controls
 

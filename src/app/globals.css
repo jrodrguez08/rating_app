@@ -73,6 +73,9 @@ a {
   letter-spacing: 0.025em;
   text-transform: uppercase;
 }
+.community-name {
+  text-transform: none;
+}
 .score-font {
   font-family: var(--font-score);
   font-weight: 400;
@@ -106,6 +109,51 @@ a {
   font-weight: 400;
   letter-spacing: 0.03em;
   text-transform: uppercase;
+}
+.team-badge {
+  position: relative;
+  display: block;
+  width: 3.25rem;
+  height: 3.75rem;
+  margin-inline: auto;
+  background: var(--game-shadow);
+  clip-path: polygon(8% 0, 92% 0, 100% 12%, 88% 76%, 50% 100%, 12% 76%, 0 12%);
+  filter: drop-shadow(2px 2px 0 var(--game-shadow));
+}
+.team-badge__field {
+  position: absolute;
+  inset: 2px;
+  background: var(--badge-primary);
+  clip-path: inherit;
+}
+.team-badge--stripe .team-badge__field {
+  background: linear-gradient(
+    90deg,
+    var(--badge-primary) 0 35%,
+    var(--badge-secondary) 35% 65%,
+    var(--badge-primary) 65% 100%
+  );
+}
+.team-badge--band .team-badge__field {
+  background: linear-gradient(
+    180deg,
+    var(--badge-secondary) 0 28%,
+    var(--badge-primary) 28% 100%
+  );
+}
+.team-badge__initials {
+  position: absolute;
+  top: 1.25rem;
+  left: 50%;
+  min-width: 1.75rem;
+  transform: translateX(-50%);
+  border: 1px solid var(--badge-secondary);
+  background: var(--badge-primary);
+  color: #fff;
+  font-family: var(--font-score);
+  font-size: 0.75rem;
+  line-height: 1.25rem;
+  text-align: center;
 }
 .button-primary,
 .button-secondary,

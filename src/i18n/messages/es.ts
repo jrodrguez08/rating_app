@@ -20,7 +20,6 @@ export const esMessages = {
     players: "Jugadores",
   },
   home: {
-    communityEyebrow: "Comunidad inicial de aficionados",
     introduction:
       "Califica a los jugadores y al director técnico después del pitazo final. La primera ventana de calificación aparecerá aquí cuando un partido esté listo.",
     noActiveRating: {
