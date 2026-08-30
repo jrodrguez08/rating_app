@@ -52,6 +52,32 @@ describe("POST /api/internal/match-lifecycle", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
   });
 
+  it("returns the safe readiness reason while preparing rating", async () => {
+    vi.stubEnv("CRON_SECRET", "correct-secret");
+    vi.stubEnv("API_FOOTBALL_KEY", "provider-secret");
+    mocks.run.mockResolvedValue({
+      action: "preparing_rating",
+      matchId: "match-1",
+      providerRequests: 2,
+      reason:
+        "Readiness incomplete: 10 rateable participants; head coach present.",
+    });
+    const response = await POST(
+      new Request("http://local.test", {
+        method: "POST",
+        headers: { authorization: "Bearer correct-secret" },
+      }),
+    );
+
+    await expect(response.json()).resolves.toEqual({
+      action: "preparing_rating",
+      matchId: "match-1",
+      providerRequests: 2,
+      reason:
+        "Readiness incomplete: 10 rateable participants; head coach present.",
+    });
+  });
+
   it("fails safely when the API key is missing", async () => {
     vi.stubEnv("CRON_SECRET", "correct-secret");
     const response = await POST(
