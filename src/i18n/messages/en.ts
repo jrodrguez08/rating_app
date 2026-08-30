@@ -22,7 +22,6 @@ export const enMessages = {
     players: "Players",
   },
   home: {
-    communityEyebrow: "Initial supporter community",
     introduction:
       "Rate the players and head coach after the final whistle. The first rating window will appear here when a match is ready.",
     noActiveRating: {

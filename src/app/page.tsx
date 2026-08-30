@@ -2,6 +2,7 @@ import { AppShell } from "@/components/app-shell";
 import { EmptyRatingState } from "@/components/empty-rating-state";
 import { MatchLifecyclePanel } from "@/components/match-lifecycle-panel";
 import { initialClub } from "@/config/club";
+import { communityName } from "@/config/community";
 import type { Match } from "@/domain/models";
 import type { Locale } from "@/i18n/config";
 import { getMessages } from "@/i18n/messages";
@@ -40,7 +41,7 @@ export function HomeContent({
     <AppShell locale={locale} messages={messages} theme={initialClub.theme}>
       <main id="main-content" className="page-shell py-7 sm:py-10">
         <section aria-labelledby="club-heading" className="mb-7">
-          <p className="eyebrow">{messages.home.communityEyebrow}</p>
+          <p className="eyebrow community-name break-words">{communityName}</p>
           <h1
             id="club-heading"
             className="mt-3 text-3xl font-extrabold leading-tight tracking-tight text-foreground sm:text-4xl"
