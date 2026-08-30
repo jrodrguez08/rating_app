@@ -21,18 +21,11 @@ const CARTAGINES_BADGE: TeamBadgePresentation = {
   pattern: "band",
 };
 
-const CARTAGINES_NAMES = new Set([
-  "CS Cartaginés",
-  "CS Cartagines",
-  "Cartaginés",
-  "Cartagines",
-]);
-
 export function getTeamBadgePresentation(
   team: MatchTeamSnapshot,
 ): TeamBadgePresentation {
   if (team.externalProviderId === "815") return HEREDIANO_BADGE;
-  if (CARTAGINES_NAMES.has(team.name)) return CARTAGINES_BADGE;
+  if (team.externalProviderId === "820") return CARTAGINES_BADGE;
   return {
     abbreviation: abbreviation(team.name),
     primary: "#363a40",

@@ -17,11 +17,11 @@ describe("team badge presentation", () => {
     });
   });
 
-  it("maps the current Cartagin\u00e9s fixture by an exact provider name", () => {
+  it("maps Cartagin\u00e9s by stable provider identity despite a name change", () => {
     expect(
       getTeamBadgePresentation({
-        externalProviderId: "cartagines-provider-id",
-        name: "CS Cartagin\u00e9s",
+        externalProviderId: "820",
+        name: "A renamed Cartagin\u00e9s display",
       }),
     ).toEqual({
       abbreviation: "CC",

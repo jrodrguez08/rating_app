@@ -13,7 +13,7 @@ const upcomingMatch = {
   competitionId: "competition-1",
   seasonId: "season-1",
   homeTeam: {
-    externalProviderId: "cartagines-provider-id",
+    externalProviderId: "820",
     name: "CS Cartagin\u00e9s",
   },
   awayTeam: { externalProviderId: "815", name: "CS Herediano" },
