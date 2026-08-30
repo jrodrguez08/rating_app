@@ -59,7 +59,7 @@ Current server queries need only automatic single-field indexes; `firestore.inde
 2. Configure all Vercel public and server-only variables for Production only.
 3. Confirm Vercel uses Node.js 22, then deploy the reviewed commit.
 4. Confirm the public shell loads and Anonymous Auth succeeds; do not submit a ballot.
-5. Call `GET /api/internal/health` with `Authorization: Bearer <CRON_SECRET>`. Before Team bootstrap, `not_ready` is expected; unauthorized calls must return 401.
+5. Call `GET /api/internal/health` with `Authorization: Bearer <CRON_SECRET>`. Before Team bootstrap, `not_ready` with reason `team_missing` is expected; `configuration` identifies invalid deployment configuration, and `firebase_admin` identifies Admin initialization or Firestore connectivity failure. Unauthorized calls must return 401 without a reason.
 6. From a controlled operator environment with the production variables loaded, confirm the API-Football provider Team ID independently, then run:
 
    `npm run bootstrap:production-team -- --project-id <exact-production-project-id> --provider-team-id <confirmed-id> --confirm bootstrap-production-team`
