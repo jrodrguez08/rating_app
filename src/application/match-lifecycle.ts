@@ -222,7 +222,8 @@ export function selectRelevantMatch(
     ) ??
     byKickoff.find(
       (match) =>
-        match.status === "scheduled" && new Date(match.kickoffAt) >= now,
+        match.status === "scheduled" &&
+        new Date(match.kickoffAt).getTime() >= now.getTime() - 4 * HOUR,
     ) ??
     [...byKickoff]
       .reverse()
