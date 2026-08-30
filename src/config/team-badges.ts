@@ -7,25 +7,75 @@ export interface TeamBadgePresentation {
   pattern: "stripe" | "band";
 }
 
-const HEREDIANO_BADGE: TeamBadgePresentation = {
-  abbreviation: "CH",
-  primary: "#b20d24",
-  secondary: "#f5c518",
-  pattern: "stripe",
-};
-
-const CARTAGINES_BADGE: TeamBadgePresentation = {
-  abbreviation: "CC",
-  primary: "#174ea6",
-  secondary: "#f7f2e8",
-  pattern: "band",
+// API-Football Primera División (league 162), season 2026.
+const CURATED_TEAM_BADGES: Readonly<Record<string, TeamBadgePresentation>> = {
+  "815": {
+    abbreviation: "CH",
+    primary: "#b20d24",
+    secondary: "#f5c518",
+    pattern: "stripe",
+  },
+  "816": {
+    abbreviation: "DS",
+    primary: "#6f2c91",
+    secondary: "#f7f2e8",
+    pattern: "band",
+  },
+  "819": {
+    abbreviation: "PZ",
+    primary: "#1556a3",
+    secondary: "#d4a72c",
+    pattern: "stripe",
+  },
+  "820": {
+    abbreviation: "CC",
+    primary: "#174ea6",
+    secondary: "#f7f2e8",
+    pattern: "band",
+  },
+  "822": {
+    abbreviation: "LDA",
+    primary: "#c8102e",
+    secondary: "#101113",
+    pattern: "stripe",
+  },
+  "823": {
+    abbreviation: "SC",
+    primary: "#c62828",
+    secondary: "#174ea6",
+    pattern: "stripe",
+  },
+  "2045": {
+    abbreviation: "PFC",
+    primary: "#f58220",
+    secondary: "#101113",
+    pattern: "band",
+  },
+  "2047": {
+    abbreviation: "SFC",
+    primary: "#171719",
+    secondary: "#c9a227",
+    pattern: "band",
+  },
+  "17377": {
+    abbreviation: "EB",
+    primary: "#164fa3",
+    secondary: "#f5c518",
+    pattern: "stripe",
+  },
+  "24391": {
+    abbreviation: "ISC",
+    primary: "#177245",
+    secondary: "#f5c518",
+    pattern: "band",
+  },
 };
 
 export function getTeamBadgePresentation(
   team: MatchTeamSnapshot,
 ): TeamBadgePresentation {
-  if (team.externalProviderId === "815") return HEREDIANO_BADGE;
-  if (team.externalProviderId === "820") return CARTAGINES_BADGE;
+  const curated = CURATED_TEAM_BADGES[team.externalProviderId];
+  if (curated) return curated;
   return {
     abbreviation: abbreviation(team.name),
     primary: "#363a40",
