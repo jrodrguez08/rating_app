@@ -222,6 +222,51 @@ describe("match lifecycle synchronization", () => {
     },
   );
 
+  it("preserves confirmed goals when a refresh omits event data", async () => {
+    const existingGoals = [goal({ scorerName: "Persisted scorer" })];
+    const store = new MemoryStore([
+      match({ goalEvents: existingGoals, elapsedMinute: 67 }),
+    ]);
+
+    await run(store, new FixtureProvider(fixture("scheduled")));
+
+    expect(store.matches[0].goalEvents).toEqual(existingGoals);
+    expect(store.matches[0].elapsedMinute).toBe(67);
+  });
+
+  it("treats an explicit empty event collection as authoritative", async () => {
+    const store = new MemoryStore([
+      match({ goalEvents: [goal({ scorerName: "Persisted scorer" })] }),
+    ]);
+
+    await run(
+      store,
+      new FixtureProvider({ ...fixture("scheduled"), goalEvents: [] }),
+    );
+
+    expect(store.matches[0].goalEvents).toEqual([]);
+  });
+
+  it("replaces confirmed goals deterministically when a refresh provides updated events", async () => {
+    const store = new MemoryStore([
+      match({ goalEvents: [goal({ scorerName: "Old scorer" })] }),
+    ]);
+    const updatedGoals = [
+      goal({ scorerName: "First scorer", elapsed: 12 }),
+      goal({ scorerName: "Second scorer", elapsed: 45, extra: 2 }),
+    ];
+
+    await run(
+      store,
+      new FixtureProvider({
+        ...fixture("scheduled"),
+        goalEvents: updatedGoals,
+      }),
+    );
+
+    expect(store.matches[0].goalEvents).toEqual(updatedGoals);
+  });
+
   it("keeps incomplete finished data preparing with no voting window", async () => {
     const store = new MemoryStore([match({ status: "live" })]);
     store.participantCount = 10;
@@ -408,3 +453,16 @@ describe("match lifecycle synchronization", () => {
     );
   });
 });
+
+function goal(
+  overrides: Partial<NonNullable<Match["goalEvents"]>[number]> = {},
+) {
+  return {
+    externalTeamId: "815",
+    externalPlayerId: "10",
+    scorerName: "Scorer",
+    elapsed: 23,
+    kind: "normal" as const,
+    ...overrides,
+  };
+}

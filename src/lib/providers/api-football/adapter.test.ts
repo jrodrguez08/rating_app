@@ -200,6 +200,28 @@ describe("ApiFootballAdapter", () => {
     ]);
   });
 
+  it("distinguishes unavailable goal data from an authoritative empty event collection", async () => {
+    const withoutEvents = structuredClone(fixtureResponse[0]);
+    const withEmptyEvents = {
+      ...structuredClone(fixtureResponse[0]),
+      events: [],
+    };
+    const adapter = new ApiFootballAdapter(
+      "test-key",
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(response([withoutEvents]))
+        .mockResolvedValueOnce(response([withEmptyEvents])),
+    );
+
+    await expect(adapter.getFixture("5001")).resolves.not.toHaveProperty(
+      "goalEvents",
+    );
+    await expect(adapter.getFixture("5001")).resolves.toMatchObject({
+      goalEvents: [],
+    });
+  });
+
   it("reconciles starters, entering substitutes, unused substitutes, and tracked Team coach", async () => {
     const fetcher = vi
       .fn<typeof fetch>()

@@ -178,7 +178,9 @@ export async function syncFootballData(
       ...(fixture.elapsedMinute === undefined
         ? {}
         : { elapsedMinute: fixture.elapsedMinute }),
-      goalEvents: fixture.goalEvents ?? [],
+      ...(fixture.goalEvents === undefined
+        ? {}
+        : { goalEvents: fixture.goalEvents }),
       externalProvider: provider.name,
       externalProviderFixtureId: fixture.externalFixtureId,
       createdAt: timestamp,

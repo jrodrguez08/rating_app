@@ -502,5 +502,12 @@ function preserveMatchLifecycle(
     ...(typeof existing.votingClosesAt === "string"
       ? { votingClosesAt: existing.votingClosesAt }
       : {}),
+    ...(incoming.goalEvents === undefined && Array.isArray(existing.goalEvents)
+      ? { goalEvents: existing.goalEvents as Match["goalEvents"] }
+      : {}),
+    ...(incoming.elapsedMinute === undefined &&
+    typeof existing.elapsedMinute === "number"
+      ? { elapsedMinute: existing.elapsedMinute }
+      : {}),
   };
 }

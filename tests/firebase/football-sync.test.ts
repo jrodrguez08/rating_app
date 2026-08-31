@@ -255,6 +255,7 @@ describe("football synchronization persistence", () => {
     const updatedFixtures = structuredClone(fixtures);
     updatedFixtures[1].status = "finished";
     updatedFixtures[1].score = { home: 0, away: 1 };
+    delete updatedFixtures[0].goalEvents;
     const summary = await syncFootballData(
       await store.getTeam(team.id),
       new FixtureProvider(updatedFixtures),
@@ -275,6 +276,16 @@ describe("football synchronization persistence", () => {
         }),
       ]),
     );
+    expect(
+      matches.find((match) => match.externalProviderFixtureId === "5001"),
+    ).toMatchObject({
+      goalEvents: [
+        expect.objectContaining({
+          externalTeamId: "1234",
+          scorerName: "Starter",
+        }),
+      ],
+    });
   });
 
   it("does not write partial sync data when fixture season metadata is malformed", async () => {

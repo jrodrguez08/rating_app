@@ -488,7 +488,9 @@ export class ApiFootballAdapter implements FootballDataProvider {
         away: nullableScore(goals.away, "fixture.goals.away"),
       },
       ...(elapsedMinute === undefined ? {} : { elapsedMinute }),
-      goalEvents: parseGoalEvents(item.events),
+      ...(Array.isArray(item.events)
+        ? { goalEvents: parseGoalEvents(item.events) }
+        : {}),
     };
   }
 
@@ -544,8 +546,7 @@ export class ApiFootballAdapter implements FootballDataProvider {
   }
 }
 
-function parseGoalEvents(value: unknown): MatchGoalEvent[] {
-  if (!Array.isArray(value)) return [];
+function parseGoalEvents(value: unknown[]): MatchGoalEvent[] {
   return value
     .flatMap((eventValue): MatchGoalEvent[] => {
       if (
