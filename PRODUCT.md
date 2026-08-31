@@ -8,9 +8,9 @@ Rating App gives a small football supporter community a fair, simple way to rate
 
 Implemented now: a mobile-first shell with an original 16-bit sports-game visual language, Herediano as the initial configured club, accessible Spanish/English localization, generic domain types, and Firestore-backed football persistence. Manual and scheduled server-side API-Football synchronization can discover fixtures, focus on the relevant match, synchronize its tracked-Team participants/head coach after `FT`, and establish an idempotent two-hour future voting window only when rating-ready. Firebase Anonymous Authentication quietly establishes and persists the canonical voter UID without a login screen. During that trusted window, the Home call to action opens a complete player-and-head-coach ballot; one validated, immutable ballot is stored per match and Firebase UID.
 
-At trusted close time, the same lifecycle creates one immutable aggregate summary and closes the rating state. Home and `/matches/{matchId}/results` then reveal community averages, total ballots, player-only co-MVPs, and the separate coach result. `/matches` provides a season-oriented Herediano archive with relevant-match treatment, lifecycle-aware actions, scores, and detail pages. Persisted provider fixtures remain useful even when Rating App never opened voting for them; confirmed provider goal events appear as a focused scorer/minute summary when available.
+At trusted close time, the same lifecycle creates one immutable aggregate summary and closes the rating state. Home and `/matches/{matchId}/results` then reveal community averages, total ballots, player-only co-MVPs, and the separate coach result. `/matches` provides a season-oriented Herediano archive with relevant-match treatment, lifecycle-aware actions, scores, and detail pages. `/players` and `/players/{playerId}` provide a durable supporter-rating catalog, team ranking, and per-match history derived only from those published closed results. Persisted provider fixtures remain useful even when Rating App never opened voting for them; confirmed provider goal events appear as a focused scorer/minute summary when available.
 
-Not implemented now: cloud Team administration, identity-provider linking, player history pages, season leaderboards, notifications, or administration. Individual ballot data remains private at all times, and aggregates remain unavailable before close.
+Not implemented now: cloud Team administration, identity-provider linking, season leaderboards, notifications, or administration. Individual ballot data remains private at all times, and aggregates remain unavailable before close.
 
 The codebase includes guarded production configuration and bootstrap boundaries for a controlled pilot, but no production Firebase or Vercel environment has been configured or deployed.
 
@@ -20,7 +20,7 @@ Partidos prioritizes one relevant featured match, then compact upcoming and rece
 
 After a match finishes, voting opens for approximately two hours. An authenticated supporter sees every Herediano player who actually played—not unused squad members—and the match's head coach. They submit one complete ballot. Aggregate results remain hidden until voting closes.
 
-After closing, supporters can browse match results, MVPs, coach ratings, player match history, and player averages. Match and player history must be durable, not inferred from the current roster.
+After closing, supporters can browse match results, MVPs, coach ratings, player match history, and player averages. A player's overall Rating App average is the unweighted arithmetic mean of their published per-match averages, preserving equal match weight even when ballot counts differ. Players need at least two published rated matches to receive a team rank; deterministic ties use higher average, more rated matches, then stable player ID. Unranked and historically rated players remain visible. Match and player history is durable and keyed by stable identity, not inferred from the current roster or display name.
 
 ## Product invariants
 

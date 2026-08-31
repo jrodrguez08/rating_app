@@ -51,7 +51,7 @@ No Firebase or API-Football credential belongs in GitHub for this workflow.
 6. From a clean reviewed commit, deploy with an explicit target: `firebase deploy --only firestore:rules,firestore:indexes --project <exact-production-project-id>`. Never rely on `.firebaserc`, whose default remains the safe demo project.
 7. Verify rules: only `teams/{teamId}` is public-readable; all client writes and all other reads, including ballots and results, are denied.
 
-Current server queries need only automatic single-field indexes; `firestore.indexes.json` intentionally contains no composites. Reassess after query changes.
+Jugadores V1 adds the tracked-Team/kickoff match-history composite index and participant collection-group single-field index declared in `firestore.indexes.json`; deploy them with the existing explicit `firestore:indexes` command before releasing player pages.
 
 ## Safe deployment and bootstrap order
 
@@ -84,6 +84,8 @@ Before discovery or fixture refresh, every lifecycle trigger checks persisted ma
 When no relevant future match is known, discovery is attempted at most every 12 hours. A known fixture beyond 24 hours makes no provider request; within 24 hours it refreshes at most every six hours, within two hours every 15 minutes, and live/preparing matches on each external trigger. Participant/head-coach readiness uses one focused fixture request. Active voting, finalization, and finalized results do not cause aggressive provider polling. After a result, discovery eventually imports the next fixture; active voting, live, preparing, and scheduled matches outrank historical results on Home.
 
 The Partidos archive reads the fixture window already persisted by discovery and makes no additional API-Football requests on page views. Confirmed goal events and optional live elapsed minutes are refreshed only through the existing bounded fixture discovery/focused lifecycle calls. Historical archive entries do not enter the active lifecycle polling loop.
+
+Jugadores pages use server-only, provider-free read-time derivation over at most 100 newest persisted tracked-Team matches, their immutable result summaries, and known participant/Player identities. They never read ballots and require no projection or production backfill; existing closed pilot results appear automatically. If the bound becomes insufficient, measure production volume/read cost before introducing an explicit trusted projection or migration.
 
 Network/provider validation, missing lineup/coach, Firebase write, and aggregation integrity failures remain retryable. They cannot open voting early, extend timestamps, replace ballots, publish partial results, or regress finalized state. Cancelled/abandoned matches never open or finalize ratings; postponed/suspended matches retry conservatively.
 
@@ -125,7 +127,7 @@ Never log, commit, paste into issues, or expose these values to browser variable
 
 - Anonymous Auth identifies a browser profile, not a person; it is not strict one-person-one-vote.
 - App Check and broader abuse controls are not enabled yet.
-- Player histories and season leaderboards are deferred; Partidos V1 provides persisted fixture history but not advanced archive filtering.
+- Jugadores V1 provides bounded Rating App history and team ranking; season filters, advanced player metrics, and broader leaderboards remain deferred.
 - Final aggregation reads all ballots once and assumes small-community volume.
 - The GitHub schedule is approximate and consumes private-repository Actions minutes.
 

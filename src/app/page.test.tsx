@@ -125,7 +125,7 @@ describe("Home", () => {
     }
   });
 
-  it("links to available destinations and keeps future destinations disabled", () => {
+  it("links to all available destinations", () => {
     render(<HomeContent locale="es" />);
     const navigation = screen.getByRole("navigation", {
       name: "Navegación principal",
@@ -136,10 +136,9 @@ describe("Home", () => {
     expect(
       within(navigation).getByRole("link", { name: "Partidos" }),
     ).toHaveAttribute("href", "/matches");
-    expect(within(navigation).getByText("Jugadores")).toHaveAttribute(
-      "aria-disabled",
-      "true",
-    );
+    expect(
+      within(navigation).getByRole("link", { name: "Jugadores" }),
+    ).toHaveAttribute("href", "/players");
   });
 
   it("provides a keyboard skip link and a labeled main region", () => {

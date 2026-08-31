@@ -9,13 +9,13 @@ import { AppShell } from "./app-shell";
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 
 describe("AppShell navigation", () => {
-  it("enables Partidos while keeping Jugadores disabled", () => {
+  it("enables Partidos and Jugadores with current-route semantics", () => {
     render(
       <AppShell
         locale="es"
         messages={getMessages("es")}
         theme={initialClub.theme}
-        currentHref="/matches"
+        currentHref="/players"
       >
         <main>Contenido</main>
       </AppShell>,
@@ -24,11 +24,11 @@ describe("AppShell navigation", () => {
       "href",
       "/matches",
     );
-    expect(screen.getByText("Jugadores")).toHaveAttribute(
-      "aria-disabled",
-      "true",
+    expect(screen.getByRole("link", { name: "Jugadores" })).toHaveAttribute(
+      "href",
+      "/players",
     );
-    expect(screen.getByRole("link", { name: "Partidos" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Jugadores" })).toHaveAttribute(
       "aria-current",
       "page",
     );

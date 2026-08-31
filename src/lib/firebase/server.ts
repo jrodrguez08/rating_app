@@ -16,6 +16,11 @@ import {
   buildMatchArchive,
   type MatchArchive,
 } from "@/application/match-archive";
+import {
+  buildPlayerCatalog,
+  PLAYER_HISTORY_MATCH_LIMIT,
+  type PlayerCatalog,
+} from "@/application/player-history";
 import { validateBallotRatings } from "@/domain/ballot-validation";
 import { preserveMonotonicMatchStatus } from "@/domain/match-status";
 import { aggregateMatchResult } from "@/domain/result-aggregation";
@@ -189,6 +194,81 @@ export class AdminMatchArchiveService {
         : {}),
       hasResults: result.exists,
     };
+  }
+}
+
+export class AdminPlayerHistoryService {
+  constructor(private readonly database = getServerFirestore()) {}
+
+  async list(teamId: string): Promise<PlayerCatalog> {
+    const store = new AdminFootballSyncStore(this.database);
+    const [team, matchSnapshot, participantSnapshot] = await Promise.all([
+      store.getTeam(teamId),
+      this.database
+        .collection("matches")
+        .where("trackedTeamId", "==", teamId)
+        .orderBy("kickoffAt", "desc")
+        .limit(PLAYER_HISTORY_MATCH_LIMIT)
+        .get(),
+      this.database
+        .collectionGroup("participants")
+        .where("teamId", "==", teamId)
+        .limit(500)
+        .get(),
+    ]);
+    if (team.externalProviderId === undefined)
+      throw new Error(`Tracked Team ${teamId} has no provider mapping.`);
+    const matches = matchSnapshot.docs.map((snapshot) =>
+      fromDocument<Match>(snapshot),
+    );
+    const resultSnapshots =
+      matches.length === 0
+        ? []
+        : await this.database.getAll(
+            ...matches.map((match) =>
+              this.database.doc(`matches/${match.id}/results/summary`),
+            ),
+          );
+    const results = resultSnapshots
+      .filter((snapshot) => snapshot.exists)
+      .map((snapshot) => fromDocument<MatchResult>(snapshot));
+    const participantIdentities = participantSnapshot.docs.map((snapshot) => {
+      const participant = fromDocument<MatchParticipant>(snapshot);
+      return { id: participant.playerId, name: participant.playerName };
+    });
+    const playerIds = [
+      ...new Set([
+        ...participantIdentities.map(({ id }) => id),
+        ...results.flatMap((result) => Object.keys(result.playerResults)),
+      ]),
+    ];
+    const playerSnapshots =
+      playerIds.length === 0
+        ? []
+        : await this.database.getAll(
+            ...playerIds.map((id) => this.database.doc(`players/${id}`)),
+          );
+    const persistedIdentities = playerSnapshots
+      .filter((snapshot) => snapshot.exists)
+      .map((snapshot) => {
+        const player = fromDocument<Player>(snapshot);
+        return { id: player.id, name: player.displayName };
+      });
+    return buildPlayerCatalog({
+      identities: mergePlayerIdentities(
+        participantIdentities,
+        persistedIdentities,
+      ),
+      matches,
+      results,
+      trackedTeamExternalProviderId: team.externalProviderId,
+    });
+  }
+
+  async get(playerId: string, teamId: string) {
+    return (await this.list(teamId)).players.find(
+      (player) => player.playerId === playerId,
+    );
   }
 }
 
@@ -606,6 +686,15 @@ function comparable(value: object): string {
       Object.entries(copy).sort(([a], [b]) => a.localeCompare(b)),
     ),
   );
+}
+
+function mergePlayerIdentities(
+  snapshots: Array<{ id: string; name: string }>,
+  persisted: Array<{ id: string; name: string }>,
+) {
+  const identities = new Map(snapshots.map((value) => [value.id, value]));
+  for (const value of persisted) identities.set(value.id, value);
+  return [...identities.values()];
 }
 function preserveMatchLifecycle(existing: Match, incoming: Match): Match {
   return {

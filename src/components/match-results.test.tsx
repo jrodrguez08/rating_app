@@ -48,6 +48,9 @@ describe("match results UI", () => {
     const items = within(ranking).getAllByRole("listitem");
     expect(items[0]).toHaveTextContent("Long Player Name That Wraps");
     expect(items[1]).toHaveTextContent("Second Player");
+    expect(
+      screen.getAllByRole("link", { name: "Long Player Name That Wraps" })[0],
+    ).toHaveAttribute("href", "/players/p1");
     expect(screen.getAllByText("8.5").length).toBeGreaterThanOrEqual(2);
     expect(
       screen.getByRole("heading", { name: "Head coach" }),

@@ -148,6 +148,37 @@ export const esMessages = {
     historicalDescription:
       "Este partido forma parte del archivo, aunque no haya tenido votación en Rating App.",
   },
+  players: {
+    eyebrow: "Historial de Herediano",
+    title: "Jugadores",
+    introduction:
+      "La calificaciÃ³n de la aficiÃ³n a lo largo de los partidos publicados.",
+    average: "Promedio Rating App",
+    ratedMatch: "1 partido calificado",
+    ratedMatches: "{count} partidos calificados",
+    rank: "#{rank} del equipo",
+    unranked: "AÃºn sin ranking",
+    unrankedDescription:
+      "El ranking comienza despuÃ©s de {count} partidos calificados.",
+    recentRating: "CalificaciÃ³n reciente: {rating}",
+    noRating: "Sin calificaciones publicadas",
+    noPlayers: "TodavÃ­a no hay jugadores conocidos para mostrar.",
+    unavailableTitle: "No pudimos cargar los jugadores",
+    unavailableDescription:
+      "El historial de jugadores no estÃ¡ disponible temporalmente.",
+    profileUnavailable: "No pudimos cargar este jugador.",
+    teamContext: "Club Sport Herediano",
+    evolution: "EvoluciÃ³n",
+    recentMatches: "Partidos recientes",
+    oneMatchTrend:
+      "Se necesita otro partido publicado para mostrar una tendencia.",
+    noHistory:
+      "Este jugador es conocido por Rating App, pero todavÃ­a no tiene calificaciones publicadas.",
+    versus: "vs {opponent}",
+    viewResults: "Ver resultados",
+    back: "Volver a jugadores",
+    trendLabel: "EvoluciÃ³n de {name}: {ratings}",
+  },
   results: {
     eyebrow: "Resultados de la comunidad",
     title: "Resultados del partido",
