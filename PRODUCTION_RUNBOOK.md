@@ -77,6 +77,8 @@ Current server queries need only automatic single-field indexes; `firestore.inde
 
 When no relevant future match is known, discovery is attempted at most every 12 hours. A known fixture beyond 24 hours makes no provider request; within 24 hours it refreshes at most every six hours, within two hours every 15 minutes, and live/preparing matches on each external trigger. Participant/head-coach readiness uses one focused fixture request. Active voting, finalization, and finalized results do not cause aggressive provider polling. After a result, discovery eventually imports the next fixture; active voting, live, preparing, and scheduled matches outrank historical results on Home.
 
+The Partidos archive reads the fixture window already persisted by discovery and makes no additional API-Football requests on page views. Confirmed goal events and optional live elapsed minutes are refreshed only through the existing bounded fixture discovery/focused lifecycle calls. Historical archive entries do not enter the active lifecycle polling loop.
+
 Network/provider validation, missing lineup/coach, Firebase write, and aggregation integrity failures remain retryable. They cannot open voting early, extend timestamps, replace ballots, publish partial results, or regress finalized state. Cancelled/abandoned matches never open or finalize ratings; postponed/suspended matches retry conservatively.
 
 ## Infrastructure smoke test
@@ -117,7 +119,7 @@ Never log, commit, paste into issues, or expose these values to browser variable
 
 - Anonymous Auth identifies a browser profile, not a person; it is not strict one-person-one-vote.
 - App Check and broader abuse controls are not enabled yet.
-- Player histories, match archives, and season leaderboards are deferred.
+- Player histories and season leaderboards are deferred; Partidos V1 provides persisted fixture history but not advanced archive filtering.
 - Final aggregation reads all ballots once and assumes small-community volume.
 - The GitHub schedule is approximate and consumes private-repository Actions minutes.
 

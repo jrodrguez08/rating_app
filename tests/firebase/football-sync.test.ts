@@ -56,6 +56,16 @@ const fixtures: ProviderFixture[] = [
     homeTeam: { externalProviderId: "1234", name: "Herediano" },
     awayTeam: { externalProviderId: "2000", name: "Alajuelense" },
     score: { home: 2, away: 1 },
+    goalEvents: [
+      {
+        externalTeamId: "1234",
+        externalPlayerId: "10",
+        scorerName: "Starter",
+        elapsed: 45,
+        extra: 2,
+        kind: "normal",
+      },
+    ],
   },
   {
     externalFixtureId: "5002",
@@ -215,6 +225,15 @@ describe("football synchronization persistence", () => {
       expect.arrayContaining([
         expect.objectContaining({
           externalProviderFixtureId: "5001",
+          trackedTeamExternalProviderId: "1234",
+          goalEvents: [
+            expect.objectContaining({
+              externalTeamId: "1234",
+              scorerName: "Starter",
+              elapsed: 45,
+              extra: 2,
+            }),
+          ],
           homeTeam: expect.objectContaining({ externalProviderId: "1234" }),
           awayTeam: expect.objectContaining({ externalProviderId: "2000" }),
         }),

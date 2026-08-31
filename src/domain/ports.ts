@@ -45,6 +45,8 @@ export interface ProviderFixture {
   homeTeam: Match["homeTeam"];
   awayTeam: Match["awayTeam"];
   score: Match["score"];
+  elapsedMinute?: number;
+  goalEvents?: Match["goalEvents"];
 }
 
 export interface ProviderMatchParticipant {

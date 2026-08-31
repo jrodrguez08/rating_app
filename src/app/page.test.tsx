@@ -125,7 +125,7 @@ describe("Home", () => {
     }
   });
 
-  it("exposes semantic primary navigation with future destinations disabled", () => {
+  it("links to available destinations and keeps future destinations disabled", () => {
     render(<HomeContent locale="es" />);
     const navigation = screen.getByRole("navigation", {
       name: "Navegación principal",
@@ -133,10 +133,9 @@ describe("Home", () => {
     const homeLink = within(navigation).getByRole("link", { name: "Inicio" });
     expect(homeLink).toHaveAttribute("href", "/");
     expect(homeLink).toHaveAttribute("aria-current", "page");
-    expect(within(navigation).getByText("Partidos")).toHaveAttribute(
-      "aria-disabled",
-      "true",
-    );
+    expect(
+      within(navigation).getByRole("link", { name: "Partidos" }),
+    ).toHaveAttribute("href", "/matches");
     expect(within(navigation).getByText("Jugadores")).toHaveAttribute(
       "aria-disabled",
       "true",

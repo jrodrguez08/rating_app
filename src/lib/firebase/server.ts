@@ -12,6 +12,10 @@ import {
   type Firestore,
 } from "firebase-admin/firestore";
 
+import {
+  buildMatchArchive,
+  type MatchArchive,
+} from "@/application/match-archive";
 import { validateBallotRatings } from "@/domain/ballot-validation";
 import { preserveMonotonicMatchStatus } from "@/domain/match-status";
 import { aggregateMatchResult } from "@/domain/result-aggregation";
@@ -119,6 +123,71 @@ export class AdminResultService {
       state: "ready",
       match,
       result: fromDocument<MatchResult>(resultSnapshot),
+    };
+  }
+}
+
+export class AdminMatchArchiveService {
+  constructor(private readonly database = getServerFirestore()) {}
+
+  async list(teamId: string, now = new Date()): Promise<MatchArchive> {
+    const matches = await new AdminFootballSyncStore(this.database).listMatches(
+      teamId,
+    );
+    if (matches.length === 0) return buildMatchArchive([], now);
+    const competitionIds = [
+      ...new Set(matches.map((match) => match.competitionId)),
+    ];
+    const [competitions, results] = await Promise.all([
+      this.database.getAll(
+        ...competitionIds.map((id) => this.database.doc(`competitions/${id}`)),
+      ),
+      this.database.getAll(
+        ...matches.map((match) =>
+          this.database.doc(`matches/${match.id}/results/summary`),
+        ),
+      ),
+    ]);
+    const competitionNames = new Map(
+      competitions
+        .filter((snapshot) => snapshot.exists)
+        .map((snapshot) => [
+          snapshot.id,
+          fromDocument<Competition>(snapshot).name,
+        ]),
+    );
+    const resultIds = new Set(
+      results
+        .filter((snapshot) => snapshot.exists)
+        .map((snapshot) => snapshot.ref.parent.parent?.id),
+    );
+    return buildMatchArchive(
+      matches.map((match) => ({
+        match,
+        ...(competitionNames.get(match.competitionId) === undefined
+          ? {}
+          : { competitionName: competitionNames.get(match.competitionId) }),
+        hasResults: resultIds.has(match.id),
+      })),
+      now,
+    );
+  }
+
+  async get(matchId: string, teamId: string) {
+    const matchSnapshot = await this.database.doc(`matches/${matchId}`).get();
+    if (!matchSnapshot.exists) return null;
+    const match = fromDocument<Match>(matchSnapshot);
+    if (match.trackedTeamId !== teamId) return null;
+    const [competition, result] = await Promise.all([
+      this.database.doc(`competitions/${match.competitionId}`).get(),
+      this.database.doc(`matches/${match.id}/results/summary`).get(),
+    ]);
+    return {
+      match,
+      ...(competition.exists
+        ? { competitionName: fromDocument<Competition>(competition).name }
+        : {}),
+      hasResults: result.exists,
     };
   }
 }
