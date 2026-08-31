@@ -221,6 +221,13 @@ describe("football synchronization persistence", () => {
     expect(await collectionData("seasons")).toHaveLength(2);
     const matches = await collectionData("matches");
     expect(matches).toHaveLength(2);
+    expect(matches.every((match) => match.id !== undefined)).toBe(true);
+    await environment.withSecurityRulesDisabled(async (context) => {
+      const snapshot = await context.firestore().collection("matches").get();
+      expect(
+        snapshot.docs.every((document) => document.data().id === undefined),
+      ).toBe(true);
+    });
     expect(matches).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
