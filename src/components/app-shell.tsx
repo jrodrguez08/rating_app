@@ -12,7 +12,7 @@ interface AppShellProps {
   locale: Locale;
   messages: Messages;
   theme: TeamPresentation["theme"];
-  currentHref?: "/" | "/matches" | null;
+  currentHref?: "/" | "/matches" | "/players" | null;
 }
 
 export function AppShell({
@@ -25,7 +25,7 @@ export function AppShell({
   const navigation = [
     { href: "/", label: messages.navigation.home, planned: false },
     { href: "/matches", label: messages.navigation.matches, planned: false },
-    { href: "/players", label: messages.navigation.players, planned: true },
+    { href: "/players", label: messages.navigation.players, planned: false },
   ] as const;
   const clubTheme = {
     "--club-primary": theme.primary,

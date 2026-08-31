@@ -58,7 +58,12 @@ export function MatchResults({
               </p>
               {result.mvpPlayerIds.map((id) => (
                 <p key={id} className="mt-2 break-words text-lg font-extrabold">
-                  {result.playerResults[id].playerName}
+                  <Link
+                    href={`/players/${encodeURIComponent(id)}`}
+                    className="underline decoration-2 underline-offset-4"
+                  >
+                    {result.playerResults[id].playerName}
+                  </Link>
                   <span className="score-font ml-3 text-3xl text-accent">
                     {rating(result.playerResults[id].average)}
                   </span>
@@ -74,7 +79,12 @@ export function MatchResults({
                 >
                   <span className="score-font text-muted">{index + 1}</span>
                   <span className="min-w-0 break-words font-bold">
-                    {player.playerName}
+                    <Link
+                      href={`/players/${encodeURIComponent(player.playerId)}`}
+                      className="inline-flex min-h-11 items-center underline decoration-2 underline-offset-4"
+                    >
+                      {player.playerName}
+                    </Link>
                     {player.position ? (
                       <small className="block font-normal text-muted">
                         {player.position}
