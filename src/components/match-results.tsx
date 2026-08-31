@@ -5,6 +5,8 @@ import type { Locale } from "@/i18n/config";
 import { formatDate } from "@/i18n/format";
 import type { Messages } from "@/i18n/messages";
 
+import { Scoreboard } from "./match-archive";
+
 export function MatchResults({
   match,
   result,
@@ -35,15 +37,9 @@ export function MatchResults({
         <p className="mt-2 text-sm text-muted">
           {formatDate(match.kickoffAt, locale, { dateStyle: "medium" })}
         </p>
-        <div className="game-inset mt-5 grid grid-cols-[1fr_auto_1fr] items-center gap-2 p-4 text-center">
-          <TeamName name={match.homeTeam.name} />
-          <div>
-            <p className="score-font text-xs text-accent">{messages.final}</p>
-            <p className="score-font mt-1 text-3xl">
-              {match.score.home} - {match.score.away}
-            </p>
-          </div>
-          <TeamName name={match.awayTeam.name} />
+        <div className="game-inset mt-5 p-4 text-center">
+          <p className="score-font text-xs text-accent">{messages.final}</p>
+          <Scoreboard match={match} />
         </div>
         {result.status === "no_votes" ? (
           <div className="game-inset mt-5 p-5 text-center">
@@ -169,8 +165,4 @@ function compareResults(left: PlayerResult, right: PlayerResult) {
 
 function rating(value: number) {
   return value.toFixed(1);
-}
-
-function TeamName({ name }: { name: string }) {
-  return <p className="min-w-0 break-words text-sm font-bold">{name}</p>;
 }
