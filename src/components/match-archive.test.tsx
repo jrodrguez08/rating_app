@@ -1,4 +1,5 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { MatchArchiveItem } from "@/application/match-archive";
@@ -178,7 +179,8 @@ describe("Partidos presentation", () => {
     );
   });
 
-  it("places compact upcoming matches before recent matches without dominant no-vote copy", () => {
+  it("keeps the featured match above accessible tabs and switches compact archive panels", async () => {
+    const user = userEvent.setup();
     const featured = item(
       match({
         id: "featured",
@@ -212,24 +214,93 @@ describe("Partidos presentation", () => {
       />,
     );
 
-    const upcomingHeading = screen.getByRole("heading", {
-      name: "Upcoming matches",
+    const featuredHeading = screen.getByRole("heading", {
+      name: "Featured match",
     });
-    const recentHeading = screen.getByRole("heading", {
-      name: "Recent matches",
-    });
+    const tablist = screen.getByRole("tablist");
     expect(
-      upcomingHeading.compareDocumentPosition(recentHeading) &
+      featuredHeading.compareDocumentPosition(tablist) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+    const upcomingTab = screen.getByRole("tab", { name: "Upcoming matches" });
+    const recentTab = screen.getByRole("tab", { name: "Recent matches" });
+    expect(upcomingTab).toHaveAttribute("aria-selected", "true");
+    expect(upcomingTab).toHaveAttribute("aria-controls", "upcoming-panel");
+    expect(recentTab).toHaveAttribute("aria-selected", "false");
+    expect(screen.getByRole("tabpanel")).toHaveAttribute(
+      "aria-labelledby",
+      "upcoming-tab",
+    );
     expect(screen.getByText("Upcoming opponent")).toBeInTheDocument();
     expect(screen.getByText(/Sep 6/)).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("tabpanel")).getByText("VS"),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("Next match").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Recent opponent")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Featured opponent")).toHaveLength(1);
+
+    await user.click(recentTab);
+    expect(recentTab).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tabpanel")).toHaveAttribute(
+      "aria-labelledby",
+      "recent-tab",
+    );
     expect(screen.getByText("Recent opponent")).toBeInTheDocument();
     expect(screen.getByText("2 - 1")).toBeInTheDocument();
-    expect(screen.getAllByText("Next match").length).toBeGreaterThan(0);
     expect(screen.getByText("Final")).toBeInTheDocument();
     expect(screen.queryByText("No Rating App vote")).not.toBeInTheDocument();
     expect(screen.getAllByText("Featured opponent")).toHaveLength(1);
+
+    await user.click(upcomingTab);
+    expect(screen.getByText("Upcoming opponent")).toBeInTheDocument();
+    expect(screen.queryByText("Recent opponent")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Featured opponent")).toHaveLength(1);
+  });
+
+  it("supports arrow, Home, and End tab keyboard navigation", async () => {
+    const user = userEvent.setup();
+    render(
+      <MatchArchiveView
+        archive={{ relevant: null, upcoming: [], recent: [] }}
+        locale="en"
+        messages={messages}
+        ballotMessages={ballotMessages}
+        now={now}
+      />,
+    );
+    const upcomingTab = screen.getByRole("tab", { name: "Upcoming matches" });
+    const recentTab = screen.getByRole("tab", { name: "Recent matches" });
+
+    upcomingTab.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(recentTab).toHaveFocus();
+    expect(recentTab).toHaveAttribute("aria-selected", "true");
+    await user.keyboard("{Home}");
+    expect(upcomingTab).toHaveFocus();
+    await user.keyboard("{End}");
+    expect(recentTab).toHaveFocus();
+    await user.keyboard("{ArrowRight}");
+    expect(upcomingTab).toHaveFocus();
+  });
+
+  it("shows the localized empty state independently for each tab", async () => {
+    const user = userEvent.setup();
+    render(
+      <MatchArchiveView
+        archive={{ relevant: null, upcoming: [], recent: [] }}
+        locale="en"
+        messages={messages}
+        ballotMessages={ballotMessages}
+        now={now}
+      />,
+    );
+
+    expect(screen.getByText(messages.noUpcoming)).toBeInTheDocument();
+    expect(screen.queryByText(messages.noRecent)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: messages.recent }));
+    expect(screen.getByText(messages.noRecent)).toBeInTheDocument();
+    expect(screen.queryByText(messages.noUpcoming)).not.toBeInTheDocument();
   });
 
   it("keeps archive DTOs sanitized to match presentation facts", () => {

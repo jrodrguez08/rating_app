@@ -31,6 +31,7 @@ export default async function MatchesPage() {
             locale={locale}
             messages={messages.matches}
             ballotMessages={messages.home.matchLifecycle.ready}
+            now={new Date()}
           />
         ) : (
           <section

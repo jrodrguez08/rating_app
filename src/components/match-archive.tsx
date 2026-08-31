@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { useRef, useState } from "react";
 
 import type {
   MatchArchive,
@@ -29,6 +32,33 @@ export function MatchArchiveView({
   ballotMessages: BallotMessages;
   now?: Date;
 }) {
+  const [selectedTab, setSelectedTab] = useState<"upcoming" | "recent">(
+    "upcoming",
+  );
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const tabs = [
+    {
+      id: "upcoming",
+      label: messages.upcoming,
+      empty: messages.noUpcoming,
+      items: archive.upcoming,
+    },
+    {
+      id: "recent",
+      label: messages.recent,
+      empty: messages.noRecent,
+      items: archive.recent,
+    },
+  ] as const;
+  const selectedIndex = tabs.findIndex(({ id }) => id === selectedTab);
+  const selected = tabs[selectedIndex];
+
+  function selectTab(index: number) {
+    const nextIndex = (index + tabs.length) % tabs.length;
+    setSelectedTab(tabs[nextIndex].id);
+    tabRefs.current[nextIndex]?.focus();
+  }
+
   return (
     <>
       <section aria-labelledby="matches-heading" className="mb-7">
@@ -53,39 +83,82 @@ export function MatchArchiveView({
           />
         </section>
       ) : null}
-      <ArchiveSection
-        id="upcoming-matches"
-        title={messages.upcoming}
-        empty={messages.noUpcoming}
-        items={archive.upcoming}
-        locale={locale}
-        messages={messages}
-        ballotMessages={ballotMessages}
-        now={now}
-      />
-      <ArchiveSection
-        id="recent-matches"
-        title={messages.recent}
-        empty={messages.noRecent}
-        items={archive.recent}
-        locale={locale}
-        messages={messages}
-        ballotMessages={ballotMessages}
-        now={now}
-      />
+      <section
+        className="mt-8"
+        aria-label={`${messages.upcoming} / ${messages.recent}`}
+      >
+        <div
+          role="tablist"
+          aria-label={`${messages.upcoming} / ${messages.recent}`}
+          className="grid grid-cols-2 border-2 border-border bg-surface shadow-[2px_2px_0_var(--game-shadow)]"
+        >
+          {tabs.map((tab, index) => {
+            const isSelected = tab.id === selectedTab;
+            return (
+              <button
+                key={tab.id}
+                ref={(element) => {
+                  tabRefs.current[index] = element;
+                }}
+                id={`${tab.id}-tab`}
+                type="button"
+                role="tab"
+                aria-selected={isSelected}
+                aria-controls={`${tab.id}-panel`}
+                tabIndex={isSelected ? 0 : -1}
+                className={`score-font min-h-11 border-b-4 px-3 py-2 focus-visible:z-10 ${
+                  isSelected
+                    ? "border-accent bg-panel font-bold text-accent"
+                    : "border-transparent text-muted"
+                }`}
+                onClick={() => setSelectedTab(tab.id)}
+                onKeyDown={(event) => {
+                  if (event.key === "ArrowRight") {
+                    event.preventDefault();
+                    selectTab(index + 1);
+                  } else if (event.key === "ArrowLeft") {
+                    event.preventDefault();
+                    selectTab(index - 1);
+                  } else if (event.key === "Home") {
+                    event.preventDefault();
+                    selectTab(0);
+                  } else if (event.key === "End") {
+                    event.preventDefault();
+                    selectTab(tabs.length - 1);
+                  }
+                }}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+        <div
+          id={`${selected.id}-panel`}
+          role="tabpanel"
+          aria-labelledby={`${selected.id}-tab`}
+          tabIndex={0}
+          className="mt-4 focus-visible:outline-none"
+        >
+          <ArchiveItems
+            empty={selected.empty}
+            items={selected.items}
+            locale={locale}
+            messages={messages}
+            ballotMessages={ballotMessages}
+            now={now}
+          />
+        </div>
+      </section>
     </>
   );
 }
 
-function ArchiveSection({
-  id,
-  title,
+function ArchiveItems({
   empty,
   items,
   ...props
 }: {
-  id: string;
-  title: string;
   empty: string;
   items: MatchArchiveItem[];
   locale: Locale;
@@ -94,20 +167,17 @@ function ArchiveSection({
   now: Date;
 }) {
   return (
-    <section aria-labelledby={id} className="mt-8">
-      <h2 id={id} className="score-font text-xl">
-        {title}
-      </h2>
+    <>
       {items.length === 0 ? (
-        <p className="game-inset mt-3 p-4 text-muted">{empty}</p>
+        <p className="game-inset p-4 text-muted">{empty}</p>
       ) : (
-        <div className="mt-3 space-y-4">
+        <div className="space-y-4">
           {items.map((item) => (
             <CompactMatchCard key={item.match.id} item={item} {...props} />
           ))}
         </div>
       )}
-    </section>
+    </>
   );
 }
 

@@ -66,6 +66,10 @@ All buttons keep a minimum 44px target, visible label, keyboard focus, and disab
 
 Status badges are compact rectangular scoreboard labels with text and, when useful, a small icon. Scheduled, live, final, voting-open, voting-closed, and postponed states must remain distinguishable by wording or icon—not color alone. Live/error colors are accents, not full-panel defaults.
 
+## Tabs
+
+Tabs are reserved for a small set of peer views within one stable page hierarchy. Keep primary context, such as a featured match, outside the tab panels. Use compact rectangular controls with crisp borders and an active bottom-border/background treatment, not oversized pills. The selected state must use `aria-selected` and remain visually distinguishable without color alone. Associate tabs and panels, retain 44px targets and visible focus, and support Left/Right plus Home/End keyboard navigation.
+
 ## Iconography and team marks
 
 Use a small internal SVG set on a 16×16 grid with crisp geometric paths, `currentColor`, and no copied sprites. Decorative icons are hidden from assistive technology; meaningful icons need an accessible text equivalent. Do not add a broad icon dependency for a few concepts.

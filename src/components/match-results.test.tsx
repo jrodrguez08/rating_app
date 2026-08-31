@@ -1,5 +1,5 @@
 import { render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { Match, MatchResult } from "@/domain/models";
 import { getMessages } from "@/i18n/messages";
@@ -58,6 +58,32 @@ describe("match results UI", () => {
     expect(screen.getByText("Coach Name")).toBeInTheDocument();
     expect(screen.getByText("Based on 2 votes")).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("voter-");
+  });
+
+  it("reuses canonical badges for both teams while keeping the final score central", () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    render(
+      <MatchResults
+        match={{
+          ...match,
+          homeTeam: { externalProviderId: "820", name: "Renamed Cartago" },
+        }}
+        result={result}
+        locale="en"
+        messages={getMessages("en").results}
+      />,
+    );
+
+    const badges = screen.getAllByTestId("team-badge");
+    expect(badges).toHaveLength(2);
+    expect(badges[0]).toHaveTextContent("CC");
+    expect(badges[1]).toHaveTextContent("O");
+    expect(screen.getByText("Renamed Cartago")).toBeInTheDocument();
+    expect(screen.getByText("Opponent")).toBeInTheDocument();
+    expect(screen.getByText("2 - 1")).toBeInTheDocument();
+    expect(screen.getByText(/final/i)).toBeInTheDocument();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
   });
 
   it("renders a zero-vote result without rankings", () => {
