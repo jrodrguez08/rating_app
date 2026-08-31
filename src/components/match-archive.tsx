@@ -10,19 +10,23 @@ import type { Locale } from "@/i18n/config";
 import { formatDate } from "@/i18n/format";
 import type { Messages } from "@/i18n/messages";
 
+import { BallotEntry } from "./ballot-entry";
 import { TeamBadge } from "./team-badge";
 
 type MatchMessages = Messages["matches"];
+type BallotMessages = Messages["home"]["matchLifecycle"]["ready"];
 
 export function MatchArchiveView({
   archive,
   locale,
   messages,
+  ballotMessages,
   now = new Date(),
 }: {
   archive: MatchArchive;
   locale: Locale;
   messages: MatchMessages;
+  ballotMessages: BallotMessages;
   now?: Date;
 }) {
   return (
@@ -43,20 +47,12 @@ export function MatchArchiveView({
             item={archive.relevant}
             locale={locale}
             messages={messages}
+            ballotMessages={ballotMessages}
             now={now}
             featured
           />
         </section>
       ) : null}
-      <ArchiveSection
-        id="recent-matches"
-        title={messages.recent}
-        empty={messages.noRecent}
-        items={archive.recent}
-        locale={locale}
-        messages={messages}
-        now={now}
-      />
       <ArchiveSection
         id="upcoming-matches"
         title={messages.upcoming}
@@ -64,6 +60,17 @@ export function MatchArchiveView({
         items={archive.upcoming}
         locale={locale}
         messages={messages}
+        ballotMessages={ballotMessages}
+        now={now}
+      />
+      <ArchiveSection
+        id="recent-matches"
+        title={messages.recent}
+        empty={messages.noRecent}
+        items={archive.recent}
+        locale={locale}
+        messages={messages}
+        ballotMessages={ballotMessages}
         now={now}
       />
     </>
@@ -83,6 +90,7 @@ function ArchiveSection({
   items: MatchArchiveItem[];
   locale: Locale;
   messages: MatchMessages;
+  ballotMessages: BallotMessages;
   now: Date;
 }) {
   return (
@@ -95,7 +103,7 @@ function ArchiveSection({
       ) : (
         <div className="mt-3 space-y-4">
           {items.map((item) => (
-            <MatchCard key={item.match.id} item={item} {...props} />
+            <CompactMatchCard key={item.match.id} item={item} {...props} />
           ))}
         </div>
       )}
@@ -107,12 +115,14 @@ export function MatchCard({
   item,
   locale,
   messages,
+  ballotMessages,
   now,
   featured = false,
 }: {
   item: MatchArchiveItem;
   locale: Locale;
   messages: MatchMessages;
+  ballotMessages: BallotMessages;
   now: Date;
   featured?: boolean;
 }) {
@@ -142,14 +152,109 @@ export function MatchCard({
         <p className="mt-3 text-sm font-semibold text-muted">
           {presentation.description}
         </p>
-        <Link
-          href={presentation.href ?? `/matches/${match.id}`}
-          className={`${presentation.primary ? "button-primary" : "button-secondary"} mt-4 inline-flex min-h-11 w-full items-center justify-center px-4 py-3 font-bold`}
-        >
-          {presentation.action ?? messages.details}
-        </Link>
+        <MatchAction
+          item={item}
+          presentation={presentation}
+          messages={messages}
+          ballotMessages={ballotMessages}
+        />
       </div>
     </article>
+  );
+}
+
+function CompactMatchCard({
+  item,
+  locale,
+  messages,
+  ballotMessages,
+  now,
+}: {
+  item: MatchArchiveItem;
+  locale: Locale;
+  messages: MatchMessages;
+  ballotMessages: BallotMessages;
+  now: Date;
+}) {
+  const { match } = item;
+  const presentation = matchPresentation(item, messages, now);
+  const showScore =
+    match.status === "finished" &&
+    match.score.home !== null &&
+    match.score.away !== null;
+  return (
+    <article className="game-inset px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+        <time
+          dateTime={match.kickoffAt}
+          className="text-xs font-semibold text-muted"
+        >
+          {formatDate(match.kickoffAt, locale, {
+            dateStyle: "medium",
+            timeStyle: "short",
+          })}
+        </time>
+        <span className="status-badge">{presentation.label}</span>
+      </div>
+      <div className="mt-3 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
+        <p className="min-w-0 break-words text-sm font-bold">
+          {match.homeTeam.name}
+        </p>
+        <span className="score-font text-lg text-accent">
+          {showScore ? `${match.score.home} - ${match.score.away}` : "VS"}
+        </span>
+        <p className="min-w-0 break-words text-right text-sm font-bold">
+          {match.awayTeam.name}
+        </p>
+      </div>
+      {item.competitionName ? (
+        <p className="mt-2 text-xs text-muted">{item.competitionName}</p>
+      ) : null}
+      <MatchAction
+        item={item}
+        presentation={presentation}
+        messages={messages}
+        ballotMessages={ballotMessages}
+        compact
+      />
+    </article>
+  );
+}
+
+function MatchAction({
+  item,
+  presentation,
+  messages,
+  ballotMessages,
+  compact = false,
+}: {
+  item: MatchArchiveItem;
+  presentation: ReturnType<typeof matchPresentation>;
+  messages: MatchMessages;
+  ballotMessages: BallotMessages;
+  compact?: boolean;
+}) {
+  if ("ballotAware" in presentation && presentation.ballotAware) {
+    return (
+      <BallotEntry
+        matchId={item.match.id}
+        messages={ballotMessages}
+        compact={compact}
+      />
+    );
+  }
+  return (
+    <Link
+      href={presentation.href ?? `/matches/${item.match.id}`}
+      className={
+        compact
+          ? "mt-2 inline-flex min-h-11 items-center font-bold text-accent underline decoration-2 underline-offset-4"
+          : `${presentation.primary ? "button-primary" : "button-secondary"} mt-4 inline-flex min-h-11 w-full items-center justify-center px-4 py-3 font-bold`
+      }
+    >
+      {presentation.action ?? messages.details}
+      {compact ? <span aria-hidden="true">&nbsp;→</span> : null}
+    </Link>
   );
 }
 
@@ -245,9 +350,7 @@ export function matchPresentation(
     return {
       label: messages.votingOpen,
       description: messages.votingDescription,
-      action: messages.rate,
-      href: `/matches/${match.id}/rate`,
-      primary: true,
+      ballotAware: true,
     };
   if (hasResults && match.ratingState === "rating_closed")
     return {

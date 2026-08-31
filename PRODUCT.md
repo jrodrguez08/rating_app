@@ -16,6 +16,8 @@ The codebase includes guarded production configuration and bootstrap boundaries 
 
 ## MVP
 
+Partidos prioritizes one relevant featured match, then compact upcoming and recent fixture lists. During an active window it checks the current anonymous voter's deterministic ballot status through the same trusted boundary as Home: an available voter can enter the rating flow, while a voter who already submitted sees confirmation without a second rating action. Results remain hidden until trusted close.
+
 After a match finishes, voting opens for approximately two hours. An authenticated supporter sees every Herediano player who actually played—not unused squad members—and the match's head coach. They submit one complete ballot. Aggregate results remain hidden until voting closes.
 
 After closing, supporters can browse match results, MVPs, coach ratings, player match history, and player averages. Match and player history must be durable, not inferred from the current roster.

@@ -44,6 +44,7 @@ export default async function MatchDetailPage({
             item={item}
             locale={locale}
             messages={messages.matches}
+            ballotMessages={messages.home.matchLifecycle.ready}
           />
         ) : (
           <section className="card p-6 text-center">

@@ -30,6 +30,7 @@ export default async function MatchesPage() {
             archive={archive}
             locale={locale}
             messages={messages.matches}
+            ballotMessages={messages.home.matchLifecycle.ready}
           />
         ) : (
           <section
