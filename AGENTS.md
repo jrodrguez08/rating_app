@@ -10,6 +10,7 @@ Before product-code changes, read this file completely along with `PRODUCT.md`, 
 - Keep code simple, typed, and direct. Keep strict TypeScript enabled, use explicit domain types, infer clear local types, prefer `unknown` to unsafe `any`, and narrow values before use.
 - Order imports as framework/external, internal `@/` imports, then relative imports. Use type-only imports where appropriate. Keep imports conventional, unique, and free of unused symbols; do not add cosmetic barrel files.
 - Prettier is the formatting authority. Run `npm run format` for intentional formatting and do not add stylistic ESLint rules that compete with it. Preserve UTF-8, LF endings, two-space indentation, and final newlines.
+- Keep user-facing source text as valid UTF-8 and run `npm run check:encoding` to catch known mojibake markers; fix corrupted literals at their source rather than adding runtime decoding or replacement logic.
 - Update meaningful tests when behavior changes. Test outcomes and accessibility semantics, not implementation trivia.
 - Treat documentation review as part of every bug fix, hotfix, feature, and refactor that changes or clarifies durable product behavior, lifecycle rules, architecture, operational behavior, or invariants. Update the relevant canonical source-of-truth document in the same change when needed, and explicitly report whether documentation changed or why no update was required. Do not defer durable documentation cleanup to a later task.
 - Update source-of-truth documentation when product or architecture truths change.
