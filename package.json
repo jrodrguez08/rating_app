@@ -12,6 +12,7 @@
     "start": "next start",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "check:encoding": "node scripts/check-text-encoding.mjs",
     "lint": "eslint .",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
@@ -24,7 +25,7 @@
     "sync:match-participants": "tsx --env-file=.env.local scripts/sync-match-participants.ts",
     "sync:lifecycle": "tsx --env-file=.env.local scripts/sync-lifecycle.ts",
     "bootstrap:production-team": "tsx scripts/bootstrap-production-team.ts",
-    "verify": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build"
+    "verify": "npm run format:check && npm run check:encoding && npm run lint && npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
     "firebase": "^12.18.0",
