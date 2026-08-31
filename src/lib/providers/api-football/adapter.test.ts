@@ -143,6 +143,85 @@ describe("ApiFootballAdapter", () => {
     expect(adapter.requestCount).toBe(1);
   });
 
+  it("normalizes confirmed goals chronologically and skips malformed goal data", async () => {
+    const payload = structuredClone(fixtureResponse);
+    payload[0].fixture.status = { short: "2H", elapsed: 90 } as never;
+    const fixtureWithEvents = {
+      ...payload[0],
+      events: [
+        {
+          time: { elapsed: 90, extra: 4 },
+          team: { id: 2000 },
+          player: { id: 22, name: "Opponent Scorer" },
+          type: "Goal",
+          detail: "Penalty",
+        },
+        {
+          time: { elapsed: 23, extra: null },
+          team: { id: 1234 },
+          player: { id: 11, name: "Tracked Scorer" },
+          type: "Goal",
+          detail: "Normal Goal",
+        },
+        {
+          time: { elapsed: 30, extra: null },
+          team: { id: 1234 },
+          player: { id: null, name: null },
+          type: "Goal",
+          detail: "Normal Goal",
+        },
+        { type: "Card" },
+      ],
+    };
+    const adapter = new ApiFootballAdapter(
+      "test-key",
+      vi.fn<typeof fetch>().mockResolvedValue(response([fixtureWithEvents])),
+    );
+
+    const fixture = await adapter.getFixture("5001");
+
+    expect(fixture.elapsedMinute).toBe(90);
+    expect(fixture.goalEvents).toEqual([
+      {
+        externalTeamId: "1234",
+        externalPlayerId: "11",
+        scorerName: "Tracked Scorer",
+        elapsed: 23,
+        kind: "normal",
+      },
+      {
+        externalTeamId: "2000",
+        externalPlayerId: "22",
+        scorerName: "Opponent Scorer",
+        elapsed: 90,
+        extra: 4,
+        kind: "penalty",
+      },
+    ]);
+  });
+
+  it("distinguishes unavailable goal data from an authoritative empty event collection", async () => {
+    const withoutEvents = structuredClone(fixtureResponse[0]);
+    const withEmptyEvents = {
+      ...structuredClone(fixtureResponse[0]),
+      events: [],
+    };
+    const adapter = new ApiFootballAdapter(
+      "test-key",
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(response([withoutEvents]))
+        .mockResolvedValueOnce(response([withEmptyEvents])),
+    );
+
+    await expect(adapter.getFixture("5001")).resolves.not.toHaveProperty(
+      "goalEvents",
+    );
+    await expect(adapter.getFixture("5001")).resolves.toMatchObject({
+      goalEvents: [],
+    });
+  });
+
   it("reconciles starters, entering substitutes, unused substitutes, and tracked Team coach", async () => {
     const fetcher = vi
       .fn<typeof fetch>()

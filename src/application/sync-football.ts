@@ -166,6 +166,7 @@ export async function syncFootballData(
     return {
       id: stableId("match", provider.name, fixture.externalFixtureId),
       trackedTeamId: team.id,
+      trackedTeamExternalProviderId: externalTeamId,
       competitionId: competition.id,
       seasonId: season.id,
       homeTeam: fixture.homeTeam,
@@ -174,6 +175,12 @@ export async function syncFootballData(
       status: fixture.status,
       ratingState: "not_ready",
       score: fixture.score,
+      ...(fixture.elapsedMinute === undefined
+        ? {}
+        : { elapsedMinute: fixture.elapsedMinute }),
+      ...(fixture.goalEvents === undefined
+        ? {}
+        : { goalEvents: fixture.goalEvents }),
       externalProvider: provider.name,
       externalProviderFixtureId: fixture.externalFixtureId,
       createdAt: timestamp,

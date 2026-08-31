@@ -309,6 +309,10 @@ function mergeFixture(
     status,
     ratingState,
     score: fixture.score,
+    ...(fixture.elapsedMinute === undefined
+      ? {}
+      : { elapsedMinute: fixture.elapsedMinute }),
+    goalEvents: fixture.goalEvents ?? match.goalEvents ?? [],
     homeTeam: fixture.homeTeam,
     awayTeam: fixture.awayTeam,
     kickoffAt: fixture.kickoffAt,

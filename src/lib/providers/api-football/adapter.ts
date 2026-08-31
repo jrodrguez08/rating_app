@@ -1,3 +1,4 @@
+import type { MatchGoalEvent } from "@/domain/models";
 import type {
   FixtureWindow,
   FootballDataProvider,
@@ -469,20 +470,27 @@ export class ApiFootballAdapter implements FootballDataProvider {
     const league = record(item.league, "fixture.league");
     const teams = record(item.teams, "fixture.teams");
     const goals = record(item.goals, "fixture.goals");
+    const status = record(fixture.status, "fixture.status");
+    const elapsedMinute = optionalNumber(
+      status.elapsed,
+      "fixture.status.elapsed",
+    );
     return {
       externalFixtureId: String(number(fixture.id, "fixture.id")),
       externalCompetitionId: String(number(league.id, "fixture.league.id")),
       providerSeason: number(league.season, "fixture.league.season"),
       kickoffAt: utcTimestamp(fixture.date, "fixture.date"),
-      status: mapApiFootballStatus(
-        record(fixture.status, "fixture.status").short,
-      ),
+      status: mapApiFootballStatus(status.short),
       homeTeam: this.parseFixtureTeam(teams.home, "fixture.teams.home"),
       awayTeam: this.parseFixtureTeam(teams.away, "fixture.teams.away"),
       score: {
         home: nullableScore(goals.home, "fixture.goals.home"),
         away: nullableScore(goals.away, "fixture.goals.away"),
       },
+      ...(elapsedMinute === undefined ? {} : { elapsedMinute }),
+      ...(Array.isArray(item.events)
+        ? { goalEvents: parseGoalEvents(item.events) }
+        : {}),
     };
   }
 
@@ -536,6 +544,61 @@ export class ApiFootballAdapter implements FootballDataProvider {
     }
     return array(envelope.response, "response.response");
   }
+}
+
+function parseGoalEvents(value: unknown[]): MatchGoalEvent[] {
+  return value
+    .flatMap((eventValue): MatchGoalEvent[] => {
+      if (
+        !isRecord(eventValue) ||
+        String(eventValue.type).toLowerCase() !== "goal"
+      ) {
+        return [];
+      }
+      const team = eventValue.team;
+      const player = eventValue.player;
+      const time = eventValue.time;
+      if (!isRecord(team) || !isRecord(player) || !isRecord(time)) return [];
+      if (
+        typeof team.id !== "number" ||
+        typeof player.id !== "number" ||
+        typeof player.name !== "string" ||
+        player.name.trim() === "" ||
+        typeof time.elapsed !== "number" ||
+        !Number.isFinite(time.elapsed)
+      ) {
+        return [];
+      }
+      const extra =
+        typeof time.extra === "number" && Number.isFinite(time.extra)
+          ? time.extra
+          : undefined;
+      const detail =
+        typeof eventValue.detail === "string"
+          ? eventValue.detail.toLowerCase()
+          : "";
+      const kind: MatchGoalEvent["kind"] = detail.includes("own goal")
+        ? "own_goal"
+        : detail.includes("penalty")
+          ? "penalty"
+          : detail.includes("normal goal")
+            ? "normal"
+            : "other";
+      return [
+        {
+          externalTeamId: String(team.id),
+          externalPlayerId: String(player.id),
+          scorerName: player.name,
+          elapsed: time.elapsed,
+          ...(extra === undefined ? {} : { extra }),
+          kind,
+        },
+      ];
+    })
+    .sort(
+      (left, right) =>
+        left.elapsed - right.elapsed || (left.extra ?? 0) - (right.extra ?? 0),
+    );
 }
 
 function overlapsWindow(

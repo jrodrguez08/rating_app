@@ -48,9 +48,18 @@ export interface MatchTeamSnapshot {
   name: string;
   logoUrl?: string;
 }
+export interface MatchGoalEvent {
+  externalTeamId: string;
+  externalPlayerId: string;
+  scorerName: string;
+  elapsed: number;
+  extra?: number;
+  kind: "normal" | "penalty" | "own_goal" | "other";
+}
 export interface Match {
   id: EntityId;
   trackedTeamId: EntityId;
+  trackedTeamExternalProviderId?: string;
   competitionId: EntityId;
   seasonId: EntityId;
   homeTeam: MatchTeamSnapshot;
@@ -59,6 +68,8 @@ export interface Match {
   status: MatchStatus;
   ratingState: RatingState;
   score: { home: number | null; away: number | null };
+  elapsedMinute?: number;
+  goalEvents?: MatchGoalEvent[];
   lastProviderSyncAt?: string;
   participantSyncedAt?: string;
   ratingReadyAt?: string;
