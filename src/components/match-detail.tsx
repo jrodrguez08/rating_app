@@ -6,7 +6,8 @@ import { formatDate } from "@/i18n/format";
 import type { Messages } from "@/i18n/messages";
 
 import { BallotEntry } from "./ballot-entry";
-import { GoalSummary, matchPresentation, Scoreboard } from "./match-archive";
+import { GoalSummary, Scoreboard } from "./match-archive";
+import { matchPresentation } from "./match-presentation";
 
 export function MatchDetail({
   item,
