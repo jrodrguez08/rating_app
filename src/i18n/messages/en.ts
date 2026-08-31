@@ -65,6 +65,7 @@ export const enMessages = {
           "The two-hour window is active. Submit one complete rating before it closes.",
         action: "Rate match",
         submitted: "Rating submitted",
+        submittedDescription: "Your rating has already been recorded.",
         checking: "Preparing your session...",
         sessionError: "We couldn't prepare your session. Try again.",
       },

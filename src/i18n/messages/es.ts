@@ -64,6 +64,7 @@ export const esMessages = {
           "La ventana de dos horas est\u00e1 activa. Env\u00eda una calificaci\u00f3n completa antes de que cierre.",
         action: "Calificar partido",
         submitted: "Calificaci\u00f3n enviada",
+        submittedDescription: "Tu calificaci\u00f3n ya fue registrada.",
         checking: "Preparando tu sesi\u00f3n...",
         sessionError: "No pudimos preparar tu sesi\u00f3n. Intenta de nuevo.",
       },

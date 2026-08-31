@@ -5,17 +5,20 @@ import type { Locale } from "@/i18n/config";
 import { formatDate } from "@/i18n/format";
 import type { Messages } from "@/i18n/messages";
 
+import { BallotEntry } from "./ballot-entry";
 import { GoalSummary, matchPresentation, Scoreboard } from "./match-archive";
 
 export function MatchDetail({
   item,
   locale,
   messages,
+  ballotMessages,
   now = new Date(),
 }: {
   item: MatchArchiveItem;
   locale: Locale;
   messages: Messages["matches"];
+  ballotMessages: Messages["home"]["matchLifecycle"]["ready"];
   now?: Date;
 }) {
   const presentation = matchPresentation(item, messages, now);
@@ -46,7 +49,9 @@ export function MatchDetail({
           <p className="game-inset mt-5 p-4 leading-6">
             {presentation.description}
           </p>
-          {presentation.href ? (
+          {"ballotAware" in presentation && presentation.ballotAware ? (
+            <BallotEntry matchId={item.match.id} messages={ballotMessages} />
+          ) : presentation.href ? (
             <Link
               href={presentation.href}
               className="button-primary mt-5 inline-flex min-h-11 w-full items-center justify-center px-4 py-3 font-bold"
