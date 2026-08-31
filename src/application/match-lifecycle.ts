@@ -54,6 +54,22 @@ export async function runMatchLifecycle({
     };
   }
   let matches = await store.listMatches(teamId);
+  const pendingFinalization = selectLifecycleMatch(matches, currentTime);
+  if (
+    pendingFinalization !== undefined &&
+    isExpiredRatingWindow(pendingFinalization, currentTime)
+  ) {
+    try {
+      await store.finalizeMatchResult(pendingFinalization.id, currentTime);
+      return {
+        action: "rating_closed",
+        matchId: pendingFinalization.id,
+        providerRequests: provider.requestCount,
+      };
+    } catch (error) {
+      return retryable(provider, pendingFinalization.id, error);
+    }
+  }
   const metadata = await store.getSyncMetadata(teamId);
   const discoveryDue = isDiscoveryDue(
     matches,
@@ -77,7 +93,7 @@ export async function runMatchLifecycle({
     }
   }
 
-  const match = selectRelevantMatch(matches, currentTime);
+  const match = selectLifecycleMatch(matches, currentTime);
   if (match === undefined) {
     return {
       action: discovered ? "discovered" : "idle",
@@ -86,11 +102,7 @@ export async function runMatchLifecycle({
     };
   }
 
-  if (
-    match.votingClosesAt !== undefined &&
-    currentTime >= new Date(match.votingClosesAt) &&
-    match.ratingState !== "rating_closed"
-  ) {
+  if (isExpiredRatingWindow(match, currentTime)) {
     try {
       await store.finalizeMatchResult(match.id, currentTime);
       return {
@@ -229,6 +241,30 @@ export function selectRelevantMatch(
       .reverse()
       .find((match) => match.ratingState === "rating_closed") ??
     byKickoff.find((match) => match.ratingState === "rating_ready")
+  );
+}
+
+export function selectLifecycleMatch(
+  matches: Match[],
+  now: Date,
+): Match | undefined {
+  return (
+    [...matches]
+      .sort(
+        (left, right) =>
+          new Date(left.kickoffAt).getTime() -
+          new Date(right.kickoffAt).getTime(),
+      )
+      .find((match) => isExpiredRatingWindow(match, now)) ??
+    selectRelevantMatch(matches, now)
+  );
+}
+
+function isExpiredRatingWindow(match: Match, now: Date): boolean {
+  return (
+    match.ratingState === "rating_ready" &&
+    match.votingClosesAt !== undefined &&
+    now >= new Date(match.votingClosesAt)
   );
 }
 

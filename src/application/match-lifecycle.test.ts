@@ -10,7 +10,11 @@ import type {
   ProviderTeamIdentity,
 } from "@/domain/ports";
 
-import { runMatchLifecycle, selectRelevantMatch } from "./match-lifecycle";
+import {
+  runMatchLifecycle,
+  selectLifecycleMatch,
+  selectRelevantMatch,
+} from "./match-lifecycle";
 
 const NOW = new Date("2026-08-29T18:00:00.000Z");
 const counts = { created: 0, updated: 0, unchanged: 0 };
@@ -54,6 +58,8 @@ class MemoryStore implements MatchLifecycleStore {
   };
   participantCount = 11;
   hasCoach = true;
+  finalizeCalls = 0;
+  finalizationFailure?: Error;
 
   constructor(public matches: Match[]) {}
   async getTeam() {
@@ -77,6 +83,8 @@ class MemoryStore implements MatchLifecycleStore {
     return this.hasCoach;
   }
   async finalizeMatchResult(matchId: string, now: Date) {
+    this.finalizeCalls += 1;
+    if (this.finalizationFailure) throw this.finalizationFailure;
     this.matches = this.matches.map((value) =>
       value.id === matchId
         ? {
@@ -291,21 +299,150 @@ describe("match lifecycle synchronization", () => {
     });
     expect((await run(store, provider)).action).toBe("idle");
     expect(store.matches[0].votingOpensAt).toBe(ready.votingOpensAt);
+    expect(store.matches[0].votingClosesAt).toBe(ready.votingClosesAt);
+    expect(store.finalizeCalls).toBe(0);
   });
 
   it("closes an expired rating window without reopening it", async () => {
+    const votingOpensAt = "2026-08-29T14:00:00.000Z";
+    const votingClosesAt = "2026-08-29T16:00:00.000Z";
     const store = new MemoryStore([
       match({
         status: "finished",
         ratingState: "rating_ready",
-        votingOpensAt: "2026-08-29T14:00:00.000Z",
-        votingClosesAt: "2026-08-29T16:00:00.000Z",
+        votingOpensAt,
+        votingClosesAt,
       }),
     ]);
-    expect(
-      (await run(store, new FixtureProvider(fixture("finished")))).action,
-    ).toBe("rating_closed");
-    expect(store.matches[0].ratingState).toBe("rating_closed");
+    const provider = new FixtureProvider(fixture("finished"));
+    expect((await run(store, provider)).action).toBe("rating_closed");
+    expect(store.matches[0]).toMatchObject({
+      ratingState: "rating_closed",
+      votingOpensAt,
+      votingClosesAt,
+    });
+    expect(store.finalizeCalls).toBe(1);
+    expect(provider.requestCount).toBe(0);
+  });
+
+  it.each(["scheduled", "live"] as const)(
+    "prioritizes expired finalization ahead of a %s fixture with zero provider requests",
+    async (status) => {
+      const expired = match({
+        id: "expired",
+        status: "finished",
+        ratingState: "rating_ready",
+        kickoffAt: "2026-08-28T20:00:00.000Z",
+        votingOpensAt: "2026-08-29T14:00:00.000Z",
+        votingClosesAt: "2026-08-29T16:00:00.000Z",
+      });
+      const next = match({
+        id: "next",
+        status,
+        kickoffAt: "2026-08-30T20:00:00.000Z",
+      });
+      const store = new MemoryStore([next, expired]);
+      store.metadata = null;
+      const provider = new FixtureProvider(fixture(status));
+      let discoveries = 0;
+
+      const result = await runMatchLifecycle({
+        teamId: "tracked-team",
+        store,
+        provider,
+        now: () => NOW,
+        discoverFixtures: async () => {
+          discoveries += 1;
+        },
+        syncParticipants: async () => undefined,
+      });
+
+      expect(selectLifecycleMatch([next, expired], NOW)?.id).toBe("expired");
+      expect(result).toMatchObject({
+        action: "rating_closed",
+        matchId: "expired",
+        providerRequests: 0,
+      });
+      expect(discoveries).toBe(0);
+      expect(store.matches.find(({ id }) => id === "next")?.ratingState).toBe(
+        "not_ready",
+      );
+    },
+  );
+
+  it("keeps failed expired finalization retryable and ahead of later fixtures", async () => {
+    const expired = match({
+      id: "expired",
+      status: "finished",
+      ratingState: "rating_ready",
+      kickoffAt: "2026-08-28T20:00:00.000Z",
+      votingClosesAt: "2026-08-29T16:00:00.000Z",
+    });
+    const next = match({
+      id: "next",
+      kickoffAt: "2026-08-30T20:00:00.000Z",
+    });
+    const store = new MemoryStore([expired, next]);
+    store.finalizationFailure = new Error("Malformed persisted ballot.");
+    const provider = new FixtureProvider(fixture("scheduled"));
+
+    const first = await run(store, provider);
+    const second = await run(store, provider);
+
+    expect(first).toMatchObject({
+      action: "retryable_error",
+      matchId: "expired",
+      providerRequests: 0,
+    });
+    expect(second.matchId).toBe("expired");
+    expect(store.finalizeCalls).toBe(2);
+    expect(store.matches[0].ratingState).toBe("rating_ready");
+    expect(provider.requestCount).toBe(0);
+  });
+
+  it("does not finalize twice and selects the next fixture after success", async () => {
+    const expired = match({
+      id: "expired",
+      status: "finished",
+      ratingState: "rating_ready",
+      kickoffAt: "2026-08-28T20:00:00.000Z",
+      votingClosesAt: "2026-08-29T16:00:00.000Z",
+    });
+    const next = match({
+      id: "next",
+      kickoffAt: "2026-08-31T20:00:00.000Z",
+    });
+    const store = new MemoryStore([expired, next]);
+    const provider = new FixtureProvider(fixture("scheduled"));
+
+    expect((await run(store, provider)).matchId).toBe("expired");
+    const finalizedAt = store.matches[0].updatedAt;
+    const repeated = await run(store, provider);
+
+    expect(repeated).toMatchObject({ action: "idle", matchId: "next" });
+    expect(store.finalizeCalls).toBe(1);
+    expect(store.matches[0]).toMatchObject({
+      ratingState: "rating_closed",
+      updatedAt: finalizedAt,
+    });
+    expect(provider.requestCount).toBe(0);
+  });
+
+  it("keeps presentation relevance on the next fixture while lifecycle selects expired work", () => {
+    const expired = match({
+      id: "expired",
+      status: "finished",
+      ratingState: "rating_ready",
+      kickoffAt: "2026-08-28T20:00:00.000Z",
+      votingClosesAt: "2026-08-29T16:00:00.000Z",
+    });
+    const next = match({
+      id: "next",
+      kickoffAt: "2026-08-30T20:00:00.000Z",
+    });
+
+    expect(selectLifecycleMatch([expired, next], NOW)?.id).toBe("expired");
+    expect(selectRelevantMatch([expired, next], NOW)?.id).toBe("next");
   });
 
   it.each(["postponed", "cancelled", "abandoned"] as const)(
