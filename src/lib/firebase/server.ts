@@ -669,13 +669,13 @@ function fromDocument<T>(snapshot: {
 }): T {
   const data = snapshot.data() ?? {};
   return {
-    id: snapshot.id,
     ...Object.fromEntries(
       Object.entries(data).map(([key, value]) => [
         key,
         value instanceof Timestamp ? value.toDate().toISOString() : value,
       ]),
     ),
+    id: snapshot.id,
   } as T;
 }
 function comparable(value: object): string {

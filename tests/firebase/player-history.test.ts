@@ -37,7 +37,7 @@ beforeAll(async () => {
     createdAt: timestamp,
     updatedAt: timestamp,
   });
-  await seedMatch("closed", "rating_closed", timestamp);
+  await seedMatch("closed", "rating_closed", timestamp, "legacy-closed-id");
   await seedMatch("open", "rating_ready", timestamp);
   await database.doc("matches/closed/results/summary").set({
     matchId: "closed",
@@ -133,8 +133,10 @@ async function seedMatch(
   matchId: string,
   ratingState: "rating_ready" | "rating_closed",
   timestamp: Timestamp,
+  legacyPayloadId?: string,
 ) {
   await database.doc(`matches/${matchId}`).set({
+    ...(legacyPayloadId === undefined ? {} : { id: legacyPayloadId }),
     trackedTeamId: teamId,
     trackedTeamExternalProviderId: "815",
     competitionId: "competition",

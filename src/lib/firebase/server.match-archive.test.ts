@@ -71,6 +71,75 @@ describe("AdminMatchArchiveService", () => {
       ]),
     );
   });
+
+  it("uses the Firestore document ID when a legacy payload contains a different ID", async () => {
+    const match = matchValue();
+    const documentId = "durable-match-document";
+    const legacyPayloadId = "legacy-payload-id";
+    const matchSnapshot = snapshot(documentId, {
+      ...match,
+      id: legacyPayloadId,
+    });
+    const upcomingSnapshot = snapshot("upcoming-document", {
+      ...match,
+      id: "legacy-upcoming-id",
+      kickoffAt: "2026-09-02T18:00:00.000Z",
+      externalProviderFixtureId: "2",
+    });
+    const recentSnapshot = snapshot("recent-document", {
+      ...match,
+      id: "legacy-recent-id",
+      kickoffAt: "2026-08-30T18:00:00.000Z",
+      status: "finished",
+      externalProviderFixtureId: "3",
+    });
+    const competitionSnapshot = snapshot("competition", {
+      name: "Primera Division",
+    });
+    const query = {
+      where: vi.fn(() => query),
+      get: vi.fn(async () => ({
+        docs: [matchSnapshot, upcomingSnapshot, recentSnapshot],
+      })),
+    };
+    const database = {
+      collection: vi.fn(() => query),
+      doc: vi.fn((path: string) => ({
+        path,
+        get: vi.fn(async () => {
+          if (path === `matches/${documentId}`) return matchSnapshot;
+          if (path === "competitions/competition") return competitionSnapshot;
+          return missingSnapshot(path);
+        }),
+      })),
+      getAll: vi.fn(async (...references: Array<{ path: string }>) =>
+        references.map(({ path }) =>
+          path.startsWith("competitions/")
+            ? competitionSnapshot
+            : missingSnapshot(path),
+        ),
+      ),
+    } as unknown as Firestore;
+    const service = new AdminMatchArchiveService(database);
+
+    const archive = await service.list(
+      "team",
+      new Date("2026-08-31T12:00:00Z"),
+    );
+
+    expect(archive.relevant?.match.id).toBe(documentId);
+    expect(archive.upcoming.map(({ match: value }) => value.id)).toEqual([
+      "upcoming-document",
+    ]);
+    expect(archive.recent.map(({ match: value }) => value.id)).toEqual([
+      "recent-document",
+    ]);
+    await expect(service.get(documentId, "team")).resolves.toMatchObject({
+      match: { id: documentId },
+    });
+    await expect(service.get(legacyPayloadId, "team")).resolves.toBeNull();
+    await expect(service.get(documentId, "other-team")).resolves.toBeNull();
+  });
 });
 
 function snapshot(id: string, value: object) {
