@@ -35,15 +35,11 @@ describe("RootLayout", () => {
     expect(result.props.className).toContain("font-dot-gothic-test");
   });
 
-  it("localizes metadata with the resolved locale", async () => {
+  it("keeps canonical public metadata in Spanish while UI locale remains independent", () => {
     cookieValue.current = "en";
-    await expect(generateMetadata()).resolves.toMatchObject({
-      title: "Rating App",
-      description: expect.stringContaining("Supporter ratings"),
-    });
-    cookieValue.current = "es";
-    await expect(generateMetadata()).resolves.toMatchObject({
-      description: expect.stringContaining("Calificaciones de aficionados"),
+    expect(generateMetadata()).toMatchObject({
+      title: { default: "Rating App" },
+      description: expect.stringContaining("Calificaciones de la afición"),
     });
   });
 });

@@ -1,3 +1,5 @@
+import type { Metadata } from "next";
+
 import { AppShell } from "@/components/app-shell";
 import { MatchArchiveView } from "@/components/match-archive";
 import { initialClub } from "@/config/club";
@@ -7,6 +9,10 @@ import { AdminMatchArchiveService } from "@/lib/firebase/server";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+export const metadata: Metadata = {
+  title: "Partidos",
+  description: "Próximos partidos, marcadores y resultados recientes.",
+};
 
 export default async function MatchesPage() {
   const locale = await getLocale();

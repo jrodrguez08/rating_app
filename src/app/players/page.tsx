@@ -1,3 +1,5 @@
+import type { Metadata } from "next";
+
 import { AppShell } from "@/components/app-shell";
 import { PlayerCatalogView } from "@/components/player-history";
 import { initialClub } from "@/config/club";
@@ -7,6 +9,10 @@ import { AdminPlayerHistoryService } from "@/lib/firebase/server";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+export const metadata: Metadata = {
+  title: "Jugadores",
+  description: "Calificaciones de la afición en los partidos publicados.",
+};
 
 export default async function PlayersPage() {
   const locale = await getLocale();
