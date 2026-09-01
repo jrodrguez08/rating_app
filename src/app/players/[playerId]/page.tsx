@@ -1,14 +1,23 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { AppShell } from "@/components/app-shell";
 import { PlayerProfile } from "@/components/player-history";
 import { initialClub } from "@/config/club";
+import { buildPageMetadata } from "@/config/site";
 import { getMessages } from "@/i18n/messages";
 import { getLocale } from "@/i18n/server";
 import { AdminPlayerHistoryService } from "@/lib/firebase/server";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+export async function generateMetadata({
+  params,
+}: PageProps<"/players/[playerId]">): Promise<Metadata> {
+  const { playerId } = await params;
+  return buildPageMetadata(`/players/${encodeURIComponent(playerId)}`);
+}
 
 export default async function PlayerProfilePage({
   params,

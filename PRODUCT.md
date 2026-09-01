@@ -12,7 +12,7 @@ At trusted close time, the same lifecycle creates one immutable aggregate summar
 
 Not implemented now: cloud Team administration, identity-provider linking, season leaderboards, notifications, or administration. Individual ballot data remains private at all times, and aggregates remain unavailable before close.
 
-The codebase includes guarded production configuration and bootstrap boundaries for a controlled pilot, but no production Firebase or Vercel environment has been configured or deployed.
+The public application is available on its current Vercel production URL. Guarded production configuration, bootstrap boundaries, and the runbook continue to control Firebase pilot operations.
 
 ## MVP
 
@@ -23,6 +23,8 @@ After a match finishes, voting opens for approximately two hours. An authenticat
 After closing, supporters can browse match results, MVPs, coach ratings, player match history, and player averages. A player's overall Rating App average is the unweighted arithmetic mean of their published per-match averages, preserving equal match weight even when ballot counts differ. Players need at least two published rated matches to receive a team rank; deterministic ties use higher average, more rated matches, then stable player ID. Unranked and historically rated players remain visible. Match and player history is durable and keyed by stable identity, not inferred from the current roster or display name.
 
 Jugadores enriches stable player identity with the current API-Football squad position and identification photo persisted ahead of page reads. The catalog and profile never call the football provider while rendering, historical players remain visible when absent from the current squad, and a deterministic local initials avatar replaces missing or unavailable photos.
+
+The public app identity is consistent across browser tabs, bookmarks, mobile shortcuts, and shared links. Spanish canonical metadata describes supporter ratings in the current Herediano pilot without claiming official club affiliation; social previews use a deterministic Rating App card and never depend on authentication, Firebase, ballots, or the football provider.
 
 ## Product invariants
 

@@ -1,6 +1,6 @@
 # Production pilot runbook
 
-Rating App is prepared for a controlled Vercel + Firebase production pilot. This is an execution checklist, not evidence of deployment. No production environment is currently configured.
+Rating App is available on its current Vercel production URL and prepared for a controlled Firebase production pilot. This remains the execution and validation checklist; a public shell deployment alone is not evidence that every Firebase pilot operation is enabled.
 
 ## Architecture and prerequisites
 
@@ -12,6 +12,7 @@ Prepare Node.js 22, Firebase CLI 15.28.2, a production Firebase project, a Fireb
 
 ### Vercel browser-visible values
 
+- `NEXT_PUBLIC_SITE_URL=https://rating-app-amber.vercel.app`
 - `NEXT_PUBLIC_FIREBASE_ENVIRONMENT=production`
 - `NEXT_PUBLIC_FIREBASE_API_KEY`
 - `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`
@@ -36,6 +37,8 @@ Never configure `FIRESTORE_EMULATOR_HOST`, `FIREBASE_AUTH_EMULATOR_HOST`, `GCLOU
 - `CRON_SECRET`: exactly the same value as Vercel
 
 No Firebase or API-Football credential belongs in GitHub for this workflow.
+
+`NEXT_PUBLIC_SITE_URL` is public, non-sensitive canonical metadata configuration. It must be one HTTPS origin with no path, query, fragment, or credentials. The build has the same explicit Vercel production origin as a safe fallback, never derives canonical links from `VERCEL_URL` or an incoming request host, and therefore cannot silently canonize a Preview deployment.
 
 ### Local-only variables and commands
 
@@ -72,6 +75,14 @@ Jugadores V1 adds the tracked-Team/kickoff match-history composite index and par
 10. Add the two GitHub secrets, manually dispatch `Match lifecycle trigger`, and require a successful workflow plus a safe lifecycle response.
 11. Allow the schedule to operate only after the manual dispatch and Firestore inspection pass.
 12. Share the pilot URL only after the infrastructure smoke test is complete.
+
+## Public identity and domain operations
+
+After deployment, hard-refresh the production root and confirm the browser tab uses the Rating App icon. Add the page to a bookmark and, where available, a mobile home screen to verify the scalable icon and 180×180 Apple touch icon. Inspect the HTML for `/`, `/matches`, `/players`, and representative dynamic match/result/player routes with browser developer tools or `curl`. Require each canonical link and `og:url` to identify its own production pathname, while `og:title`, `og:description`, `og:image`, `twitter:card`, and `twitter:image` retain the shared public identity and resolve against `https://rating-app-amber.vercel.app` rather than a Preview hostname.
+
+Open `/social-card` directly without authentication and require HTTP 200, `image/png`, and 1200×630 output. Test the production URL with Facebook Sharing Debugger, LinkedIn Post Inspector, available X card tooling, and a private WhatsApp test chat as appropriate. These services cache previews; request a refresh or wait for their cache rather than treating a stale card as an application failure.
+
+To migrate later, point the custom domain at Vercel, add it to Firebase Authentication authorized domains, set the Production `NEXT_PUBLIC_SITE_URL` to the new HTTPS origin, redeploy, and repeat canonical/OG/image validation. Then refresh external social caches. No metadata or identity asset needs regeneration, and Preview deployments must retain either the configured production origin or the documented fallback.
 
 ## Request discipline and autonomous lifecycle
 

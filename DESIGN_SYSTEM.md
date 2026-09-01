@@ -98,6 +98,8 @@ Validate every visual component in Spanish and English. Prefer flexible wrapping
 
 Player identity uses a compact, hard-bordered square avatar in lists and a larger version in the profile header. A narrowly allowed persisted identification photo may fill the square without becoming the primary hierarchy; missing, malformed, or failed photos use the same fixed dimensions with deterministic one- or two-letter initials. Position labels use the readable sans and localized domain labels, never raw provider strings.
 
+Public app identity uses a simple project-owned Rating App `R` mark that remains recognizable at browser-icon size: charcoal field, Herediano-inspired red structure, and gold focus. The mark must not reproduce a club crest or imply official affiliation. Social cards use the same colors, hard geometry, high contrast, and generous safe margins; keep primary text within the central 80% of a 1200×630 frame so common sharing crops remain legible. Avoid remote imagery, tiny text, gradients, and decorative density.
+
 ## Accessibility checklist
 
 - WCAG AA text and control contrast on dark surfaces

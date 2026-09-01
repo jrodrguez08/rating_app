@@ -1,12 +1,22 @@
+import type { Metadata } from "next";
+
 import { AppShell } from "@/components/app-shell";
 import { MatchResults, ResultRouteState } from "@/components/match-results";
 import { initialClub } from "@/config/club";
+import { buildPageMetadata } from "@/config/site";
 import { getMessages } from "@/i18n/messages";
 import { getLocale } from "@/i18n/server";
 import { AdminResultService } from "@/lib/firebase/server";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+export async function generateMetadata({
+  params,
+}: PageProps<"/matches/[matchId]/results">): Promise<Metadata> {
+  const { matchId } = await params;
+  return buildPageMetadata(`/matches/${encodeURIComponent(matchId)}/results`);
+}
 
 export default async function MatchResultsPage({
   params,
