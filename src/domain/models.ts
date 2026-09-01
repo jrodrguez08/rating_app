@@ -71,6 +71,7 @@ export interface Match {
   elapsedMinute?: number;
   goalEvents?: MatchGoalEvent[];
   lastProviderSyncAt?: string;
+  lineupSnapshotAt?: string;
   participantSyncedAt?: string;
   ratingReadyAt?: string;
   votingOpensAt?: string;

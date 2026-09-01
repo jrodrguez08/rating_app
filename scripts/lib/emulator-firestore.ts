@@ -15,6 +15,7 @@ import type {
 import type {
   FootballSyncStore,
   MatchLifecycleStore,
+  ProviderMatchContext,
   SyncWriteCounts,
 } from "@/domain/ports";
 
@@ -55,6 +56,7 @@ function encode(value: unknown, key?: string): FirestoreValue {
     key === "updatedAt" ||
     key === "kickoffAt" ||
     key === "lastProviderSyncAt" ||
+    key === "lineupSnapshotAt" ||
     key === "participantSyncedAt" ||
     key === "ratingReadyAt" ||
     key === "votingOpensAt" ||
@@ -326,6 +328,90 @@ export class EmulatorFootballSyncStore
     );
   }
 
+  async replaceMatchParticipants(
+    matchId: string,
+    participants: MatchParticipant[],
+  ): Promise<SyncWriteCounts> {
+    const collection = `matches/${encodeURIComponent(matchId)}/participants`;
+    const existing = await this.list(collection);
+    const incomingIds = new Set(
+      participants.map((participant) => participant.playerId),
+    );
+    const counts = await this.upsert(
+      collection,
+      participants.map((participant) => ({
+        ...participant,
+        id: participant.playerId,
+      })),
+    );
+    for (const participant of existing) {
+      if (
+        typeof participant.id === "string" &&
+        !incomingIds.has(participant.id)
+      ) {
+        await this.delete(collection, participant.id);
+        counts.updated += 1;
+      }
+    }
+    return counts;
+  }
+
+  async getPersistedMatchContext(
+    matchId: string,
+    teamId: string,
+    provider: string,
+  ): Promise<ProviderMatchContext | null> {
+    const participants = await this.list(
+      `matches/${encodeURIComponent(matchId)}/participants`,
+    );
+    const assignment = await this.get(
+      `matches/${encodeURIComponent(matchId)}/coachAssignments`,
+      "head-coach",
+    );
+    if (assignment?.teamId !== teamId || typeof assignment.coachId !== "string")
+      return null;
+    const coach = await this.get("coaches", assignment.coachId);
+    if (coach?.externalProvider !== provider) return null;
+    const tracked = participants.filter(
+      (participant) =>
+        participant.teamId === teamId &&
+        participant.externalProvider === provider,
+    );
+    if (tracked.length === 0) return null;
+    return {
+      participants: tracked.map((participant) => ({
+        externalTeamId: String(participant.externalProviderTeamId),
+        externalPlayerId: String(participant.externalProviderPlayerId),
+        name: String(participant.playerName),
+        ...(typeof participant.shirtNumber === "number"
+          ? { shirtNumber: participant.shirtNumber }
+          : {}),
+        ...(typeof participant.position === "string"
+          ? { position: participant.position as Player["position"] }
+          : {}),
+        squadRole: participant.squadRole as MatchParticipant["squadRole"],
+        participated: participant.participated === true,
+        ...(typeof participant.enteredAtMinute === "number"
+          ? { enteredAtMinute: participant.enteredAtMinute }
+          : {}),
+        ...(typeof participant.exitedAtMinute === "number"
+          ? { exitedAtMinute: participant.exitedAtMinute }
+          : {}),
+        ...(typeof participant.captain === "boolean"
+          ? { captain: participant.captain }
+          : {}),
+      })),
+      headCoach: {
+        externalTeamId: String(assignment.externalProviderTeamId),
+        externalCoachId: String(coach.externalProviderId),
+        name: String(assignment.coachName),
+        ...(typeof coach.photoUrl === "string"
+          ? { photoUrl: coach.photoUrl }
+          : {}),
+      },
+    };
+  }
+
   upsertCoaches(coaches: Coach[]): Promise<SyncWriteCounts> {
     return this.upsert("coaches", coaches);
   }
@@ -456,6 +542,15 @@ export class EmulatorFootballSyncStore
       throw new Error(`Firestore update failed (${response.status}).`);
   }
 
+  private async delete(collection: string, id: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/${collection}/${id}`, {
+      method: "DELETE",
+      headers: { Authorization: "Bearer owner" },
+    });
+    if (!response.ok)
+      throw new Error(`Firestore delete failed (${response.status}).`);
+  }
+
   private get headers() {
     return {
       Authorization: "Bearer owner",
@@ -499,6 +594,9 @@ function preserveMatchLifecycle(
       : {}),
     ...(typeof existing.participantSyncedAt === "string"
       ? { participantSyncedAt: existing.participantSyncedAt }
+      : {}),
+    ...(typeof existing.lineupSnapshotAt === "string"
+      ? { lineupSnapshotAt: existing.lineupSnapshotAt }
       : {}),
     ...(typeof existing.ratingReadyAt === "string"
       ? { ratingReadyAt: existing.ratingReadyAt }

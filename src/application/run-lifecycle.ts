@@ -19,8 +19,8 @@ export function runConfiguredLifecycle(
     discoverFixtures: async (team, currentTime) => {
       await syncFootballData(team, provider, store, { now: currentTime });
     },
-    syncParticipants: async (matchId, currentTime) => {
-      await syncMatchParticipants(matchId, provider, store, currentTime);
+    syncParticipants: async (matchId, currentTime, phase) => {
+      await syncMatchParticipants(matchId, provider, store, currentTime, phase);
     },
   });
 }

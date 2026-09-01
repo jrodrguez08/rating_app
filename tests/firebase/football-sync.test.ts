@@ -170,6 +170,11 @@ class FixtureProvider implements FootballDataProvider {
     return this.contextValue;
   }
 
+  async getLineupContext(): Promise<ProviderMatchContext | null> {
+    this.requestCount += 1;
+    return this.contextValue;
+  }
+
   async getSquad() {
     this.requestCount += 1;
     return this.squadValue;
@@ -438,6 +443,22 @@ describe("football synchronization persistence", () => {
     expect(second.coachAssignments.unchanged).toBe(1);
     expect(await collectionData("players")).toHaveLength(3);
     expect(await collectionData("coaches")).toHaveLength(1);
+    await expect(
+      store.getPersistedMatchContext(matchId, persistedTeam.id, "api-football"),
+    ).resolves.toMatchObject({
+      participants: expect.arrayContaining([
+        expect.objectContaining({
+          externalPlayerId: "21",
+          squadRole: "substitute",
+          participated: false,
+        }),
+      ]),
+      headCoach: {
+        externalTeamId: "1234",
+        externalCoachId: "900",
+        name: "Tracked Team Coach",
+      },
+    });
     expect(await collectionData(`matches/${matchId}/coachAssignments`)).toEqual(
       [
         expect.objectContaining({
@@ -453,6 +474,22 @@ describe("football synchronization persistence", () => {
     lateContext.participants[2].participated = true;
     lateContext.participants[2].enteredAtMinute = 80;
     lateContext.participants[2].name = "Unused Substitute Corrected";
+    await store.upsertMatchParticipants(matchId, [
+      {
+        matchId,
+        playerId: "stale-player",
+        teamId: persistedTeam.id,
+        externalProvider: "api-football",
+        externalProviderTeamId: "1234",
+        externalProviderPlayerId: "stale",
+        playerName: "Stale Partial Player",
+        squadRole: "substitute",
+        starter: false,
+        participated: false,
+        createdAt: "2026-08-29T13:00:00.000Z",
+        updatedAt: "2026-08-29T13:00:00.000Z",
+      },
+    ]);
     const late = await syncMatchParticipants(
       matchId,
       new FixtureProvider(fixtures, seasons, lateContext),
@@ -467,7 +504,7 @@ describe("football synchronization persistence", () => {
     );
 
     expect(late.players.updated).toBe(1);
-    expect(late.participants.updated).toBe(1);
+    expect(late.participants.updated).toBe(2);
     expect(corrected).toMatchObject({
       teamId: persistedTeam.id,
       externalProviderTeamId: "1234",

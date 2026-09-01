@@ -103,7 +103,12 @@ export interface FootballDataProvider {
   getMatchContext(
     externalFixtureId: string,
     externalTeamId: string,
+    baseline?: ProviderMatchContext,
   ): Promise<ProviderMatchContext>;
+  getLineupContext(
+    externalFixtureId: string,
+    externalTeamId: string,
+  ): Promise<ProviderMatchContext | null>;
   getSquad(externalTeamId: string): Promise<ProviderSquadPlayer[]>;
 }
 
@@ -129,6 +134,15 @@ export interface FootballSyncStore {
     matchId: string,
     participants: MatchParticipant[],
   ): Promise<SyncWriteCounts>;
+  replaceMatchParticipants(
+    matchId: string,
+    participants: MatchParticipant[],
+  ): Promise<SyncWriteCounts>;
+  getPersistedMatchContext(
+    matchId: string,
+    teamId: string,
+    provider: string,
+  ): Promise<ProviderMatchContext | null>;
   upsertCoaches(coaches: Coach[]): Promise<SyncWriteCounts>;
   upsertCoachAssignment(
     matchId: string,

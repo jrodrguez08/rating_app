@@ -87,6 +87,7 @@ function providerWith(
     getFixtures: vi.fn(),
     getFixture: vi.fn(),
     getMatchContext: vi.fn(),
+    getLineupContext: vi.fn(),
   };
 }
 
@@ -102,6 +103,8 @@ function storeWith(
     upsertMatches: vi.fn(),
     upsertPlayers,
     upsertMatchParticipants: vi.fn(),
+    replaceMatchParticipants: vi.fn(),
+    getPersistedMatchContext: vi.fn(),
     upsertCoaches: vi.fn(),
     upsertCoachAssignment: vi.fn(),
   };

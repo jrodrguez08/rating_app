@@ -165,6 +165,7 @@ function providerThatMustNotRun(): FootballDataProvider {
     getFixtures: unexpected,
     getFixture: unexpected,
     getMatchContext: unexpected,
+    getLineupContext: unexpected,
     getSquad: unexpected,
   };
 }

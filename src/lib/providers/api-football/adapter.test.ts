@@ -20,6 +20,17 @@ function response(body: unknown, status = 200) {
   });
 }
 
+function matchContextFetcher(payload = matchContextResponse) {
+  return vi.fn<typeof fetch>().mockImplementation(async (input) => {
+    const pathname = new URL(String(input)).pathname;
+    const fixture = payload[0];
+    if (pathname === "/fixtures/lineups") return response(fixture.lineups);
+    if (pathname === "/fixtures/players") return response(fixture.players);
+    if (pathname === "/fixtures/events") return response(fixture.events);
+    throw new Error(`Unexpected context request: ${pathname}`);
+  });
+}
+
 describe("ApiFootballAdapter", () => {
   it("requires a server-side API key", () => {
     expect(() => new ApiFootballAdapter(" ")).toThrowError(
@@ -278,9 +289,7 @@ describe("ApiFootballAdapter", () => {
   });
 
   it("reconciles starters, entering substitutes, unused substitutes, and tracked Team coach", async () => {
-    const fetcher = vi
-      .fn<typeof fetch>()
-      .mockResolvedValue(response(matchContextResponse));
+    const fetcher = matchContextFetcher();
     const adapter = new ApiFootballAdapter("test-key", fetcher);
 
     const context = await adapter.getMatchContext("5001", "1234");
@@ -318,27 +327,101 @@ describe("ApiFootballAdapter", () => {
         }),
       ]),
     );
-    expect(context.participants).toHaveLength(4);
-    expect(adapter.requestCount).toBe(1);
+    expect(context.participants).toHaveLength(13);
+    expect(adapter.requestCount).toBe(3);
+  });
+
+  it("uses a trusted snapshot when a later lineup response is transiently empty", async () => {
+    const snapshot = await new ApiFootballAdapter(
+      "test-key",
+      matchContextFetcher(),
+    ).getLineupContext("5001", "1234");
+    const payload = structuredClone(matchContextResponse);
+    payload[0].lineups = [];
+    const adapter = new ApiFootballAdapter(
+      "test-key",
+      matchContextFetcher(payload),
+    );
+
+    const context = await adapter.getMatchContext("5001", "1234", snapshot!);
+
+    expect(context.headCoach.externalCoachId).toBe("900");
+    expect(context.participants).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          externalPlayerId: "20",
+          participated: true,
+          enteredAtMinute: 65,
+        }),
+        expect.objectContaining({
+          externalPlayerId: "21",
+          participated: false,
+        }),
+      ]),
+    );
+    expect(adapter.requestCount).toBe(3);
+  });
+
+  it("keeps empty or incomplete lineup observations retryable without a snapshot", async () => {
+    const empty = structuredClone(matchContextResponse);
+    empty[0].lineups = [];
+    await expect(
+      new ApiFootballAdapter(
+        "test-key",
+        matchContextFetcher(empty),
+      ).getMatchContext("5001", "1234"),
+    ).rejects.toMatchObject({ code: "lineup-unavailable" });
+
+    const partial = structuredClone(matchContextResponse);
+    partial[0].lineups[0].startXI.pop();
+    await expect(
+      new ApiFootballAdapter(
+        "test-key",
+        matchContextFetcher(partial),
+      ).getMatchContext("5001", "1234"),
+    ).rejects.toMatchObject({ code: "lineup-unavailable" });
+  });
+
+  it("does not downgrade a stronger snapshot with a smaller valid lineup", async () => {
+    const snapshot = await new ApiFootballAdapter(
+      "test-key",
+      matchContextFetcher(),
+    ).getLineupContext("5001", "1234");
+    const weaker = structuredClone(matchContextResponse);
+    weaker[0].lineups[0].substitutes = [weaker[0].lineups[0].substitutes[0]];
+
+    const context = await new ApiFootballAdapter(
+      "test-key",
+      matchContextFetcher(weaker),
+    ).getMatchContext("5001", "1234", snapshot!);
+
+    expect(context.participants).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          externalPlayerId: "21",
+          participated: false,
+        }),
+      ]),
+    );
+    expect(context.participants).toHaveLength(snapshot!.participants.length);
   });
 
   it("selects the tracked Team when it is the second lineup and excludes the opponent coach", async () => {
-    const adapter = new ApiFootballAdapter(
-      "test-key",
-      vi.fn<typeof fetch>().mockResolvedValue(response(matchContextResponse)),
-    );
+    const adapter = new ApiFootballAdapter("test-key", matchContextFetcher());
 
     const context = await adapter.getMatchContext("5001", "2000");
 
     expect(context.headCoach.name).toBe("Opponent Coach");
     expect(context.headCoach.externalTeamId).toBe("2000");
-    expect(context.participants).toEqual([
-      expect.objectContaining({
-        externalPlayerId: "30",
-        squadRole: "starter",
-        participated: true,
-      }),
-    ]);
+    expect(context.participants).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          externalPlayerId: "30",
+          squadRole: "starter",
+          participated: true,
+        }),
+      ]),
+    );
   });
 
   it("selects the tracked Team by provider ID regardless of lineup ordering", async () => {
@@ -346,14 +429,14 @@ describe("ApiFootballAdapter", () => {
     reordered[0].lineups.reverse();
     const adapter = new ApiFootballAdapter(
       "test-key",
-      vi.fn<typeof fetch>().mockResolvedValue(response(reordered)),
+      matchContextFetcher(reordered),
     );
 
     const context = await adapter.getMatchContext("5001", "1234");
 
     expect(context.headCoach.name).toBe("Herediano Coach");
     expect(context.headCoach.externalTeamId).toBe("1234");
-    expect(context.participants).toHaveLength(4);
+    expect(context.participants).toHaveLength(13);
     expect(
       context.participants.every(
         ({ externalTeamId }) => externalTeamId === "1234",
@@ -367,24 +450,24 @@ describe("ApiFootballAdapter", () => {
     await expect(
       new ApiFootballAdapter(
         "test-key",
-        vi.fn<typeof fetch>().mockResolvedValue(response(noLineup)),
-      ).getMatchContext("5001", "1234"),
-    ).rejects.toMatchObject({ code: "lineup-unavailable" });
+        matchContextFetcher(noLineup),
+      ).getLineupContext("5001", "1234"),
+    ).resolves.toBeNull();
 
     const malformedPlayer = structuredClone(matchContextResponse);
     malformedPlayer[0].lineups[0].startXI[0].player.id = null as never;
     await expect(
       new ApiFootballAdapter(
         "test-key",
-        vi.fn<typeof fetch>().mockResolvedValue(response(malformedPlayer)),
-      ).getMatchContext("5001", "1234"),
+        matchContextFetcher(malformedPlayer),
+      ).getLineupContext("5001", "1234"),
     ).rejects.toMatchObject({ code: "malformed-response" });
 
     await expect(
       new ApiFootballAdapter(
         "test-key",
-        vi.fn<typeof fetch>().mockResolvedValue(response(matchContextResponse)),
-      ).getMatchContext("5001", "9999"),
+        matchContextFetcher(),
+      ).getLineupContext("5001", "9999"),
     ).rejects.toMatchObject({ code: "tracked-team-missing" });
   });
 
@@ -394,7 +477,7 @@ describe("ApiFootballAdapter", () => {
     missingMinute[0].events = [missingMinute[0].events[0]];
     const adapter = new ApiFootballAdapter(
       "test-key",
-      vi.fn<typeof fetch>().mockResolvedValue(response(missingMinute)),
+      matchContextFetcher(missingMinute),
     );
 
     const context = await adapter.getMatchContext("5001", "1234");
