@@ -44,6 +44,7 @@ export async function syncMatchParticipants(
   provider: FootballDataProvider,
   store: FootballSyncStore,
   now = new Date(),
+  phase: "lineup" | "final" = "final",
 ): Promise<MatchParticipantSyncSummary> {
   const match = await store.getMatch(matchId);
   const team = await store.getTeam(match.trackedTeamId);
@@ -57,10 +58,27 @@ export async function syncMatchParticipants(
     );
   }
 
-  const context = await provider.getMatchContext(
-    match.externalProviderFixtureId,
-    externalTeamId,
-  );
+  const baseline =
+    match.lineupSnapshotAt === undefined &&
+    match.participantSyncedAt === undefined
+      ? null
+      : await store.getPersistedMatchContext(match.id, team.id, provider.name);
+  const context =
+    phase === "lineup"
+      ? await provider.getLineupContext(
+          match.externalProviderFixtureId,
+          externalTeamId,
+        )
+      : await provider.getMatchContext(
+          match.externalProviderFixtureId,
+          externalTeamId,
+          baseline ?? undefined,
+        );
+  if (context === null) {
+    throw new Error(
+      `No usable lineup has been observed for fixture ${match.externalProviderFixtureId}; retry after provider cache propagation.`,
+    );
+  }
   const timestamp = now.toISOString();
   const trackedParticipants = context.participants.filter(
     (participant) => participant.externalTeamId === externalTeamId,
@@ -145,7 +163,7 @@ export async function syncMatchParticipants(
   };
 
   const playerCounts = await store.upsertPlayers(players);
-  const participantCounts = await store.upsertMatchParticipants(
+  const participantCounts = await store.replaceMatchParticipants(
     match.id,
     participants,
   );

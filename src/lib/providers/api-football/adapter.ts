@@ -92,6 +92,34 @@ function normalize(value: string): string {
     .trim();
 }
 
+function cloneMatchContext(
+  context: ProviderMatchContext | undefined,
+): ProviderMatchContext | undefined {
+  return context === undefined
+    ? undefined
+    : {
+        participants: context.participants.map((participant) => ({
+          ...participant,
+        })),
+        headCoach: { ...context.headCoach },
+      };
+}
+
+function strongestMatchContext(
+  observed: ProviderMatchContext | null,
+  baseline: ProviderMatchContext | undefined,
+): ProviderMatchContext | undefined {
+  const persisted = cloneMatchContext(baseline);
+  if (observed === null) return persisted;
+  if (
+    persisted !== undefined &&
+    observed.participants.length < persisted.participants.length
+  ) {
+    return persisted;
+  }
+  return observed;
+}
+
 export function mapApiFootballStatus(
   value: unknown,
 ): ProviderFixture["status"] {
@@ -265,94 +293,56 @@ export class ApiFootballAdapter implements FootballDataProvider {
   async getMatchContext(
     externalFixtureId: string,
     externalTeamId: string,
+    baseline?: ProviderMatchContext,
   ): Promise<ProviderMatchContext> {
-    const response = await this.request("/fixtures", {
-      id: externalFixtureId,
-      timezone: "UTC",
-    });
-    if (response.length === 0) {
-      throw new ProviderError(
-        "fixture-not-found",
-        `Fixture ${externalFixtureId} was not found.`,
-      );
-    }
-    if (response.length !== 1) {
-      return malformed(
-        `fixture ${externalFixtureId} returned multiple records.`,
-      );
-    }
-    const fixture = record(response[0], "fixture response item");
-    const lineups = array(fixture.lineups, "fixture.lineups");
-    if (lineups.length === 0) {
+    const [lineups, players, events] = await Promise.all([
+      this.request("/fixtures/lineups", { fixture: externalFixtureId }),
+      this.request("/fixtures/players", { fixture: externalFixtureId }),
+      this.request("/fixtures/events", { fixture: externalFixtureId }),
+    ]);
+    const observed = this.parseLineupContext(
+      lineups,
+      externalFixtureId,
+      externalTeamId,
+    );
+    const context = strongestMatchContext(observed, baseline);
+    if (context === undefined) {
       throw new ProviderError(
         "lineup-unavailable",
-        `Lineup data is not published for fixture ${externalFixtureId}.`,
+        `No usable lineup has been observed for fixture ${externalFixtureId}; retry after provider cache propagation.`,
       );
     }
-    const trackedLineups = lineups.filter((value) => {
-      const lineup = record(value, "lineup");
-      const team = record(lineup.team, "lineup.team");
-      return String(number(team.id, "lineup.team.id")) === externalTeamId;
-    });
-    if (trackedLineups.length === 0) {
+    if (context.headCoach.externalTeamId !== externalTeamId) {
       throw new ProviderError(
         "tracked-team-missing",
-        `Tracked Team ${externalTeamId} is missing from fixture ${externalFixtureId} lineups.`,
+        `Persisted context does not belong to tracked Team ${externalTeamId}.`,
       );
     }
-    if (trackedLineups.length > 1) {
-      throw new ProviderError(
-        "ambiguous-coach",
-        `Fixture ${externalFixtureId} contains multiple lineups for tracked Team ${externalTeamId}.`,
-      );
-    }
-
-    const lineup = record(trackedLineups[0], "tracked lineup");
-    const participants = new Map<string, ProviderMatchParticipant>();
-    this.addLineupPlayers(
-      participants,
-      lineup.startXI,
-      "starter",
-      externalTeamId,
+    const participants = new Map(
+      context.participants.map((participant) => [
+        participant.externalPlayerId,
+        { ...participant },
+      ]),
     );
-    this.addLineupPlayers(
-      participants,
-      lineup.substitutes,
-      "substitute",
-      externalTeamId,
-    );
-    if (participants.size === 0) {
-      throw new ProviderError(
-        "lineup-unavailable",
-        `Tracked Team lineup is empty for fixture ${externalFixtureId}.`,
-      );
-    }
-
-    this.reconcilePlayerStatistics(
-      participants,
-      fixture.players,
-      externalTeamId,
-    );
-    this.reconcileSubstitutions(participants, fixture.events, externalTeamId);
-
-    const coachValue = lineup.coach;
-    if (coachValue === null || coachValue === undefined) {
-      throw new ProviderError(
-        "coach-missing",
-        `Head coach is not published for tracked Team ${externalTeamId}.`,
-      );
-    }
-    const coach = record(coachValue, "lineup.coach");
-    const photoUrl = optionalString(coach.photo, "lineup.coach.photo");
+    this.reconcilePlayerStatistics(participants, players, externalTeamId);
+    this.reconcileSubstitutions(participants, events, externalTeamId);
     return {
       participants: [...participants.values()],
-      headCoach: {
-        externalTeamId,
-        externalCoachId: String(number(coach.id, "lineup.coach.id")),
-        name: string(coach.name, "lineup.coach.name"),
-        ...(photoUrl === undefined ? {} : { photoUrl }),
-      },
+      headCoach: context.headCoach,
     };
+  }
+
+  async getLineupContext(
+    externalFixtureId: string,
+    externalTeamId: string,
+  ): Promise<ProviderMatchContext | null> {
+    return this.parseLineupContext(
+      await this.request("/fixtures/lineups", {
+        fixture: externalFixtureId,
+      }),
+      externalFixtureId,
+      externalTeamId,
+    );
   }
 
   async getSquad(externalTeamId: string): Promise<ProviderSquadPlayer[]> {
@@ -411,6 +401,72 @@ export class ApiFootballAdapter implements FootballDataProvider {
         participated: squadRole === "starter",
       });
     }
+  }
+
+  private parseLineupContext(
+    lineups: unknown[],
+    externalFixtureId: string,
+    externalTeamId: string,
+  ): ProviderMatchContext | null {
+    if (lineups.length === 0) return null;
+    const trackedLineups = lineups.filter((value) => {
+      const lineup = record(value, "lineup");
+      const team = record(lineup.team, "lineup.team");
+      return String(number(team.id, "lineup.team.id")) === externalTeamId;
+    });
+    if (trackedLineups.length === 0) {
+      throw new ProviderError(
+        "tracked-team-missing",
+        `Tracked Team ${externalTeamId} is missing from fixture ${externalFixtureId} lineups.`,
+      );
+    }
+    if (trackedLineups.length > 1) {
+      throw new ProviderError(
+        "ambiguous-coach",
+        `Fixture ${externalFixtureId} contains multiple lineups for tracked Team ${externalTeamId}.`,
+      );
+    }
+    const lineup = record(trackedLineups[0], "tracked lineup");
+    const participants = new Map<string, ProviderMatchParticipant>();
+    this.addLineupPlayers(
+      participants,
+      lineup.startXI,
+      "starter",
+      externalTeamId,
+    );
+    this.addLineupPlayers(
+      participants,
+      lineup.substitutes,
+      "substitute",
+      externalTeamId,
+    );
+    const starterCount = [...participants.values()].filter(
+      (participant) => participant.squadRole === "starter",
+    ).length;
+    const substituteCount = participants.size - starterCount;
+    if (starterCount !== 11 || substituteCount === 0) {
+      throw new ProviderError(
+        "lineup-unavailable",
+        `Tracked Team lineup for fixture ${externalFixtureId} is incomplete (${starterCount} starters, ${substituteCount} substitutes).`,
+      );
+    }
+    if (lineup.coach === null || lineup.coach === undefined) {
+      throw new ProviderError(
+        "coach-missing",
+        `Head coach is not published for tracked Team ${externalTeamId}.`,
+      );
+    }
+    const coach = record(lineup.coach, "lineup.coach");
+    const photoUrl = optionalString(coach.photo, "lineup.coach.photo");
+    return {
+      participants: [...participants.values()],
+      headCoach: {
+        externalTeamId,
+        externalCoachId: String(number(coach.id, "lineup.coach.id")),
+        name: string(coach.name, "lineup.coach.name"),
+        ...(photoUrl === undefined ? {} : { photoUrl }),
+      },
+    };
   }
 
   private reconcilePlayerStatistics(

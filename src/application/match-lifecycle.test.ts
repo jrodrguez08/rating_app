@@ -14,6 +14,7 @@ import {
   runMatchLifecycle,
   selectLifecycleMatch,
   selectRelevantMatch,
+  type LifecycleDependencies,
 } from "./match-lifecycle";
 
 const NOW = new Date("2026-08-29T18:00:00.000Z");
@@ -119,6 +120,12 @@ class MemoryStore implements MatchLifecycleStore {
   async upsertMatchParticipants() {
     return counts;
   }
+  async replaceMatchParticipants() {
+    return counts;
+  }
+  async getPersistedMatchContext() {
+    return null;
+  }
   async upsertCoaches() {
     return counts;
   }
@@ -151,6 +158,10 @@ class FixtureProvider implements FootballDataProvider {
   async getMatchContext(): Promise<ProviderMatchContext> {
     throw new Error("unused");
   }
+  async getLineupContext(): Promise<ProviderMatchContext | null> {
+    this.requestCount += 1;
+    return null;
+  }
   async getSquad() {
     return [];
   }
@@ -173,7 +184,7 @@ function fixture(status: ProviderFixture["status"]): ProviderFixture {
 function run(
   store: MemoryStore,
   provider: FixtureProvider,
-  sync = async () => undefined,
+  sync: LifecycleDependencies["syncParticipants"] = async () => undefined,
 ) {
   return runMatchLifecycle({
     teamId: "tracked-team",
@@ -186,6 +197,70 @@ function run(
 }
 
 describe("match lifecycle synchronization", () => {
+  it("checks for a lineup only inside the final pre-kickoff hour while a snapshot is missing", async () => {
+    const phases: string[] = [];
+    const near = new MemoryStore([
+      match({ kickoffAt: "2026-08-29T18:30:00.000Z" }),
+    ]);
+    const nearProvider = new FixtureProvider({
+      ...fixture("scheduled"),
+      kickoffAt: "2026-08-29T18:30:00.000Z",
+    });
+
+    const captured = await run(near, nearProvider, async (_id, _now, phase) => {
+      phases.push(phase);
+    });
+
+    expect(captured.action).toBe("refreshed");
+    expect(phases).toEqual(["lineup"]);
+    expect(near.matches[0].lineupSnapshotAt).toBe(NOW.toISOString());
+
+    phases.length = 0;
+    await run(near, nearProvider, async (_id, _now, phase) => {
+      phases.push(phase);
+    });
+    expect(phases).toEqual([]);
+
+    const far = new MemoryStore([
+      match({ kickoffAt: "2026-08-29T19:01:00.000Z" }),
+    ]);
+    await run(
+      far,
+      new FixtureProvider({
+        ...fixture("scheduled"),
+        kickoffAt: "2026-08-29T19:01:00.000Z",
+      }),
+      async (_id, _now, phase) => {
+        phases.push(phase);
+      },
+    );
+    expect(phases).toEqual([]);
+  });
+
+  it("keeps an empty pre-match lineup retryable without recording a snapshot", async () => {
+    const store = new MemoryStore([
+      match({ kickoffAt: "2026-08-29T18:30:00.000Z" }),
+    ]);
+    const result = await run(
+      store,
+      new FixtureProvider({
+        ...fixture("scheduled"),
+        kickoffAt: "2026-08-29T18:30:00.000Z",
+      }),
+      async () => {
+        throw new Error(
+          "No usable lineup has been observed; retry after provider cache propagation.",
+        );
+      },
+    );
+
+    expect(result).toMatchObject({
+      action: "refreshed",
+      reason: expect.stringContaining("cache propagation"),
+    });
+    expect(store.matches[0].lineupSnapshotAt).toBeUndefined();
+  });
+
   it("makes no provider call when no match exists and discovery is fresh", async () => {
     const store = new MemoryStore([]);
     const provider = new FixtureProvider(fixture("scheduled"));

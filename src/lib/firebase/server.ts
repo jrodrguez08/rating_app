@@ -42,6 +42,7 @@ import type {
 import type {
   FootballSyncStore,
   MatchLifecycleStore,
+  ProviderMatchContext,
   SyncWriteCounts,
 } from "@/domain/ports";
 import { readFirebaseAdminRuntimeConfig } from "@/lib/server/environment";
@@ -51,6 +52,7 @@ const TIMESTAMP_FIELDS = new Set([
   "updatedAt",
   "kickoffAt",
   "lastProviderSyncAt",
+  "lineupSnapshotAt",
   "participantSyncedAt",
   "ratingReadyAt",
   "votingOpensAt",
@@ -574,6 +576,101 @@ export class AdminFootballSyncStore
       values.map((value) => ({ ...value, id: value.playerId })),
     );
   }
+  async replaceMatchParticipants(
+    matchId: string,
+    values: MatchParticipant[],
+  ): Promise<SyncWriteCounts> {
+    const collection = this.database.collection(
+      `matches/${matchId}/participants`,
+    );
+    const snapshot = await collection.get();
+    const existing = new Map(
+      snapshot.docs.map((document) => [
+        document.id,
+        fromDocument<MatchParticipant>(document),
+      ]),
+    );
+    const incomingIds = new Set(values.map((value) => value.playerId));
+    const counts = { created: 0, updated: 0, unchanged: 0 };
+    const batch = this.database.batch();
+    for (const value of values) {
+      const current = existing.get(value.playerId);
+      const candidate =
+        current === undefined
+          ? value
+          : { ...current, ...value, createdAt: current.createdAt };
+      if (current === undefined) counts.created += 1;
+      else if (comparable(current) === comparable(candidate))
+        counts.unchanged += 1;
+      else counts.updated += 1;
+      batch.set(collection.doc(value.playerId), toDocument(candidate));
+    }
+    for (const document of snapshot.docs) {
+      if (!incomingIds.has(document.id)) {
+        batch.delete(document.ref);
+        counts.updated += 1;
+      }
+    }
+    await batch.commit();
+    return counts;
+  }
+  async getPersistedMatchContext(
+    matchId: string,
+    teamId: string,
+    provider: string,
+  ): Promise<ProviderMatchContext | null> {
+    const [participantSnapshot, assignmentSnapshot] = await Promise.all([
+      this.database.collection(`matches/${matchId}/participants`).get(),
+      this.database.doc(`matches/${matchId}/coachAssignments/head-coach`).get(),
+    ]);
+    if (!assignmentSnapshot.exists) return null;
+    const assignment = fromDocument<CoachAssignment>(assignmentSnapshot);
+    if (assignment.teamId !== teamId) return null;
+    const coachSnapshot = await this.database
+      .doc(`coaches/${assignment.coachId}`)
+      .get();
+    if (!coachSnapshot.exists) return null;
+    const coach = fromDocument<Coach>(coachSnapshot);
+    if (coach.externalProvider !== provider) return null;
+    const participants = participantSnapshot.docs
+      .map((document) => fromDocument<MatchParticipant>(document))
+      .filter(
+        (participant) =>
+          participant.teamId === teamId &&
+          participant.externalProvider === provider,
+      );
+    if (participants.length === 0) return null;
+    return {
+      participants: participants.map((participant) => ({
+        externalTeamId: participant.externalProviderTeamId,
+        externalPlayerId: participant.externalProviderPlayerId,
+        name: participant.playerName,
+        ...(participant.shirtNumber === undefined
+          ? {}
+          : { shirtNumber: participant.shirtNumber }),
+        ...(participant.position === undefined
+          ? {}
+          : { position: participant.position as Player["position"] }),
+        squadRole: participant.squadRole,
+        participated: participant.participated,
+        ...(participant.enteredAtMinute === undefined
+          ? {}
+          : { enteredAtMinute: participant.enteredAtMinute }),
+        ...(participant.exitedAtMinute === undefined
+          ? {}
+          : { exitedAtMinute: participant.exitedAtMinute }),
+        ...(participant.captain === undefined
+          ? {}
+          : { captain: participant.captain }),
+      })),
+      headCoach: {
+        externalTeamId: assignment.externalProviderTeamId,
+        externalCoachId: coach.externalProviderId,
+        name: assignment.coachName,
+        ...(coach.photoUrl === undefined ? {} : { photoUrl: coach.photoUrl }),
+      },
+    };
+  }
   upsertCoaches(values: Coach[]) {
     return this.upsert("coaches", values);
   }
@@ -720,6 +817,9 @@ function preserveMatchLifecycle(existing: Match, incoming: Match): Match {
     ...(existing.lastProviderSyncAt === undefined
       ? {}
       : { lastProviderSyncAt: existing.lastProviderSyncAt }),
+    ...(existing.lineupSnapshotAt === undefined
+      ? {}
+      : { lineupSnapshotAt: existing.lineupSnapshotAt }),
     ...(existing.participantSyncedAt === undefined
       ? {}
       : { participantSyncedAt: existing.participantSyncedAt }),

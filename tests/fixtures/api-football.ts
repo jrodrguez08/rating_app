@@ -82,6 +82,14 @@ export const matchContextResponse = [
         startXI: [
           { player: { id: 10, name: "Goalkeeper", number: 1, pos: "G" } },
           { player: { id: 11, name: "Starter Out", number: 4, pos: "D" } },
+          ...Array.from({ length: 9 }, (_, index) => ({
+            player: {
+              id: 100 + index,
+              name: `Starter ${index + 3}`,
+              number: 5 + index,
+              pos: "M",
+            },
+          })),
         ],
         substitutes: [
           { player: { id: 20, name: "Substitute In", number: 14, pos: "M" } },
@@ -95,8 +103,25 @@ export const matchContextResponse = [
         coach: { id: 901, name: "Opponent Coach", photo: null },
         startXI: [
           { player: { id: 30, name: "Opponent Player", number: 1, pos: "G" } },
+          ...Array.from({ length: 10 }, (_, index) => ({
+            player: {
+              id: 31 + index,
+              name: `Opponent Starter ${index + 2}`,
+              number: 2 + index,
+              pos: "M",
+            },
+          })),
         ],
-        substitutes: [],
+        substitutes: [
+          {
+            player: {
+              id: 50,
+              name: "Opponent Substitute",
+              number: 20,
+              pos: "F",
+            },
+          },
+        ],
       },
     ],
     events: [

@@ -9,6 +9,7 @@ import type {
 const HOUR = 60 * 60 * 1000;
 const VOTING_WINDOW_MS = 2 * HOUR;
 const DISCOVERY_INTERVAL_MS = 12 * HOUR;
+const LINEUP_CAPTURE_WINDOW_MS = HOUR;
 const MINIMUM_RATEABLE_PARTICIPANTS = 11;
 
 export type LifecycleAction =
@@ -33,7 +34,11 @@ export interface LifecycleDependencies {
   store: MatchLifecycleStore;
   now: () => Date;
   discoverFixtures: (team: Team, now: Date) => Promise<void>;
-  syncParticipants: (matchId: string, now: Date) => Promise<void>;
+  syncParticipants: (
+    matchId: string,
+    now: Date,
+    phase: "lineup" | "final",
+  ) => Promise<void>;
 }
 
 export async function runMatchLifecycle({
@@ -150,6 +155,20 @@ export async function runMatchLifecycle({
     return retryable(provider, match.id, error);
   }
 
+  if (shouldCaptureLineup(refreshed, currentTime)) {
+    try {
+      await syncParticipants(refreshed.id, currentTime, "lineup");
+      refreshed = {
+        ...refreshed,
+        lineupSnapshotAt: currentTime.toISOString(),
+        updatedAt: currentTime.toISOString(),
+      };
+      await store.updateMatchLifecycle(refreshed);
+    } catch (error) {
+      return retryable(provider, refreshed.id, error, "refreshed");
+    }
+  }
+
   if (refreshed.status !== "finished") {
     return {
       action: "refreshed",
@@ -166,7 +185,7 @@ export async function runMatchLifecycle({
   await store.updateMatchLifecycle(preparing);
 
   try {
-    await syncParticipants(match.id, currentTime);
+    await syncParticipants(match.id, currentTime, "final");
     const synced = {
       ...preparing,
       participantSyncedAt: currentTime.toISOString(),
@@ -294,6 +313,16 @@ function shouldRefreshMatch(match: Match, now: Date): boolean {
   if (untilKickoff > 24 * HOUR) return false;
   if (untilKickoff > 2 * HOUR) return due(match, now, 6 * HOUR);
   return due(match, now, 15 * 60 * 1000);
+}
+
+function shouldCaptureLineup(match: Match, now: Date): boolean {
+  const untilKickoff = new Date(match.kickoffAt).getTime() - now.getTime();
+  return (
+    match.status === "scheduled" &&
+    match.lineupSnapshotAt === undefined &&
+    untilKickoff <= LINEUP_CAPTURE_WINDOW_MS &&
+    untilKickoff >= 0
+  );
 }
 
 function due(match: Match, now: Date, interval: number): boolean {
