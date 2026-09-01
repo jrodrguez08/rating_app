@@ -151,6 +151,9 @@ class FixtureProvider implements FootballDataProvider {
   async getMatchContext(): Promise<ProviderMatchContext> {
     throw new Error("unused");
   }
+  async getSquad() {
+    return [];
+  }
 }
 
 function fixture(status: ProviderFixture["status"]): ProviderFixture {

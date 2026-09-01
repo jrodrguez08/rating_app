@@ -366,7 +366,14 @@ export class EmulatorFootballSyncStore
       } else {
         const candidate = preserveLifecycle
           ? preserveMatchLifecycle(existing, value as Match)
-          : value;
+          : {
+              ...existing,
+              ...value,
+              createdAt:
+                typeof existing.createdAt === "string"
+                  ? existing.createdAt
+                  : value.createdAt,
+            };
         if (
           comparable(existing) ===
           comparable(candidate as unknown as Record<string, unknown>)

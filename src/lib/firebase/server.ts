@@ -20,6 +20,7 @@ import {
   buildPlayerCatalog,
   PLAYER_HISTORY_MATCH_LIMIT,
   type PlayerCatalog,
+  type PlayerIdentity,
 } from "@/application/player-history";
 import { validateBallotRatings } from "@/domain/ballot-validation";
 import { preserveMonotonicMatchStatus } from "@/domain/match-status";
@@ -252,7 +253,16 @@ export class AdminPlayerHistoryService {
       .filter((snapshot) => snapshot.exists)
       .map((snapshot) => {
         const player = fromDocument<Player>(snapshot);
-        return { id: player.id, name: player.displayName };
+        return {
+          id: player.id,
+          name: player.displayName,
+          ...(player.position === undefined
+            ? {}
+            : { position: player.position }),
+          ...(player.photoUrl === undefined
+            ? {}
+            : { photoUrl: player.photoUrl }),
+        };
       });
     return buildPlayerCatalog({
       identities: mergePlayerIdentities(
@@ -689,8 +699,8 @@ function comparable(value: object): string {
 }
 
 function mergePlayerIdentities(
-  snapshots: Array<{ id: string; name: string }>,
-  persisted: Array<{ id: string; name: string }>,
+  snapshots: PlayerIdentity[],
+  persisted: PlayerIdentity[],
 ) {
   const identities = new Map(snapshots.map((value) => [value.id, value]));
   for (const value of persisted) identities.set(value.id, value);

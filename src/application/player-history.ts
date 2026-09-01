@@ -1,4 +1,4 @@
-import type { Match, MatchResult } from "@/domain/models";
+import type { Match, MatchResult, PlayerPosition } from "@/domain/models";
 
 export const PLAYER_HISTORY_MATCH_LIMIT = 100;
 export const PLAYER_RANKING_MIN_MATCHES = 2;
@@ -6,6 +6,8 @@ export const PLAYER_RANKING_MIN_MATCHES = 2;
 export interface PlayerIdentity {
   id: string;
   name: string;
+  position?: PlayerPosition;
+  photoUrl?: string;
 }
 
 export interface PlayerMatchRating {
@@ -22,6 +24,8 @@ export interface PlayerMatchRating {
 export interface PlayerCatalogEntry {
   playerId: string;
   playerName: string;
+  position?: PlayerPosition;
+  photoUrl?: string;
   overallAverage: number | null;
   ratedMatchCount: number;
   rank: number | null;
@@ -47,7 +51,9 @@ export function buildPlayerCatalog({
   trackedTeamExternalProviderId: string;
 }): PlayerCatalog {
   const matchesById = new Map(matches.map((match) => [match.id, match]));
-  const names = new Map(identities.map(({ id, name }) => [id, name]));
+  const playersById = new Map(
+    identities.map((identity) => [identity.id, identity]),
+  );
   const histories = new Map<string, PlayerMatchRating[]>();
 
   for (const result of results) {
@@ -60,8 +66,12 @@ export function buildPlayerCatalog({
       continue;
     }
     for (const player of Object.values(result.playerResults)) {
-      if (!names.has(player.playerId))
-        names.set(player.playerId, player.playerName);
+      if (!playersById.has(player.playerId)) {
+        playersById.set(player.playerId, {
+          id: player.playerId,
+          name: player.playerName,
+        });
+      }
       const history = histories.get(player.playerId) ?? [];
       history.push({
         matchId: match.id,
@@ -80,8 +90,8 @@ export function buildPlayerCatalog({
     }
   }
 
-  const players: PlayerCatalogEntry[] = [...names.entries()].map(
-    ([playerId, playerName]) => {
+  const players: PlayerCatalogEntry[] = [...playersById.values()].map(
+    ({ id: playerId, name: playerName, position, photoUrl }) => {
       const history = (histories.get(playerId) ?? []).sort(
         (left, right) =>
           new Date(right.kickoffAt).getTime() -
@@ -96,6 +106,8 @@ export function buildPlayerCatalog({
       return {
         playerId,
         playerName,
+        ...(position === undefined ? {} : { position }),
+        ...(photoUrl === undefined ? {} : { photoUrl }),
         overallAverage,
         ratedMatchCount: history.length,
         rank: null,

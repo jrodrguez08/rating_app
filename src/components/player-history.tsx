@@ -8,6 +8,8 @@ import type { Locale } from "@/i18n/config";
 import { formatDate } from "@/i18n/format";
 import type { Messages } from "@/i18n/messages";
 
+import { PlayerAvatar } from "./player-avatar";
+
 type PlayerMessages = Messages["players"];
 
 export function PlayerCatalogView({
@@ -38,13 +40,23 @@ export function PlayerCatalogView({
                 href={`/players/${encodeURIComponent(player.playerId)}`}
                 className="card grid min-h-20 grid-cols-[3rem_minmax(0,1fr)_auto] items-center gap-3 p-4"
               >
-                <span className="score-font text-center text-lg text-muted">
-                  {player.rank === null ? "—" : `#${player.rank}`}
-                </span>
+                <PlayerAvatar
+                  name={player.playerName}
+                  photoUrl={player.photoUrl}
+                  label={messages.avatarLabel.replace(
+                    "{name}",
+                    player.playerName,
+                  )}
+                />
                 <span className="min-w-0">
                   <span className="block break-words font-extrabold">
                     {player.playerName}
                   </span>
+                  {player.position === undefined ? null : (
+                    <span className="mt-1 block text-sm font-bold text-accent">
+                      {messages.positions[player.position]}
+                    </span>
+                  )}
                   <span className="mt-1 block text-sm text-muted">
                     {matchCount(player.ratedMatchCount, messages)}
                     {player.rank === null ? ` · ${messages.unranked}` : ""}
@@ -58,10 +70,17 @@ export function PlayerCatalogView({
                     </span>
                   )}
                 </span>
-                <span className="score-font text-2xl text-accent">
-                  {player.overallAverage === null
-                    ? "—"
-                    : rating(player.overallAverage)}
+                <span className="text-right">
+                  <span className="score-font block text-xs text-muted">
+                    {player.rank === null
+                      ? messages.unranked
+                      : `#${player.rank}`}
+                  </span>
+                  <span className="score-font block text-2xl text-accent">
+                    {player.overallAverage === null
+                      ? "—"
+                      : rating(player.overallAverage)}
+                  </span>
                 </span>
               </Link>
             </li>
@@ -92,13 +111,28 @@ export function PlayerProfile({
           <span className="w-1/4 bg-accent" />
         </div>
         <div className="p-5 sm:p-7">
-          <p className="eyebrow">{messages.teamContext}</p>
-          <h1
-            id="player-heading"
-            className="mt-2 break-words text-3xl font-extrabold"
-          >
-            {player.playerName}
-          </h1>
+          <div className="flex items-center gap-4">
+            <PlayerAvatar
+              name={player.playerName}
+              photoUrl={player.photoUrl}
+              size="profile"
+              label={messages.avatarLabel.replace("{name}", player.playerName)}
+            />
+            <div className="min-w-0">
+              <p className="eyebrow">{messages.teamContext}</p>
+              <h1
+                id="player-heading"
+                className="mt-2 break-words text-3xl font-extrabold"
+              >
+                {player.playerName}
+              </h1>
+              {player.position === undefined ? null : (
+                <p className="mt-1 font-bold text-accent">
+                  {messages.positions[player.position]}
+                </p>
+              )}
+            </div>
+          </div>
           <div className="game-inset mt-5 grid grid-cols-2 gap-4 p-4">
             <div>
               <p className="score-font text-4xl text-accent">
