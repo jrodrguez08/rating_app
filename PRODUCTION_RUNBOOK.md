@@ -87,6 +87,8 @@ The Partidos archive reads the fixture window already persisted by discovery and
 
 Jugadores pages use server-only, provider-free read-time derivation over at most 100 newest persisted tracked-Team matches, their immutable result summaries, and known participant/Player identities. They never read ballots and require no projection or production backfill; existing closed pilot results appear automatically. If the bound becomes insufficient, measure production volume/read cost before introducing an explicit trusted projection or migration.
 
+Refresh current Jugadores squad presentation metadata manually after deployment, after meaningful roster changes, or at most once daily. From a controlled operator environment with the production Firebase Admin variables and `API_FOOTBALL_KEY` loaded, run `npm run sync:player-squad -- --project-id rating-app-prod-8b7df --confirm sync-player-squad`. The command targets only the configured internal Team and its persisted provider Team mapping, makes one `GET /players/squads` request, never logs the key, and is safe to rerun: it upserts by stable provider player ID, preserves omitted optional metadata, and never deletes players or history. No new Firestore index is required.
+
 Network/provider validation, missing lineup/coach, Firebase write, and aggregation integrity failures remain retryable. They cannot open voting early, extend timestamps, replace ballots, publish partial results, or regress finalized state. Cancelled/abandoned matches never open or finalize ratings; postponed/suspended matches retry conservatively.
 
 ## Infrastructure smoke test

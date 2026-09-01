@@ -89,12 +89,14 @@ export interface FootballSyncMetadata {
 export interface VoterIdentity {
   voterId: string;
 }
+export type PlayerPosition =
+  "goalkeeper" | "defender" | "midfielder" | "attacker";
 export interface Player {
   id: EntityId;
   displayName: string;
   externalProvider: string;
   externalProviderId: string;
-  position?: string;
+  position?: PlayerPosition;
   photoUrl?: string;
   createdAt: string;
   updatedAt: string;

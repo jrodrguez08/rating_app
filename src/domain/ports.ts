@@ -8,6 +8,7 @@ import type {
   Match,
   MatchParticipant,
   Player,
+  PlayerPosition,
   Season,
   Team,
 } from "./models";
@@ -54,7 +55,7 @@ export interface ProviderMatchParticipant {
   externalPlayerId: string;
   name: string;
   shirtNumber?: number;
-  position?: string;
+  position?: PlayerPosition;
   squadRole: "starter" | "substitute";
   participated: boolean;
   enteredAtMinute?: number;
@@ -72,6 +73,13 @@ export interface ProviderHeadCoach {
 export interface ProviderMatchContext {
   participants: ProviderMatchParticipant[];
   headCoach: ProviderHeadCoach;
+}
+
+export interface ProviderSquadPlayer {
+  externalPlayerId: string;
+  name: string;
+  position?: PlayerPosition;
+  photoUrl?: string;
 }
 
 export interface FixtureWindow {
@@ -96,6 +104,7 @@ export interface FootballDataProvider {
     externalFixtureId: string,
     externalTeamId: string,
   ): Promise<ProviderMatchContext>;
+  getSquad(externalTeamId: string): Promise<ProviderSquadPlayer[]>;
 }
 
 export interface MatchLifecycleStore extends FootballSyncStore {

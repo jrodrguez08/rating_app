@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { PlayerCatalogEntry } from "@/application/player-history";
@@ -36,7 +36,45 @@ describe("player history UI", () => {
       "href",
       "/players/player-1",
     );
-    expect(screen.getByText(/Not ranked yet/)).toBeInTheDocument();
+    expect(screen.getAllByText(/Not ranked yet/)).not.toHaveLength(0);
+  });
+
+  it("renders persisted position and photo, then falls back deterministically on failure", () => {
+    render(
+      <PlayerCatalogView
+        catalog={{
+          rankingMinimumMatches: 2,
+          historyMatchLimit: 100,
+          players: [
+            player({
+              playerName: "John Smith",
+              position: "defender",
+              photoUrl: "https://media.api-sports.io/football/players/101.png",
+            }),
+          ],
+        }}
+        messages={messages}
+      />,
+    );
+
+    expect(screen.getByText("Defender")).toBeInTheDocument();
+    const avatar = screen.getByRole("img", { name: "Avatar for John Smith" });
+    const image = avatar.querySelector("img");
+    expect(image).not.toBeNull();
+    fireEvent.error(image!);
+    expect(screen.getByText("JS")).toBeInTheDocument();
+  });
+
+  it("uses initials when a photo is missing and localizes profile position", () => {
+    render(
+      <PlayerProfile
+        player={player({ playerName: "Orlando", position: "attacker" })}
+        locale="en"
+        messages={messages}
+      />,
+    );
+    expect(screen.getByText("O")).toBeInTheDocument();
+    expect(screen.getByText("Attacker")).toBeInTheDocument();
   });
 
   it("renders one-match history without a misleading trend and links to results", () => {

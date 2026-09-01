@@ -96,6 +96,8 @@ Design mobile-first at 320, 360, 390, and 430px. Hard shadows, long Spanish labe
 
 Validate every visual component in Spanish and English. Prefer flexible wrapping and content-driven sizing over fixed widths. All visible product strings come from both translation resources. Club, competition, player, and coach names remain untranslated provider/domain data.
 
+Player identity uses a compact, hard-bordered square avatar in lists and a larger version in the profile header. A narrowly allowed persisted identification photo may fill the square without becoming the primary hierarchy; missing, malformed, or failed photos use the same fixed dimensions with deterministic one- or two-letter initials. Position labels use the readable sans and localized domain labels, never raw provider strings.
+
 ## Accessibility checklist
 
 - WCAG AA text and control contrast on dark surfaces

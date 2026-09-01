@@ -8,12 +8,17 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { syncFootballData } from "@/application/sync-football";
 import { runMatchLifecycle } from "@/application/match-lifecycle";
-import { syncMatchParticipants } from "@/application/sync-match-participants";
+import {
+  providerEntityId,
+  syncMatchParticipants,
+} from "@/application/sync-match-participants";
+import { syncPlayerSquad } from "@/application/sync-player-squad";
 import type {
   FootballDataProvider,
   ProviderCompetitionSeason,
   ProviderFixture,
   ProviderMatchContext,
+  ProviderSquadPlayer,
   ProviderTeamIdentity,
 } from "@/domain/ports";
 
@@ -86,7 +91,7 @@ const matchContext: ProviderMatchContext = {
       externalPlayerId: "10",
       name: "Starter",
       shirtNumber: 1,
-      position: "G",
+      position: "goalkeeper",
       squadRole: "starter",
       participated: true,
       captain: true,
@@ -96,7 +101,7 @@ const matchContext: ProviderMatchContext = {
       externalPlayerId: "20",
       name: "Entering Substitute",
       shirtNumber: 14,
-      position: "M",
+      position: "midfielder",
       squadRole: "substitute",
       participated: true,
       enteredAtMinute: 65,
@@ -106,7 +111,7 @@ const matchContext: ProviderMatchContext = {
       externalPlayerId: "21",
       name: "Unused Substitute",
       shirtNumber: 18,
-      position: "F",
+      position: "attacker",
       squadRole: "substitute",
       participated: false,
     },
@@ -133,6 +138,7 @@ class FixtureProvider implements FootballDataProvider {
     private readonly fixtureValues = fixtures,
     private readonly seasonValues = seasons,
     private readonly contextValue = matchContext,
+    private readonly squadValue: ProviderSquadPlayer[] = [],
   ) {}
 
   async resolveTeam(): Promise<ProviderTeamIdentity> {
@@ -162,6 +168,11 @@ class FixtureProvider implements FootballDataProvider {
   async getMatchContext(): Promise<ProviderMatchContext> {
     this.requestCount += 1;
     return this.contextValue;
+  }
+
+  async getSquad() {
+    this.requestCount += 1;
+    return this.squadValue;
   }
 }
 
@@ -197,6 +208,81 @@ async function collectionData(collection: string) {
 }
 
 describe("football synchronization persistence", () => {
+  it("merges squad metadata idempotently without deleting absent historical players or omitted fields", async () => {
+    const store = new EmulatorFootballSyncStore(emulatorHost, projectId);
+    const initial = await store.getTeam("club-sport-herediano");
+    await syncFootballData(initial, new FixtureProvider(), store, {
+      now: new Date("2026-09-01T10:00:00.000Z"),
+    });
+    const currentId = providerEntityId("player", "api-football", "101");
+    await environment.withSecurityRulesDisabled(async (context) => {
+      const database = context.firestore();
+      await database.doc(`players/${currentId}`).set({
+        displayName: "Old Name",
+        externalProvider: "api-football",
+        externalProviderId: "101",
+        position: "defender",
+        photoUrl: "https://media.api-sports.io/football/players/101.png",
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+      });
+      await database.doc("players/historical-player").set({
+        displayName: "Historical Player",
+        externalProvider: "api-football",
+        externalProviderId: "999",
+        createdAt: new Date("2025-01-01T00:00:00.000Z"),
+        updatedAt: new Date("2025-01-01T00:00:00.000Z"),
+      });
+    });
+    const complete = new FixtureProvider(fixtures, seasons, matchContext, [
+      {
+        externalPlayerId: "101",
+        name: "Current Name",
+        position: "midfielder",
+        photoUrl: "https://media.api-sports.io/football/players/101.png",
+      },
+    ]);
+    const first = await syncPlayerSquad(
+      initial.id,
+      complete,
+      store,
+      new Date("2026-09-01T11:00:00.000Z"),
+    );
+    const second = await syncPlayerSquad(
+      initial.id,
+      complete,
+      store,
+      new Date("2026-09-01T11:00:00.000Z"),
+    );
+    const partial = new FixtureProvider(fixtures, seasons, matchContext, [
+      { externalPlayerId: "101", name: "Current Name" },
+    ]);
+    const third = await syncPlayerSquad(
+      initial.id,
+      partial,
+      store,
+      new Date("2026-09-01T12:00:00.000Z"),
+    );
+    const players = await collectionData("players");
+    expect(first.players.updated).toBe(1);
+    expect(second.players.unchanged).toBe(1);
+    expect(third.players.unchanged).toBe(1);
+    expect(players).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: currentId,
+          displayName: "Current Name",
+          position: "midfielder",
+          photoUrl: "https://media.api-sports.io/football/players/101.png",
+        }),
+        expect.objectContaining({
+          id: "historical-player",
+          displayName: "Historical Player",
+        }),
+      ]),
+    );
+  });
+
   it("creates distinct competitions, seasons, and home/away matches idempotently", async () => {
     const store = new EmulatorFootballSyncStore(emulatorHost, projectId);
     const team = await store.getTeam("club-sport-herediano");

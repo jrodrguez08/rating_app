@@ -17,6 +17,8 @@ describe("player history", () => {
 
     expect(value).toMatchObject({
       playerName: "Current persisted name",
+      position: "midfielder",
+      photoUrl: "https://media.api-sports.io/football/players/1.png",
       overallAverage: 8,
       ratedMatchCount: 2,
       rank: 1,
@@ -102,7 +104,14 @@ describe("player history", () => {
 
 function build(results: MatchResult[], matches?: Match[]) {
   return buildPlayerCatalog({
-    identities: [{ id: "stable", name: "Current persisted name" }],
+    identities: [
+      {
+        id: "stable",
+        name: "Current persisted name",
+        position: "midfielder",
+        photoUrl: "https://media.api-sports.io/football/players/1.png",
+      },
+    ],
     matches:
       matches ?? results.map((value, index) => match(value.matchId, {}, index)),
     results,

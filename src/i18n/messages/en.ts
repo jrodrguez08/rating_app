@@ -173,6 +173,13 @@ export const enMessages = {
     viewResults: "View results",
     back: "Back to players",
     trendLabel: "{name} rating evolution: {ratings}",
+    avatarLabel: "Avatar for {name}",
+    positions: {
+      goalkeeper: "Goalkeeper",
+      defender: "Defender",
+      midfielder: "Midfielder",
+      attacker: "Attacker",
+    },
   },
   results: {
     eyebrow: "Community results",

@@ -1,14 +1,16 @@
-import type { MatchGoalEvent } from "@/domain/models";
+import type { MatchGoalEvent, PlayerPosition } from "@/domain/models";
 import type {
   FixtureWindow,
   FootballDataProvider,
   ProviderMatchContext,
   ProviderMatchParticipant,
+  ProviderSquadPlayer,
   ProviderCompetitionSeason,
   ProviderFixture,
   ProviderTeamIdentity,
   TeamLookup,
 } from "@/domain/ports";
+import { isPlayerPhotoUrl } from "@/config/player-photos";
 
 import { ProviderError } from "./errors";
 
@@ -102,6 +104,23 @@ export function mapApiFootballStatus(
   if (status === "CANC") return "cancelled";
   if (["ABD", "AWD", "WO"].includes(status)) return "abandoned";
   return malformed(`unsupported fixture status ${status}.`);
+}
+
+export function mapApiFootballPlayerPosition(
+  value: unknown,
+): PlayerPosition | undefined {
+  if (typeof value !== "string") return undefined;
+  const positions: Record<string, PlayerPosition> = {
+    goalkeeper: "goalkeeper",
+    g: "goalkeeper",
+    defender: "defender",
+    d: "defender",
+    midfielder: "midfielder",
+    m: "midfielder",
+    attacker: "attacker",
+    f: "attacker",
+  };
+  return positions[value.trim().toLowerCase()];
 }
 
 export class ApiFootballAdapter implements FootballDataProvider {
@@ -336,6 +355,30 @@ export class ApiFootballAdapter implements FootballDataProvider {
     };
   }
 
+  async getSquad(externalTeamId: string): Promise<ProviderSquadPlayer[]> {
+    const response = await this.request("/players/squads", {
+      team: externalTeamId,
+    });
+    if (response.length !== 1) {
+      return malformed(
+        `squad Team ${externalTeamId} returned ${response.length} records.`,
+      );
+    }
+    const item = record(response[0], "squad response item");
+    const team = record(item.team, "squad response item.team");
+    if (String(number(team.id, "squad team.id")) !== externalTeamId) {
+      return malformed(`squad response does not match Team ${externalTeamId}.`);
+    }
+    const players = new Map<string, ProviderSquadPlayer>();
+    for (const value of array(item.players, "squad response item.players")) {
+      const player = parseSquadPlayer(value);
+      if (player !== null && !players.has(player.externalPlayerId)) {
+        players.set(player.externalPlayerId, player);
+      }
+    }
+    return [...players.values()];
+  }
+
   private addLineupPlayers(
     participants: Map<string, ProviderMatchParticipant>,
     value: unknown,
@@ -357,10 +400,7 @@ export class ApiFootballAdapter implements FootballDataProvider {
         player.number,
         `lineup.${squadRole}.player.number`,
       );
-      const position = optionalString(
-        player.pos,
-        `lineup.${squadRole}.player.pos`,
-      );
+      const position = mapApiFootballPlayerPosition(player.pos);
       participants.set(externalPlayerId, {
         externalTeamId,
         externalPlayerId,
@@ -408,7 +448,7 @@ export class ApiFootballAdapter implements FootballDataProvider {
         "fixture player statistic.games",
       );
       const minutes = optionalNumber(games.minutes, "games.minutes");
-      const position = optionalString(games.position, "games.position");
+      const position = mapApiFootballPlayerPosition(games.position);
       const captain = optionalBoolean(games.captain, "games.captain");
       if (minutes !== undefined && minutes > 0) participant.participated = true;
       if (position !== undefined) participant.position = position;
@@ -544,6 +584,33 @@ export class ApiFootballAdapter implements FootballDataProvider {
     }
     return array(envelope.response, "response.response");
   }
+}
+
+function parseSquadPlayer(value: unknown): ProviderSquadPlayer | null {
+  if (!isRecord(value)) return null;
+  if (
+    typeof value.id !== "number" ||
+    !Number.isInteger(value.id) ||
+    value.id <= 0 ||
+    typeof value.name !== "string" ||
+    value.name.trim() === ""
+  ) {
+    return null;
+  }
+  const position = mapApiFootballPlayerPosition(value.position);
+  const photoUrl = normalizePlayerPhotoUrl(value.photo);
+  return {
+    externalPlayerId: String(value.id),
+    name: value.name,
+    ...(position === undefined ? {} : { position }),
+    ...(photoUrl === undefined ? {} : { photoUrl }),
+  };
+}
+
+function normalizePlayerPhotoUrl(value: unknown): string | undefined {
+  return typeof value === "string" && isPlayerPhotoUrl(value)
+    ? new URL(value).href
+    : undefined;
 }
 
 function parseGoalEvents(value: unknown[]): MatchGoalEvent[] {

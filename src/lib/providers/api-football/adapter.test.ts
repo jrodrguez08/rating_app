@@ -6,7 +6,11 @@ import {
   matchContextResponse,
   teamSearchResponse,
 } from "../../../../tests/fixtures/api-football";
-import { ApiFootballAdapter, mapApiFootballStatus } from "./adapter";
+import {
+  ApiFootballAdapter,
+  mapApiFootballPlayerPosition,
+  mapApiFootballStatus,
+} from "./adapter";
 import { ProviderError } from "./errors";
 
 function response(body: unknown, status = 200) {
@@ -21,6 +25,57 @@ describe("ApiFootballAdapter", () => {
     expect(() => new ApiFootballAdapter(" ")).toThrowError(
       expect.objectContaining({ code: "missing-api-key" }),
     );
+  });
+
+  it("parses squad identity metadata and safely skips malformed rows", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      response([
+        {
+          team: { id: 815, name: "Herediano" },
+          players: [
+            {
+              id: 101,
+              name: "Goal Keeper",
+              position: "Goalkeeper",
+              photo: "https://media.api-sports.io/football/players/101.png",
+            },
+            { id: 102, name: "Unknown", position: "Sweeper", photo: null },
+            { id: null, name: "Malformed", position: "Defender" },
+            { id: 101, name: "Duplicate", position: "Attacker" },
+          ],
+        },
+      ]),
+    );
+    const adapter = new ApiFootballAdapter("test-key", fetcher);
+
+    await expect(adapter.getSquad("815")).resolves.toEqual([
+      {
+        externalPlayerId: "101",
+        name: "Goal Keeper",
+        position: "goalkeeper",
+        photoUrl: "https://media.api-sports.io/football/players/101.png",
+      },
+      { externalPlayerId: "102", name: "Unknown" },
+    ]);
+    expect(adapter.requestCount).toBe(1);
+    expect(fetcher).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pathname: "/players/squads",
+        search: "?team=815",
+      }),
+      expect.anything(),
+    );
+  });
+
+  it.each([
+    ["Goalkeeper", "goalkeeper"],
+    ["Defender", "defender"],
+    ["Midfielder", "midfielder"],
+    ["Attacker", "attacker"],
+    ["unexpected", undefined],
+    [undefined, undefined],
+  ])("normalizes player position %s", (value, expected) => {
+    expect(mapApiFootballPlayerPosition(value)).toBe(expected);
   });
 
   it("resolves Herediano only when name and country match exactly", async () => {
@@ -242,7 +297,7 @@ describe("ApiFootballAdapter", () => {
           externalPlayerId: "10",
           squadRole: "starter",
           participated: true,
-          position: "G",
+          position: "goalkeeper",
           captain: true,
         }),
         expect.objectContaining({

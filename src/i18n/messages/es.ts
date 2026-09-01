@@ -178,6 +178,13 @@ export const esMessages = {
     viewResults: "Ver resultados",
     back: "Volver a jugadores",
     trendLabel: "Evolución de {name}: {ratings}",
+    avatarLabel: "Avatar de {name}",
+    positions: {
+      goalkeeper: "Portero",
+      defender: "Defensa",
+      midfielder: "Mediocampista",
+      attacker: "Delantero",
+    },
   },
   results: {
     eyebrow: "Resultados de la comunidad",
