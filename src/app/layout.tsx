@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { DotGothic16 } from "next/font/google";
 
 import { VoterIdentityInitializer } from "@/components/voter-identity-initializer";
-import { siteIdentity, siteUrl } from "@/config/site";
+import { buildPageMetadata, siteIdentity, siteUrl } from "@/config/site";
 import { getLocale } from "@/i18n/server";
 
 import "./globals.css";
@@ -22,6 +22,7 @@ export const viewport: Viewport = {
 
 export function generateMetadata(): Metadata {
   return {
+    ...buildPageMetadata("/"),
     metadataBase: siteUrl,
     title: {
       default: siteIdentity.name,
@@ -29,28 +30,11 @@ export function generateMetadata(): Metadata {
     },
     description: siteIdentity.description,
     applicationName: siteIdentity.name,
-    alternates: { canonical: "/" },
     manifest: "/manifest.webmanifest",
     icons: {
       icon: [{ url: "/icon.svg", type: "image/svg+xml", sizes: "any" }],
       shortcut: ["/icon.svg"],
       apple: [{ url: "/apple-icon", type: "image/png", sizes: "180x180" }],
-    },
-    openGraph: {
-      type: "website",
-      locale: "es_CR",
-      url: "/",
-      siteName: siteIdentity.name,
-      title: siteIdentity.name,
-      description: siteIdentity.socialDescription,
-      images: [
-        {
-          url: "/social-card",
-          width: 1200,
-          height: 630,
-          alt: siteIdentity.socialImageAlt,
-        },
-      ],
     },
     twitter: {
       card: "summary_large_image",

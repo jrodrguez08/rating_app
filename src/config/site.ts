@@ -1,3 +1,5 @@
+import type { Metadata } from "next";
+
 const PRODUCTION_SITE_URL = "https://rating-app-amber.vercel.app";
 
 export const siteIdentity = {
@@ -37,3 +39,32 @@ export function resolveSiteUrl(
 }
 
 export const siteUrl = resolveSiteUrl();
+
+export function buildPageMetadata(
+  pathname: string,
+  overrides: Pick<Metadata, "title" | "description"> = {},
+): Metadata {
+  const title = overrides.title ?? siteIdentity.name;
+  const description = overrides.description ?? siteIdentity.socialDescription;
+
+  return {
+    ...overrides,
+    alternates: { canonical: pathname },
+    openGraph: {
+      type: "website",
+      locale: "es_CR",
+      url: pathname,
+      siteName: siteIdentity.name,
+      title,
+      description,
+      images: [
+        {
+          url: "/social-card",
+          width: 1200,
+          height: 630,
+          alt: siteIdentity.socialImageAlt,
+        },
+      ],
+    },
+  };
+}
