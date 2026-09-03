@@ -64,6 +64,7 @@ export const enMessages = {
         description:
           "The two-hour window is active. Submit one complete rating before it closes.",
         action: "Rate match",
+        share: "Share voting via WhatsApp",
         submitted: "Rating submitted",
         submittedDescription: "Your rating has already been recorded.",
         checking: "Preparing your session...",

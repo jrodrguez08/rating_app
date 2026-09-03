@@ -63,6 +63,7 @@ export const esMessages = {
         description:
           "La ventana de dos horas est\u00e1 activa. Env\u00eda una calificaci\u00f3n completa antes de que cierre.",
         action: "Calificar partido",
+        share: "Compartir votación por WhatsApp",
         submitted: "Calificaci\u00f3n enviada",
         submittedDescription: "Tu calificaci\u00f3n ya fue registrada.",
         checking: "Preparando tu sesi\u00f3n...",
