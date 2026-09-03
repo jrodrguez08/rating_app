@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { getTeamBadgePresentation } from "@/config/team-badges";
+import { buildWhatsAppRatingShareUrl } from "@/config/whatsapp-share";
 import type { Match } from "@/domain/models";
 import type { Locale } from "@/i18n/config";
 import { formatDate } from "@/i18n/format";
@@ -67,7 +68,11 @@ export function MatchLifecyclePanel({
           {state.description}
         </p>
         {isVotingOpen(match) ? (
-          <BallotEntry matchId={match.id} messages={messages.ready} />
+          <BallotEntry
+            matchId={match.id}
+            messages={messages.ready}
+            shareHref={buildWhatsAppRatingShareUrl(match.id)}
+          />
         ) : null}
         {match.ratingState === "rating_closed" ? (
           <Link
