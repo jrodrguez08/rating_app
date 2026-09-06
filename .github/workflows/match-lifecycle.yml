@@ -22,7 +22,7 @@ jobs:
       - name: Trigger match-aware lifecycle synchronization
         if: env.LIFECYCLE_SYNC_URL != '' && env.CRON_SECRET != ''
         run: >-
-          curl --fail --silent --show-error
+          curl --fail-with-body --silent --show-error
           --connect-timeout 10
           --retry 1 --retry-all-errors --retry-max-time 100
           --max-time 45

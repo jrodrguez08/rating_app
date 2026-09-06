@@ -11,11 +11,22 @@ import type {
   TeamLookup,
 } from "@/domain/ports";
 import { isPlayerPhotoUrl } from "@/config/player-photos";
+import {
+  emitOperationalLog,
+  type OperationalLogger,
+} from "@/lib/operational-log";
 
 import { ProviderError } from "./errors";
 
 const BASE_URL = "https://v3.football.api-sports.io";
 type Fetcher = typeof fetch;
+
+type LineupFieldState = "missing" | "present" | "malformed";
+
+function lineupFieldState(value: unknown): LineupFieldState {
+  if (value === undefined) return "missing";
+  return Array.isArray(value) ? "present" : "malformed";
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -158,7 +169,7 @@ export class ApiFootballAdapter implements FootballDataProvider {
   constructor(
     private readonly apiKey: string,
     private readonly fetcher: Fetcher = fetch,
-    private readonly log: (message: string) => void = () => undefined,
+    private readonly log: OperationalLogger = () => undefined,
   ) {
     if (apiKey.trim() === "") {
       throw new ProviderError(
@@ -300,6 +311,9 @@ export class ApiFootballAdapter implements FootballDataProvider {
       this.request("/fixtures/players", { fixture: externalFixtureId }),
       this.request("/fixtures/events", { fixture: externalFixtureId }),
     ]);
+    this.logLineupSummary(lineups, externalTeamId);
+    this.logPlayerStatisticsSummary(players, externalTeamId);
+    this.logEventSummary(events, externalTeamId);
     const observed = this.parseLineupContext(
       lineups,
       externalFixtureId,
@@ -324,8 +338,27 @@ export class ApiFootballAdapter implements FootballDataProvider {
         { ...participant },
       ]),
     );
-    this.reconcilePlayerStatistics(participants, players, externalTeamId);
-    this.reconcileSubstitutions(participants, events, externalTeamId);
+    const playerReconciliation = this.reconcilePlayerStatistics(
+      participants,
+      players,
+      externalTeamId,
+    );
+    const substitutionReconciliation = this.reconcileSubstitutions(
+      participants,
+      events,
+      externalTeamId,
+    );
+    emitOperationalLog(this.log, "provider.player_statistics_reconciled", {
+      trustedParticipantsWithPositiveMinutes:
+        playerReconciliation.positiveMinutes,
+      participationConfirmationsAdded: playerReconciliation.confirmationsAdded,
+    });
+    emitOperationalLog(this.log, "provider.substitutions_reconciled", {
+      relevantSubstitutions: substitutionReconciliation.relevant,
+      incomingSubstitutesMatched: substitutionReconciliation.matched,
+      participationConfirmationsAdded:
+        substitutionReconciliation.confirmationsAdded,
+    });
     return {
       participants: [...participants.values()],
       headCoach: context.headCoach,
@@ -336,13 +369,87 @@ export class ApiFootballAdapter implements FootballDataProvider {
     externalFixtureId: string,
     externalTeamId: string,
   ): Promise<ProviderMatchContext | null> {
-    return this.parseLineupContext(
-      await this.request("/fixtures/lineups", {
-        fixture: externalFixtureId,
-      }),
-      externalFixtureId,
-      externalTeamId,
+    const lineups = await this.request("/fixtures/lineups", {
+      fixture: externalFixtureId,
+    });
+    this.logLineupSummary(lineups, externalTeamId);
+    return this.parseLineupContext(lineups, externalFixtureId, externalTeamId);
+  }
+
+  private logLineupSummary(lineups: unknown[], externalTeamId: string): void {
+    const tracked = lineups.filter((value) => {
+      if (!isRecord(value) || !isRecord(value.team)) return false;
+      return String(value.team.id) === externalTeamId;
+    });
+    const lineup =
+      tracked.length === 1 && isRecord(tracked[0]) ? tracked[0] : null;
+    const startXI = lineupFieldState(lineup?.startXI);
+    const substitutes = lineupFieldState(lineup?.substitutes);
+    const starterCount = Array.isArray(lineup?.startXI)
+      ? lineup.startXI.length
+      : null;
+    const substituteCount = Array.isArray(lineup?.substitutes)
+      ? lineup.substitutes.length
+      : null;
+    let classification = "lineup-unavailable";
+    if (lineups.length > 0 && tracked.length === 0) {
+      classification = "tracked-team-missing";
+    } else if (tracked.length > 1) {
+      classification = "malformed";
+    } else if (startXI === "malformed" || substitutes === "malformed") {
+      classification = "malformed";
+    } else if (
+      startXI === "present" &&
+      substitutes === "present" &&
+      starterCount === 11 &&
+      substituteCount !== null &&
+      substituteCount > 0
+    ) {
+      classification = isRecord(lineup?.coach) ? "usable" : "coach-missing";
+    }
+    emitOperationalLog(this.log, "provider.lineup", {
+      request: "fixtures/lineups",
+      resultCount: lineups.length,
+      trackedTeamFound: tracked.length === 1,
+      startXI,
+      substitutes,
+      fixtureCoachPresent: isRecord(lineup?.coach),
+      starterCount,
+      substituteCount,
+      classification,
+    });
+  }
+
+  private logPlayerStatisticsSummary(
+    players: unknown[],
+    externalTeamId: string,
+  ): void {
+    const trackedTeamFound = players.some(
+      (value) =>
+        isRecord(value) &&
+        isRecord(value.team) &&
+        String(value.team.id) === externalTeamId,
     );
+    emitOperationalLog(this.log, "provider.player_statistics", {
+      request: "fixtures/players",
+      resultCount: players.length,
+      trackedTeamFound,
+    });
+  }
+
+  private logEventSummary(events: unknown[], externalTeamId: string): void {
+    const relevantSubstitutions = events.filter(
+      (value) =>
+        isRecord(value) &&
+        String(value.type).toLowerCase() === "subst" &&
+        isRecord(value.team) &&
+        String(value.team.id) === externalTeamId,
+    ).length;
+    emitOperationalLog(this.log, "provider.events", {
+      request: "fixtures/events",
+      resultCount: events.length,
+      relevantSubstitutions,
+    });
   }
 
   async getSquad(externalTeamId: string): Promise<ProviderSquadPlayer[]> {
@@ -476,8 +583,11 @@ export class ApiFootballAdapter implements FootballDataProvider {
     participants: Map<string, ProviderMatchParticipant>,
     value: unknown,
     externalTeamId: string,
-  ) {
-    if (value === null || value === undefined) return;
+  ): { positiveMinutes: number; confirmationsAdded: number } {
+    let positiveMinutes = 0;
+    let confirmationsAdded = 0;
+    if (value === null || value === undefined)
+      return { positiveMinutes, confirmationsAdded };
     const teams = array(value, "fixture.players");
     const tracked = teams.filter((teamValue) => {
       const teamEntry = record(teamValue, "fixture.players team");
@@ -492,7 +602,7 @@ export class ApiFootballAdapter implements FootballDataProvider {
     });
     if (tracked.length > 1)
       malformed("fixture.players repeats the tracked Team.");
-    if (tracked.length === 0) return;
+    if (tracked.length === 0) return { positiveMinutes, confirmationsAdded };
     const teamEntry = record(tracked[0], "tracked fixture.players team");
     for (const value of array(teamEntry.players, "fixture.players.players")) {
       const entry = record(value, "fixture player");
@@ -509,24 +619,34 @@ export class ApiFootballAdapter implements FootballDataProvider {
       const minutes = optionalNumber(games.minutes, "games.minutes");
       const position = mapApiFootballPlayerPosition(games.position);
       const captain = optionalBoolean(games.captain, "games.captain");
-      if (minutes !== undefined && minutes > 0) participant.participated = true;
+      if (minutes !== undefined && minutes > 0) {
+        positiveMinutes += 1;
+        if (!participant.participated) confirmationsAdded += 1;
+        participant.participated = true;
+      }
       if (position !== undefined) participant.position = position;
       if (captain !== undefined) participant.captain = captain;
     }
+    return { positiveMinutes, confirmationsAdded };
   }
 
   private reconcileSubstitutions(
     participants: Map<string, ProviderMatchParticipant>,
     value: unknown,
     externalTeamId: string,
-  ) {
-    if (value === null || value === undefined) return;
+  ): { relevant: number; matched: number; confirmationsAdded: number } {
+    let relevant = 0;
+    let matched = 0;
+    let confirmationsAdded = 0;
+    if (value === null || value === undefined)
+      return { relevant, matched, confirmationsAdded };
     for (const eventValue of array(value, "fixture.events")) {
       const event = record(eventValue, "fixture event");
       if (String(event.type).toLowerCase() !== "subst") continue;
       const team = record(event.team, "substitution.team");
       if (String(number(team.id, "substitution.team.id")) !== externalTeamId)
         continue;
+      relevant += 1;
       const time = record(event.time, "substitution.time");
       const elapsed = optionalNumber(time.elapsed, "substitution.time.elapsed");
       const extra = optionalNumber(time.extra, "substitution.time.extra") ?? 0;
@@ -545,12 +665,15 @@ export class ApiFootballAdapter implements FootballDataProvider {
           `substitution references player outside tracked Team lineup (${outgoingId}/${incomingId}).`,
         );
       }
+      matched += 1;
+      if (!incomingParticipant.participated) confirmationsAdded += 1;
       incomingParticipant.participated = true;
       if (minute !== undefined) {
         outgoingParticipant.exitedAtMinute ??= minute;
         incomingParticipant.enteredAtMinute ??= minute;
       }
     }
+    return { relevant, matched, confirmationsAdded };
   }
 
   private parseFixtureTeam(value: unknown, label: string) {
@@ -615,8 +738,11 @@ export class ApiFootballAdapter implements FootballDataProvider {
       );
     }
     const remaining = response.headers.get("x-ratelimit-requests-remaining");
-    if (remaining !== null)
-      this.log(`API-Football requests remaining: ${remaining}`);
+    if (remaining !== null) {
+      emitOperationalLog(this.log, "provider.quota", {
+        requestsRemaining: remaining,
+      });
+    }
     if (response.status === 429) {
       throw new ProviderError(
         "rate-limited",

@@ -185,6 +185,7 @@ function run(
   store: MemoryStore,
   provider: FixtureProvider,
   sync: LifecycleDependencies["syncParticipants"] = async () => undefined,
+  log?: (message: string) => void,
 ) {
   return runMatchLifecycle({
     teamId: "tracked-team",
@@ -193,6 +194,7 @@ function run(
     now: () => NOW,
     discoverFixtures: async () => undefined,
     syncParticipants: sync,
+    log,
   });
 }
 
@@ -367,7 +369,10 @@ describe("match lifecycle synchronization", () => {
 
   it("retries an unavailable final lineup and opens one stable window after usable data arrives", async () => {
     const store = new MemoryStore([match({ status: "live" })]);
+    store.participantCount = 0;
+    store.hasCoach = false;
     const provider = new FixtureProvider(fixture("finished"));
+    const logs: string[] = [];
     let syncAttempts = 0;
     const syncParticipants: LifecycleDependencies["syncParticipants"] =
       async () => {
@@ -375,9 +380,16 @@ describe("match lifecycle synchronization", () => {
         if (syncAttempts === 1) {
           throw new Error("No usable lineup has been observed yet.");
         }
+        store.participantCount = 11;
+        store.hasCoach = true;
       };
 
-    const unavailable = await run(store, provider, syncParticipants);
+    const unavailable = await run(
+      store,
+      provider,
+      syncParticipants,
+      (message) => logs.push(message),
+    );
 
     expect(unavailable).toMatchObject({
       action: "preparing_rating",
@@ -388,10 +400,35 @@ describe("match lifecycle synchronization", () => {
     });
     expect(store.matches[0].votingOpensAt).toBeUndefined();
     expect(store.matches[0].votingClosesAt).toBeUndefined();
-
-    expect((await run(store, provider, syncParticipants)).action).toBe(
-      "rating_ready",
+    expect(provider.requestCount).toBe(1);
+    expect(logs).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          '"event":"lifecycle.match","matchId":"match-1","status":"live","ratingState":"not_ready"',
+        ),
+        expect.stringContaining(
+          '"event":"lifecycle.fixture_refresh","phase":"completed","matchId":"match-1","providerStatus":"finished","scoreHome":2,"scoreAway":1,"elapsedMinute":null,"normalizedStatus":"finished"',
+        ),
+        expect.stringContaining(
+          '"event":"lifecycle.phase","phase":"post_ft_reconciliation"',
+        ),
+        expect.stringContaining(
+          '"event":"lifecycle.readiness","matchId":"match-1","ready":false,"participantCount":"unavailable","rateableParticipantCount":0,"fixtureCoachPresent":false',
+        ),
+        expect.stringContaining('"reason":"lineup-unavailable"'),
+        expect.stringContaining(
+          '"event":"lifecycle.outcome","action":"preparing_rating","matchId":"match-1","providerRequests":1',
+        ),
+      ]),
     );
+
+    expect(
+      (
+        await run(store, provider, syncParticipants, (message) =>
+          logs.push(message),
+        )
+      ).action,
+    ).toBe("rating_ready");
     const ready = store.matches[0];
     expect(ready).toMatchObject({
       ratingState: "rating_ready",
@@ -399,9 +436,26 @@ describe("match lifecycle synchronization", () => {
       votingClosesAt: "2026-08-29T20:00:00.000Z",
     });
 
-    expect((await run(store, provider, syncParticipants)).action).toBe("idle");
+    expect(
+      (
+        await run(store, provider, syncParticipants, (message) =>
+          logs.push(message),
+        )
+      ).action,
+    ).toBe("idle");
     expect(store.matches[0].votingOpensAt).toBe(ready.votingOpensAt);
     expect(store.matches[0].votingClosesAt).toBe(ready.votingClosesAt);
+    expect(provider.requestCount).toBe(2);
+    expect(logs).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          '"event":"lifecycle.readiness","matchId":"match-1","ready":true',
+        ),
+        expect.stringContaining(
+          '"event":"lifecycle.voting_window","action":"opened"',
+        ),
+      ]),
+    );
   });
 
   it("opens one stable two-hour window after complete finished data", async () => {

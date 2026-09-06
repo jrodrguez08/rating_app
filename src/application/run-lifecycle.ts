@@ -10,7 +10,12 @@ export function runConfiguredLifecycle(
   apiKey: string,
   now: () => Date = () => new Date(),
 ) {
-  const provider = new ApiFootballAdapter(apiKey);
+  const logs: string[] = [];
+  const log = (message: string) => {
+    logs.push(message);
+    console.info(message);
+  };
+  const provider = new ApiFootballAdapter(apiKey, fetch, log);
   return runMatchLifecycle({
     teamId,
     provider,
@@ -20,7 +25,14 @@ export function runConfiguredLifecycle(
       await syncFootballData(team, provider, store, { now: currentTime });
     },
     syncParticipants: async (matchId, currentTime, phase) => {
-      await syncMatchParticipants(matchId, provider, store, currentTime, phase);
+      return syncMatchParticipants(
+        matchId,
+        provider,
+        store,
+        currentTime,
+        phase,
+      );
     },
-  });
+    log,
+  }).then((result) => ({ ...result, logs }));
 }

@@ -5,6 +5,10 @@ import type {
   MatchLifecycleStore,
   ProviderFixture,
 } from "@/domain/ports";
+import {
+  emitOperationalLog,
+  type OperationalLogger,
+} from "@/lib/operational-log";
 
 const HOUR = 60 * 60 * 1000;
 const VOTING_WINDOW_MS = 2 * HOUR;
@@ -38,7 +42,12 @@ export interface LifecycleDependencies {
     matchId: string,
     now: Date,
     phase: "lineup" | "final",
-  ) => Promise<void>;
+  ) => Promise<{
+    starters: number;
+    substitutes: number;
+    participated: number;
+  } | void>;
+  log?: OperationalLogger;
 }
 
 export async function runMatchLifecycle({
@@ -48,6 +57,33 @@ export async function runMatchLifecycle({
   now,
   discoverFixtures,
   syncParticipants,
+  log = () => undefined,
+}: LifecycleDependencies): Promise<LifecycleResult> {
+  const result = await executeMatchLifecycle({
+    teamId,
+    provider,
+    store,
+    now,
+    discoverFixtures,
+    syncParticipants,
+    log,
+  });
+  emitOperationalLog(log, "lifecycle.outcome", {
+    action: result.action,
+    matchId: result.matchId ?? "none",
+    providerRequests: result.providerRequests,
+  });
+  return result;
+}
+
+async function executeMatchLifecycle({
+  teamId,
+  provider,
+  store,
+  now,
+  discoverFixtures,
+  syncParticipants,
+  log = () => undefined,
 }: LifecycleDependencies): Promise<LifecycleResult> {
   const currentTime = now();
   const team = await store.getTeam(teamId);
@@ -64,6 +100,12 @@ export async function runMatchLifecycle({
     pendingFinalization !== undefined &&
     isExpiredRatingWindow(pendingFinalization, currentTime)
   ) {
+    emitOperationalLog(log, "lifecycle.phase", {
+      phase: "close_finalization",
+      matchId: pendingFinalization.id,
+      status: pendingFinalization.status,
+      ratingState: pendingFinalization.ratingState,
+    });
     try {
       await store.finalizeMatchResult(pendingFinalization.id, currentTime);
       return {
@@ -100,6 +142,10 @@ export async function runMatchLifecycle({
 
   const match = selectLifecycleMatch(matches, currentTime);
   if (match === undefined) {
+    emitOperationalLog(log, "lifecycle.decision", {
+      phase: "no_relevant_match",
+      action: discovered ? "discovered" : "idle",
+    });
     return {
       action: discovered ? "discovered" : "idle",
       providerRequests: provider.requestCount,
@@ -107,7 +153,19 @@ export async function runMatchLifecycle({
     };
   }
 
+  emitOperationalLog(log, "lifecycle.match", {
+    matchId: match.id,
+    status: match.status,
+    ratingState: match.ratingState,
+  });
+
   if (isExpiredRatingWindow(match, currentTime)) {
+    emitOperationalLog(log, "lifecycle.phase", {
+      phase: "close_finalization",
+      matchId: match.id,
+      status: match.status,
+      ratingState: match.ratingState,
+    });
     try {
       await store.finalizeMatchResult(match.id, currentTime);
       return {
@@ -124,6 +182,11 @@ export async function runMatchLifecycle({
     match.ratingState === "rating_ready" ||
     match.ratingState === "rating_closed"
   ) {
+    emitOperationalLog(log, "lifecycle.decision", {
+      phase: "no_op",
+      matchId: match.id,
+      reason: "rating-window-established",
+    });
     return {
       action: "idle",
       matchId: match.id,
@@ -133,6 +196,11 @@ export async function runMatchLifecycle({
   }
 
   if (!shouldRefreshMatch(match, currentTime)) {
+    emitOperationalLog(log, "lifecycle.decision", {
+      phase: match.status === "scheduled" ? "scheduled_no_op" : "no_op",
+      matchId: match.id,
+      reason: "outside-polling-interval",
+    });
     return {
       action: discovered ? "discovered" : "idle",
       matchId: match.id,
@@ -143,6 +211,11 @@ export async function runMatchLifecycle({
 
   let refreshed: Match;
   try {
+    emitOperationalLog(log, "lifecycle.fixture_refresh", {
+      phase: "started",
+      matchId: match.id,
+      fixtureId: match.externalProviderFixtureId,
+    });
     const fixture = await provider.getFixture(match.externalProviderFixtureId);
     validateTrackedTeam(
       fixture,
@@ -150,12 +223,27 @@ export async function runMatchLifecycle({
       team.externalProviderId,
     );
     refreshed = mergeFixture(match, fixture, currentTime);
+    emitOperationalLog(log, "lifecycle.fixture_refresh", {
+      phase: "completed",
+      matchId: match.id,
+      providerStatus: fixture.status,
+      scoreHome: fixture.score.home,
+      scoreAway: fixture.score.away,
+      elapsedMinute: fixture.elapsedMinute ?? null,
+      normalizedStatus: refreshed.status,
+    });
     await store.updateMatchLifecycle(refreshed);
   } catch (error) {
     return retryable(provider, match.id, error);
   }
 
   if (shouldCaptureLineup(refreshed, currentTime)) {
+    emitOperationalLog(log, "lifecycle.phase", {
+      phase: "pre_match_lineup_capture",
+      matchId: refreshed.id,
+      status: refreshed.status,
+      ratingState: refreshed.ratingState,
+    });
     try {
       await syncParticipants(refreshed.id, currentTime, "lineup");
       refreshed = {
@@ -170,6 +258,11 @@ export async function runMatchLifecycle({
   }
 
   if (refreshed.status !== "finished") {
+    emitOperationalLog(log, "lifecycle.decision", {
+      phase: refreshed.status === "live" ? "live_refresh" : "scheduled_refresh",
+      matchId: refreshed.id,
+      action: "refreshed",
+    });
     return {
       action: "refreshed",
       matchId: refreshed.id,
@@ -183,9 +276,15 @@ export async function runMatchLifecycle({
     updatedAt: currentTime.toISOString(),
   };
   await store.updateMatchLifecycle(preparing);
+  emitOperationalLog(log, "lifecycle.phase", {
+    phase: "post_ft_reconciliation",
+    matchId: preparing.id,
+    status: preparing.status,
+    ratingState: preparing.ratingState,
+  });
 
   try {
-    await syncParticipants(match.id, currentTime, "final");
+    const syncSummary = await syncParticipants(match.id, currentTime, "final");
     const synced = {
       ...preparing,
       participantSyncedAt: currentTime.toISOString(),
@@ -197,6 +296,21 @@ export async function runMatchLifecycle({
       store.hasTrackedTeamHeadCoach(match.id, match.trackedTeamId),
     ]);
     if (participantCount < MINIMUM_RATEABLE_PARTICIPANTS || !hasCoach) {
+      const blockingReason =
+        participantCount < MINIMUM_RATEABLE_PARTICIPANTS
+          ? "insufficient-rateable-participants"
+          : "coach-missing";
+      emitOperationalLog(log, "lifecycle.readiness", {
+        matchId: match.id,
+        ready: false,
+        participantCount:
+          syncSummary === undefined
+            ? participantCount
+            : syncSummary.starters + syncSummary.substitutes,
+        rateableParticipantCount: participantCount,
+        fixtureCoachPresent: hasCoach,
+        reason: blockingReason,
+      });
       return {
         action: "preparing_rating",
         matchId: match.id,
@@ -209,6 +323,17 @@ export async function runMatchLifecycle({
     const closesAt =
       preparing.votingClosesAt ??
       new Date(new Date(opensAt).getTime() + VOTING_WINDOW_MS).toISOString();
+    emitOperationalLog(log, "lifecycle.readiness", {
+      matchId: match.id,
+      ready: true,
+      participantCount:
+        syncSummary === undefined
+          ? participantCount
+          : syncSummary.starters + syncSummary.substitutes,
+      rateableParticipantCount: participantCount,
+      fixtureCoachPresent: hasCoach,
+      reason: "ready",
+    });
     await store.updateMatchLifecycle({
       ...synced,
       ratingState: "rating_ready",
@@ -217,14 +342,76 @@ export async function runMatchLifecycle({
       votingClosesAt: closesAt,
       updatedAt: currentTime.toISOString(),
     });
+    emitOperationalLog(log, "lifecycle.voting_window", {
+      action: "opened",
+      matchId: match.id,
+      ratingState: "rating_ready",
+      opensAt,
+      closesAt,
+    });
     return {
       action: "rating_ready",
       matchId: match.id,
       providerRequests: provider.requestCount,
     };
   } catch (error) {
+    const readiness = await observePersistedReadiness(store, match);
+    emitOperationalLog(log, "lifecycle.readiness", {
+      matchId: match.id,
+      ready: false,
+      participantCount: "unavailable",
+      rateableParticipantCount: readiness.rateableParticipantCount,
+      fixtureCoachPresent: readiness.fixtureCoachPresent,
+      reason: operationalErrorReason(error),
+    });
     return retryable(provider, match.id, error, "preparing_rating");
   }
+}
+
+async function observePersistedReadiness(
+  store: MatchLifecycleStore,
+  match: Match,
+): Promise<{
+  rateableParticipantCount: number | "unavailable";
+  fixtureCoachPresent: boolean | "unknown";
+}> {
+  try {
+    const [rateableParticipantCount, fixtureCoachPresent] = await Promise.all([
+      store.countRateableParticipants(match.id, match.trackedTeamId),
+      store.hasTrackedTeamHeadCoach(match.id, match.trackedTeamId),
+    ]);
+    return { rateableParticipantCount, fixtureCoachPresent };
+  } catch {
+    return {
+      rateableParticipantCount: "unavailable",
+      fixtureCoachPresent: "unknown",
+    };
+  }
+}
+
+function operationalErrorReason(error: unknown): string {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    typeof error.code === "string"
+  ) {
+    return error.code;
+  }
+  if (
+    error instanceof Error &&
+    error.message.toLowerCase().includes("lineup") &&
+    error.message.toLowerCase().includes("unavailable")
+  ) {
+    return "lineup-unavailable";
+  }
+  if (
+    error instanceof Error &&
+    error.message.toLowerCase().includes("no usable lineup")
+  ) {
+    return "lineup-unavailable";
+  }
+  return "participant-sync-failed";
 }
 
 export function selectRelevantMatch(
