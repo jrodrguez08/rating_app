@@ -8,16 +8,19 @@ import { formatDate } from "@/i18n/format";
 import type { Messages } from "@/i18n/messages";
 
 import { BallotEntry } from "./ballot-entry";
+import { GoalSummary } from "./goal-summary";
 import { TeamBadge } from "./team-badge";
 
 export function MatchLifecyclePanel({
   match,
   locale,
   messages,
+  goalMessages,
 }: {
   match: Match;
   locale: Locale;
   messages: Messages["home"]["matchLifecycle"];
+  goalMessages: Messages["matches"];
 }) {
   const state = presentationState(match, messages);
   const showScore =
@@ -58,6 +61,9 @@ export function MatchLifecyclePanel({
           </span>
           <TeamName team={match.awayTeam} />
         </div>
+        {match.status === "live" ? (
+          <GoalSummary match={match} messages={goalMessages} compact />
+        ) : null}
         <p className="mt-4 text-center text-sm leading-6 text-muted">
           {formatDate(match.kickoffAt, locale, {
             dateStyle: "medium",

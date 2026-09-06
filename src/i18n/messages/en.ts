@@ -139,6 +139,7 @@ export const enMessages = {
     back: "Back to matches",
     goals: "Confirmed goals",
     goal: "Goal",
+    goalByTeam: "Goal by {team}",
     trackedTeamGoal: "Herediano goal",
     opponentGoal: "Opponent goal",
     liveDescription:

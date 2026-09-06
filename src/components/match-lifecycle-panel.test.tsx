@@ -30,6 +30,7 @@ describe("Home WhatsApp rating share", () => {
         })}
         locale="es"
         messages={messages}
+        goalMessages={getMessages("es").matches}
       />,
     );
 
@@ -84,6 +85,7 @@ describe("Home WhatsApp rating share", () => {
         match={match(state)}
         locale="es"
         messages={messages}
+        goalMessages={getMessages("es").matches}
       />,
     );
 
@@ -91,7 +93,81 @@ describe("Home WhatsApp rating share", () => {
       screen.queryByRole("link", { name: "Compartir votación por WhatsApp" }),
     ).not.toBeInTheDocument();
   });
+
+  it("renders persisted live goals chronologically without changing the score", () => {
+    render(
+      <MatchLifecyclePanel
+        match={match({
+          status: "live",
+          score: { home: 2, away: 1 },
+          goalEvents: [
+            goal({ scorerName: "Late scorer", elapsed: 54 }),
+            goal({
+              externalTeamId: "820",
+              scorerName: "First scorer",
+              elapsed: 18,
+            }),
+            goal({
+              externalTeamId: "820",
+              scorerName: "Second at 54",
+              elapsed: 54,
+            }),
+          ],
+        })}
+        locale="es"
+        messages={messages}
+        goalMessages={getMessages("es").matches}
+      />,
+    );
+
+    expect(screen.getByText("2 - 1")).toBeInTheDocument();
+    const goals = screen.getAllByRole("listitem");
+    expect(goals[0]).toHaveTextContent("18'·First scorer");
+    expect(goals[1]).toHaveTextContent("Late scorer·54'");
+    expect(goals[2]).toHaveTextContent("54'·Second at 54");
+    expect(goals[0]).toHaveAttribute("data-goal-side", "away");
+    expect(goals[1]).toHaveAttribute("data-goal-side", "home");
+    expect(goals[2]).toHaveAttribute("data-goal-side", "away");
+    expect(goals[1].querySelector('[data-goal-half="home"]')).toHaveClass(
+      "justify-end",
+      "text-right",
+    );
+    expect(goals[0].querySelector('[data-goal-half="away"]')).toHaveClass(
+      "justify-start",
+      "text-left",
+    );
+    expect(goals[0]).toHaveAccessibleName(
+      "Gol de CS Cartaginés, First scorer, 18'",
+    );
+  });
+
+  it("renders no empty goal section for a scoreless live match", () => {
+    render(
+      <MatchLifecyclePanel
+        match={match({ status: "live", score: { home: 0, away: 0 } })}
+        locale="es"
+        messages={messages}
+        goalMessages={getMessages("es").matches}
+      />,
+    );
+
+    expect(screen.getByText("0 - 0")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("region", { name: "Goles confirmados" }),
+    ).not.toBeInTheDocument();
+  });
 });
+
+function goal(overrides: Partial<NonNullable<Match["goalEvents"]>[number]>) {
+  return {
+    externalTeamId: "815",
+    externalPlayerId: "player",
+    scorerName: "Scorer",
+    elapsed: 10,
+    kind: "normal" as const,
+    ...overrides,
+  };
+}
 
 function match(overrides: Partial<Match> = {}): Match {
   return {

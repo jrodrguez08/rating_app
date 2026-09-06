@@ -65,6 +65,7 @@ export function HomeContent({
             match={match}
             locale={locale}
             messages={messages.home.matchLifecycle}
+            goalMessages={messages.matches}
           />
         )}
       </main>

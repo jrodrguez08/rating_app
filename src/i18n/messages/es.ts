@@ -140,6 +140,7 @@ export const esMessages = {
     back: "Volver a partidos",
     goals: "Goles confirmados",
     goal: "Gol",
+    goalByTeam: "Gol de {team}",
     trackedTeamGoal: "Gol de Herediano",
     opponentGoal: "Gol del rival",
     liveDescription:
