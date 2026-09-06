@@ -8,7 +8,7 @@ import type {
   MatchArchiveItem,
 } from "@/application/match-archive";
 import { getTeamBadgePresentation } from "@/config/team-badges";
-import type { Match, MatchGoalEvent } from "@/domain/models";
+import type { Match } from "@/domain/models";
 import type { Locale } from "@/i18n/config";
 import { formatDate } from "@/i18n/format";
 import type { Messages } from "@/i18n/messages";
@@ -352,55 +352,4 @@ function Team({ team }: { team: Match["homeTeam"] }) {
       <p className="mt-2 break-words text-sm font-bold">{team.name}</p>
     </div>
   );
-}
-
-export function GoalSummary({
-  match,
-  messages,
-}: {
-  match: Match;
-  messages: MatchMessages;
-}) {
-  const events = match.goalEvents ?? [];
-  if (events.length === 0) return null;
-  const trackedExternalId = match.trackedTeamExternalProviderId;
-  return (
-    <section aria-labelledby="goal-summary-heading" className="card mt-6 p-5">
-      <h2 id="goal-summary-heading" className="score-font text-xl">
-        {messages.goals}
-      </h2>
-      <ol className="mt-3 space-y-2">
-        {events.map((event, index) => {
-          const tracked =
-            trackedExternalId !== undefined &&
-            event.externalTeamId === trackedExternalId;
-          const association =
-            trackedExternalId === undefined
-              ? messages.goal
-              : tracked
-                ? messages.trackedTeamGoal
-                : messages.opponentGoal;
-          return (
-            <li
-              key={`${event.externalTeamId}-${event.externalPlayerId}-${event.elapsed}-${event.extra ?? 0}-${index}`}
-              className="game-inset flex items-center gap-3 p-3"
-            >
-              <span aria-hidden="true">⚽</span>
-              <span className="min-w-0 flex-1 break-words font-bold">
-                {event.scorerName}
-              </span>
-              <span className="score-font text-accent">
-                {formatGoalMinute(event)}
-              </span>
-              <span className="sr-only">{association}</span>
-            </li>
-          );
-        })}
-      </ol>
-    </section>
-  );
-}
-
-export function formatGoalMinute(event: MatchGoalEvent): string {
-  return `${event.elapsed}${event.extra && event.extra > 0 ? `+${event.extra}` : ""}'`;
 }

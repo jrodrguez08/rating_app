@@ -7,13 +7,9 @@ import type { Match } from "@/domain/models";
 import { getMessages } from "@/i18n/messages";
 import { getBallotStatus } from "@/lib/firebase/ballot-client";
 
-import {
-  formatGoalMinute,
-  GoalSummary,
-  MatchArchiveView,
-  MatchCard,
-} from "./match-archive";
+import { MatchArchiveView, MatchCard } from "./match-archive";
 import { MatchDetail } from "./match-detail";
+import { formatGoalMinute, GoalSummary } from "./goal-summary";
 
 vi.mock("@/lib/firebase/ballot-client", () => ({
   getBallotStatus: vi.fn(),
@@ -362,6 +358,152 @@ describe("Partidos presentation", () => {
     expect(screen.getByRole("listitem")).toHaveTextContent("Goal");
     expect(screen.getByRole("listitem")).not.toHaveTextContent(
       "Herediano goal",
+    );
+  });
+
+  it("reuses the compact persisted-goal summary for a live match detail", () => {
+    const value = match({
+      status: "live",
+      score: { home: 1, away: 0 },
+      goalEvents: [
+        {
+          externalTeamId: "815",
+          externalPlayerId: "1",
+          scorerName: "Live scorer",
+          elapsed: 45,
+          extra: 2,
+          kind: "normal",
+        },
+      ],
+    });
+
+    render(
+      <MatchDetail
+        item={item(value)}
+        locale="en"
+        messages={messages}
+        ballotMessages={ballotMessages}
+        now={now}
+      />,
+    );
+
+    expect(screen.getByText("1 - 0")).toBeInTheDocument();
+    const goalItem = within(
+      screen.getByRole("region", { name: "Confirmed goals" }),
+    ).getByRole("listitem");
+    expect(goalItem).toHaveTextContent("Live scorer·45+2'");
+    expect(goalItem).toHaveAttribute("data-goal-side", "home");
+    expect(goalItem).toHaveAccessibleName(
+      "Goal by CS Herediano, Live scorer, 45+2'",
+    );
+  });
+
+  it.each([
+    ["scheduled", { status: "scheduled", ratingState: "not_ready" }],
+    ["preparing", { status: "finished", ratingState: "preparing_rating" }],
+  ] as const)(
+    "does not render a live goal summary for %s detail",
+    (_name, state) => {
+      render(
+        <MatchDetail
+          item={item(match(state))}
+          locale="en"
+          messages={messages}
+          ballotMessages={ballotMessages}
+          now={now}
+        />,
+      );
+
+      expect(
+        screen.queryByRole("region", { name: "Confirmed goals" }),
+      ).not.toBeInTheDocument();
+    },
+  );
+
+  it("keeps the finished detail goal presentation in its standalone card", () => {
+    render(
+      <MatchDetail
+        item={item(
+          match({
+            status: "finished",
+            goalEvents: [
+              {
+                externalTeamId: "815",
+                externalPlayerId: "1",
+                scorerName: "Finished scorer",
+                elapsed: 70,
+                kind: "normal",
+              },
+            ],
+          }),
+        )}
+        locale="en"
+        messages={messages}
+        ballotMessages={ballotMessages}
+        now={now}
+      />,
+    );
+
+    expect(screen.getByRole("region", { name: "Confirmed goals" })).toHaveClass(
+      "card",
+    );
+    expect(screen.getByRole("listitem")).toHaveTextContent(
+      "Finished scorer70'",
+    );
+  });
+
+  it("uses stable team identity for side placement and a safe scorer fallback", () => {
+    const longName =
+      "A deliberately long opponent scorer name that must wrap inside one half";
+    const value = match({
+      status: "live",
+      goalEvents: [
+        {
+          externalTeamId: "820",
+          externalPlayerId: "1",
+          scorerName: "CS Herediano",
+          elapsed: 12,
+          kind: "normal",
+        },
+        {
+          externalTeamId: "815",
+          externalPlayerId: "",
+          scorerName: "",
+          elapsed: 20,
+          kind: "other",
+        },
+        {
+          externalTeamId: "820",
+          externalPlayerId: "2",
+          scorerName: longName,
+          elapsed: 30,
+          kind: "normal",
+        },
+        {
+          externalTeamId: "unknown",
+          externalPlayerId: "3",
+          scorerName: "Unknown side",
+          elapsed: 40,
+          kind: "normal",
+        },
+      ],
+    });
+
+    render(<GoalSummary match={value} messages={messages} compact />);
+
+    const goals = screen.getAllByRole("listitem");
+    expect(goals).toHaveLength(3);
+    expect(goals[0]).toHaveAttribute("data-goal-side", "away");
+    expect(goals[0]).toHaveTextContent("12'·CS Herediano");
+    expect(goals[1]).toHaveAttribute("data-goal-side", "home");
+    expect(goals[1]).toHaveTextContent("CS Herediano·20'");
+    expect(goals[1]).toHaveAccessibleName("Goal by CS Herediano, 20'");
+    expect(goals[2]).toHaveAttribute("data-goal-side", "away");
+    expect(screen.queryByText("Unknown side")).not.toBeInTheDocument();
+    expect(screen.getByText(longName)).toHaveClass("min-w-0", "break-words");
+    expect(screen.getByText(longName).parentElement).toHaveAttribute(
+      "data-goal-half",
+      "away",
     );
   });
 });

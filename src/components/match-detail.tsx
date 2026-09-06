@@ -6,7 +6,8 @@ import { formatDate } from "@/i18n/format";
 import type { Messages } from "@/i18n/messages";
 
 import { BallotEntry } from "./ballot-entry";
-import { GoalSummary, Scoreboard } from "./match-archive";
+import { GoalSummary } from "./goal-summary";
+import { Scoreboard } from "./match-archive";
 import { matchPresentation } from "./match-presentation";
 
 export function MatchDetail({
@@ -41,6 +42,9 @@ export function MatchDetail({
             </p>
           ) : null}
           <Scoreboard match={item.match} />
+          {item.match.status === "live" ? (
+            <GoalSummary match={item.match} messages={messages} compact />
+          ) : null}
           <p className="mt-4 text-center text-sm text-muted">
             {formatDate(item.match.kickoffAt, locale, {
               dateStyle: "full",
@@ -62,7 +66,9 @@ export function MatchDetail({
           ) : null}
         </div>
       </article>
-      <GoalSummary match={item.match} messages={messages} />
+      {item.match.status === "finished" ? (
+        <GoalSummary match={item.match} messages={messages} />
+      ) : null}
       <Link
         href="/matches"
         className="button-secondary mt-6 inline-flex min-h-11 items-center px-4 py-3 font-bold"
