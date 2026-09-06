@@ -1,10 +1,14 @@
 import type { Match, MatchGoalEvent } from "@/domain/models";
 import type { Messages } from "@/i18n/messages";
 
-type GoalMessages = Pick<
-  Messages["matches"],
-  "goal" | "goalByTeam" | "goals" | "opponentGoal" | "trackedTeamGoal"
->;
+type GoalMessages = Pick<Messages["matches"], "goalByTeam" | "goals">;
+
+interface AttributedGoal {
+  event: MatchGoalEvent;
+  originalIndex: number;
+  side: "home" | "away";
+  teamName: string;
+}
 
 export function GoalSummary({
   match,
@@ -17,22 +21,10 @@ export function GoalSummary({
 }) {
   const events = match.goalEvents ?? [];
   if (events.length === 0) return null;
-  const trackedExternalId = match.trackedTeamExternalProviderId;
   if (compact) {
     const orientedEvents = chronologicalGoals(events).flatMap(
-      ({ event, originalIndex }) => {
-        const home = event.externalTeamId === match.homeTeam.externalProviderId;
-        const away = event.externalTeamId === match.awayTeam.externalProviderId;
-        if (home === away) return [];
-        return [
-          {
-            event,
-            originalIndex,
-            side: home ? ("home" as const) : ("away" as const),
-            teamName: home ? match.homeTeam.name : match.awayTeam.name,
-          },
-        ];
-      },
+      ({ event, originalIndex }) =>
+        attributeGoal(match, event, originalIndex) ?? [],
     );
     if (orientedEvents.length === 0) return null;
     return (
@@ -79,41 +71,74 @@ export function GoalSummary({
     );
   }
 
+  const attributedEvents = events.flatMap(
+    (event, originalIndex) => attributeGoal(match, event, originalIndex) ?? [],
+  );
+  if (attributedEvents.length === 0) return null;
+
   return (
     <section aria-labelledby="goal-summary-heading" className="card mt-6 p-5">
       <h2 id="goal-summary-heading" className="score-font text-xl">
         {messages.goals}
       </h2>
       <ol className="mt-3 space-y-2">
-        {events.map((event, originalIndex) => {
-          const tracked =
-            trackedExternalId !== undefined &&
-            event.externalTeamId === trackedExternalId;
-          const association =
-            trackedExternalId === undefined
-              ? messages.goal
-              : tracked
-                ? messages.trackedTeamGoal
-                : messages.opponentGoal;
+        {attributedEvents.map(({ event, originalIndex, side, teamName }) => {
+          const scorerName =
+            typeof event.scorerName === "string" ? event.scorerName.trim() : "";
+          const minute = formatGoalMinute(event);
+          const teamAnnouncement = messages.goalByTeam.replace(
+            "{team}",
+            teamName,
+          );
+          const announcement = scorerName
+            ? `${teamAnnouncement}, ${scorerName}, ${minute}`
+            : `${teamAnnouncement}, ${minute}`;
           return (
             <li
               key={`${event.externalTeamId}-${event.externalPlayerId}-${event.elapsed}-${event.extra ?? 0}-${originalIndex}`}
-              className="game-inset flex items-center gap-3 p-3"
+              aria-label={announcement}
+              data-goal-side={side}
+              className="game-inset flex min-w-0 items-start gap-3 p-3"
             >
               <span aria-hidden="true">⚽</span>
-              <span className="min-w-0 flex-1 break-words font-bold">
-                {event.scorerName}
+              <span aria-hidden="true" className="min-w-0 flex-1 break-words">
+                <span className="font-bold">{teamName}</span>
+                {scorerName ? ` · ${scorerName}` : null}
               </span>
-              <span className="score-font text-accent">
-                {formatGoalMinute(event)}
+              <span
+                aria-hidden="true"
+                className="score-font shrink-0 text-accent"
+              >
+                {minute}
               </span>
-              <span className="sr-only">{association}</span>
             </li>
           );
         })}
       </ol>
     </section>
   );
+}
+
+function attributeGoal(
+  match: Match,
+  event: MatchGoalEvent,
+  originalIndex: number,
+): AttributedGoal | null {
+  if (
+    typeof event.externalTeamId !== "string" ||
+    event.externalTeamId.length === 0
+  ) {
+    return null;
+  }
+  const home = event.externalTeamId === match.homeTeam.externalProviderId;
+  const away = event.externalTeamId === match.awayTeam.externalProviderId;
+  if (home === away) return null;
+  return {
+    event,
+    originalIndex,
+    side: home ? "home" : "away",
+    teamName: home ? match.homeTeam.name : match.awayTeam.name,
+  };
 }
 
 export function formatGoalMinute(event: MatchGoalEvent): string {

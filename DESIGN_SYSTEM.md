@@ -54,7 +54,7 @@ A sports-game panel contains a restrained accent rail, compact status/competitio
 
 Future scoreboard states may show `VS`, kickoff time, score, `FT`, live minute, or voting countdown using display typography. Do not fabricate match data to demonstrate the primitive in production, and do not introduce a component until a real product surface consumes it.
 
-Live confirmed-goal summaries stay inside the scoreboard panel and use one chronological row per event. Each row keeps two bounded halves around a visible center axis: home goals occupy and align toward the left half, while away goals occupy and align toward the right half. Stable Team identity determines placement; long scorer names wrap within their own half, and hidden text supplies explicit Team attribution so spatial position is never the only accessible cue. Finished-match summaries may retain their standalone post-match treatment.
+Live confirmed-goal summaries stay inside the scoreboard panel and use one chronological row per event. Each row keeps two bounded halves around a visible center axis: home goals occupy and align toward the left half, while away goals occupy and align toward the right half. Stable Team identity determines placement; long scorer names wrap within their own half, and hidden text supplies explicit Team attribution so spatial position is never the only accessible cue. Finished-match summaries retain their standalone post-match treatment and visibly name the scoring Team alongside the scorer and minute. Both presentations derive attribution only from an exact match with the fixture's home/away provider Team IDs and omit an event when neither side can be trusted.
 
 ## Buttons and motion
 

@@ -308,7 +308,7 @@ describe("Partidos presentation", () => {
     expect(Object.keys(archiveItem)).toEqual(["match", "hasResults"]);
   });
 
-  it("renders confirmed tracked-team and opponent goals chronologically with stoppage time", () => {
+  it("attributes multiple finished goals to the exact home and away Teams", () => {
     const value = match({
       goalEvents: [
         {
@@ -326,28 +326,67 @@ describe("Partidos presentation", () => {
           extra: 2,
           kind: "penalty",
         },
+        {
+          externalTeamId: "815",
+          externalPlayerId: "3",
+          scorerName: "Second home scorer",
+          elapsed: 72,
+          kind: "normal",
+        },
       ],
     });
     render(<GoalSummary match={value} messages={messages} />);
     const items = screen.getAllByRole("listitem");
-    expect(items[0]).toHaveTextContent("Allan Cruz");
-    expect(items[0]).toHaveTextContent("23'");
-    expect(items[0]).toHaveTextContent("Herediano goal");
-    expect(items[1]).toHaveTextContent("Opponent Player");
-    expect(items[1]).toHaveTextContent("45+2'");
-    expect(items[1]).toHaveTextContent("Opponent goal");
+    expect(items).toHaveLength(3);
+    expect(items[0]).toHaveTextContent("CS Herediano · Allan Cruz23'");
+    expect(items[0]).toHaveAttribute("data-goal-side", "home");
+    expect(items[0]).toHaveAccessibleName(
+      "Goal by CS Herediano, Allan Cruz, 23'",
+    );
+    expect(items[1]).toHaveTextContent("CS Cartaginés · Opponent Player45+2'");
+    expect(items[1]).toHaveAttribute("data-goal-side", "away");
+    expect(items[1]).toHaveAccessibleName(
+      "Goal by CS Cartaginés, Opponent Player, 45+2'",
+    );
+    expect(items[2]).toHaveTextContent("CS Herediano · Second home scorer72'");
     expect(formatGoalMinute(value.goalEvents![1])).toBe("45+2'");
   });
 
-  it("does not guess goal attribution for a legacy match without the tracked provider ID", () => {
+  it("fails closed for unknown finished-goal Teams and handles missing or long scorer data", () => {
+    const longTeamName =
+      "A very long away Team name that must remain readable on mobile";
+    const longScorerName =
+      "A deliberately long scorer name that must wrap without overflow";
     const value = match({
-      trackedTeamExternalProviderId: undefined,
+      awayTeam: { externalProviderId: "820", name: longTeamName },
       goalEvents: [
         {
           externalTeamId: "815",
           externalPlayerId: "1",
-          scorerName: "Allan Cruz",
+          scorerName: "",
           elapsed: 23,
+          kind: "normal",
+        },
+        {
+          externalTeamId: "820",
+          externalPlayerId: "2",
+          scorerName: longScorerName,
+          elapsed: 45,
+          extra: 4,
+          kind: "normal",
+        },
+        {
+          externalTeamId: "unknown",
+          externalPlayerId: "3",
+          scorerName: "Unknown Team scorer",
+          elapsed: 60,
+          kind: "normal",
+        },
+        {
+          externalTeamId: undefined as never,
+          externalPlayerId: "4",
+          scorerName: "Missing Team scorer",
+          elapsed: 70,
           kind: "normal",
         },
       ],
@@ -355,10 +394,21 @@ describe("Partidos presentation", () => {
 
     render(<GoalSummary match={value} messages={messages} />);
 
-    expect(screen.getByRole("listitem")).toHaveTextContent("Goal");
-    expect(screen.getByRole("listitem")).not.toHaveTextContent(
-      "Herediano goal",
+    const items = screen.getAllByRole("listitem");
+    expect(items).toHaveLength(2);
+    expect(items[0]).toHaveTextContent("CS Herediano23'");
+    expect(items[0]).toHaveAccessibleName("Goal by CS Herediano, 23'");
+    expect(items[1]).toHaveTextContent(
+      `${longTeamName} · ${longScorerName}45+4'`,
     );
+    expect(items[1]).toHaveAccessibleName(
+      `Goal by ${longTeamName}, ${longScorerName}, 45+4'`,
+    );
+    expect(items[1].querySelector(".min-w-0.flex-1")).toHaveClass(
+      "break-words",
+    );
+    expect(screen.queryByText("Unknown Team scorer")).not.toBeInTheDocument();
+    expect(screen.queryByText("Missing Team scorer")).not.toBeInTheDocument();
   });
 
   it("reuses the compact persisted-goal summary for a live match detail", () => {
@@ -420,12 +470,14 @@ describe("Partidos presentation", () => {
     },
   );
 
-  it("keeps the finished detail goal presentation in its standalone card", () => {
+  it("keeps the finished score, results action, and standalone goal card", () => {
     render(
       <MatchDetail
         item={item(
           match({
             status: "finished",
+            ratingState: "rating_closed",
+            score: { home: 2, away: 1 },
             goalEvents: [
               {
                 externalTeamId: "815",
@@ -436,6 +488,7 @@ describe("Partidos presentation", () => {
               },
             ],
           }),
+          true,
         )}
         locale="en"
         messages={messages}
@@ -447,8 +500,16 @@ describe("Partidos presentation", () => {
     expect(screen.getByRole("region", { name: "Confirmed goals" })).toHaveClass(
       "card",
     );
+    expect(screen.getByText("2 - 1")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "View results" })).toHaveAttribute(
+      "href",
+      "/matches/match/results",
+    );
     expect(screen.getByRole("listitem")).toHaveTextContent(
-      "Finished scorer70'",
+      "CS Herediano · Finished scorer70'",
+    );
+    expect(screen.getByRole("listitem")).toHaveAccessibleName(
+      "Goal by CS Herediano, Finished scorer, 70'",
     );
   });
 
@@ -524,8 +585,8 @@ function card(item: MatchArchiveItem) {
   );
 }
 
-function item(value: Match): MatchArchiveItem {
-  return { match: value, hasResults: false };
+function item(value: Match, hasResults = false): MatchArchiveItem {
+  return { match: value, hasResults };
 }
 
 function match(overrides: Partial<Match> = {}): Match {
