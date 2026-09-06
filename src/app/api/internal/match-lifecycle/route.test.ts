@@ -38,6 +38,13 @@ describe("POST /api/internal/match-lifecycle", () => {
   it("accepts the configured secret and returns no credential material", async () => {
     vi.stubEnv("CRON_SECRET", "correct-secret");
     vi.stubEnv("API_FOOTBALL_KEY", "provider-secret");
+    mocks.run.mockResolvedValue({
+      action: "idle",
+      providerRequests: 0,
+      logs: [
+        '{"event":"lifecycle.outcome","action":"idle","providerRequests":0}',
+      ],
+    });
     const response = await POST(
       new Request("http://local.test", {
         method: "POST",
@@ -49,6 +56,7 @@ describe("POST /api/internal/match-lifecycle", () => {
     expect(response.status).toBe(200);
     expect(body).not.toContain("correct-secret");
     expect(body).not.toContain("provider-secret");
+    expect(body).toContain("lifecycle.outcome");
     expect(response.headers.get("cache-control")).toBe("no-store");
   });
 

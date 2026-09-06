@@ -290,7 +290,10 @@ describe("ApiFootballAdapter", () => {
 
   it("reconciles starters, entering substitutes, unused substitutes, and tracked Team coach", async () => {
     const fetcher = matchContextFetcher();
-    const adapter = new ApiFootballAdapter("test-key", fetcher);
+    const logs: string[] = [];
+    const adapter = new ApiFootballAdapter("test-key", fetcher, (message) =>
+      logs.push(message),
+    );
 
     const context = await adapter.getMatchContext("5001", "1234");
 
@@ -329,6 +332,19 @@ describe("ApiFootballAdapter", () => {
     );
     expect(context.participants).toHaveLength(13);
     expect(adapter.requestCount).toBe(3);
+    expect(logs).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          '"event":"provider.lineup","request":"fixtures/lineups","resultCount":2,"trackedTeamFound":true,"startXI":"present","substitutes":"present","fixtureCoachPresent":true,"starterCount":11,"substituteCount":2,"classification":"usable"',
+        ),
+        expect.stringContaining(
+          '"event":"provider.player_statistics","request":"fixtures/players"',
+        ),
+        expect.stringContaining(
+          '"event":"provider.substitutions_reconciled","relevantSubstitutions":2,"incomingSubstitutesMatched":2,"participationConfirmationsAdded":0',
+        ),
+      ]),
+    );
   });
 
   it("uses a trusted snapshot when a later lineup response is transiently empty", async () => {
@@ -361,6 +377,101 @@ describe("ApiFootballAdapter", () => {
     );
     expect(adapter.requestCount).toBe(3);
   });
+
+  it("uses a trusted snapshot when a later lineup response omits player arrays", async () => {
+    const snapshot = await new ApiFootballAdapter(
+      "test-key",
+      matchContextFetcher(),
+    ).getLineupContext("5001", "1234");
+    const payload = structuredClone(matchContextResponse);
+    const lineup = payload[0].lineups[0] as Partial<
+      (typeof payload)[0]["lineups"][number]
+    >;
+    delete lineup.startXI;
+    delete lineup.substitutes;
+
+    const context = await new ApiFootballAdapter(
+      "test-key",
+      matchContextFetcher(payload),
+    ).getMatchContext("5001", "1234", snapshot!);
+
+    expect(context.participants).toHaveLength(snapshot!.participants.length);
+    expect(context.headCoach).toEqual(snapshot!.headCoach);
+  });
+
+  it.each([
+    ["startXI", ["startXI"]],
+    ["substitutes", ["substitutes"]],
+    ["both player arrays", ["startXI", "substitutes"]],
+  ] as const)(
+    "treats a coach-only tracked lineup missing %s as unavailable",
+    async (_label, omittedFields) => {
+      const logs: string[] = [];
+      const payload = structuredClone(matchContextResponse);
+      const lineup = payload[0].lineups[0] as Record<string, unknown>;
+      expect(lineup.coach).toMatchObject({
+        id: 900,
+        name: "Herediano Coach",
+      });
+      for (const field of omittedFields) delete lineup[field];
+
+      await expect(
+        new ApiFootballAdapter(
+          "test-key",
+          matchContextFetcher(payload),
+          (message) => logs.push(message),
+        ).getLineupContext("5001", "1234"),
+      ).resolves.toBeNull();
+      const finalAdapter = new ApiFootballAdapter(
+        "test-key",
+        matchContextFetcher(payload),
+        (message) => logs.push(message),
+      );
+      await expect(
+        finalAdapter.getMatchContext("5001", "1234"),
+      ).rejects.toMatchObject({ code: "lineup-unavailable" });
+      expect(finalAdapter.requestCount).toBe(3);
+      expect(logs).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining('"fixtureCoachPresent":true'),
+          expect.stringContaining('"classification":"lineup-unavailable"'),
+          expect.stringContaining(
+            '"event":"provider.player_statistics","request":"fixtures/players"',
+          ),
+          expect.stringContaining(
+            '"event":"provider.events","request":"fixtures/events"',
+          ),
+        ]),
+      );
+    },
+  );
+
+  it.each([
+    ["startXI", "not-an-array"],
+    ["substitutes", { player: null }],
+  ])(
+    "keeps an explicitly non-array %s field classified as malformed",
+    async (field, invalidValue) => {
+      const logs: string[] = [];
+      const payload = structuredClone(matchContextResponse);
+      const lineup = payload[0].lineups[0] as Record<string, unknown>;
+      lineup[field] = invalidValue;
+
+      await expect(
+        new ApiFootballAdapter(
+          "test-key",
+          matchContextFetcher(payload),
+          (message) => logs.push(message),
+        ).getLineupContext("5001", "1234"),
+      ).rejects.toMatchObject({ code: "malformed-response" });
+      expect(logs).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining(`\"${field}\":\"malformed\"`),
+          expect.stringContaining('"classification":"malformed"'),
+        ]),
+      );
+    },
+  );
 
   it("keeps empty or incomplete lineup observations retryable without a snapshot", async () => {
     const empty = structuredClone(matchContextResponse);

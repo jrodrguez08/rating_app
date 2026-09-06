@@ -42,6 +42,7 @@ export async function POST(request: Request) {
       action: result.action,
       ...(result.matchId ? { matchId: result.matchId } : {}),
       providerRequests: result.providerRequests,
+      logs: result.logs,
       ...(result.action === "preparing_rating" && result.reason
         ? { reason: result.reason }
         : {}),
