@@ -365,6 +365,45 @@ describe("match lifecycle synchronization", () => {
     expect(store.matches[0].votingOpensAt).toBeUndefined();
   });
 
+  it("retries an unavailable final lineup and opens one stable window after usable data arrives", async () => {
+    const store = new MemoryStore([match({ status: "live" })]);
+    const provider = new FixtureProvider(fixture("finished"));
+    let syncAttempts = 0;
+    const syncParticipants: LifecycleDependencies["syncParticipants"] =
+      async () => {
+        syncAttempts += 1;
+        if (syncAttempts === 1) {
+          throw new Error("No usable lineup has been observed yet.");
+        }
+      };
+
+    const unavailable = await run(store, provider, syncParticipants);
+
+    expect(unavailable).toMatchObject({
+      action: "preparing_rating",
+      reason: expect.stringContaining("No usable lineup"),
+    });
+    expect(store.matches[0]).toMatchObject({
+      ratingState: "preparing_rating",
+    });
+    expect(store.matches[0].votingOpensAt).toBeUndefined();
+    expect(store.matches[0].votingClosesAt).toBeUndefined();
+
+    expect((await run(store, provider, syncParticipants)).action).toBe(
+      "rating_ready",
+    );
+    const ready = store.matches[0];
+    expect(ready).toMatchObject({
+      ratingState: "rating_ready",
+      votingOpensAt: NOW.toISOString(),
+      votingClosesAt: "2026-08-29T20:00:00.000Z",
+    });
+
+    expect((await run(store, provider, syncParticipants)).action).toBe("idle");
+    expect(store.matches[0].votingOpensAt).toBe(ready.votingOpensAt);
+    expect(store.matches[0].votingClosesAt).toBe(ready.votingClosesAt);
+  });
+
   it("opens one stable two-hour window after complete finished data", async () => {
     const store = new MemoryStore([match({ status: "live" })]);
     const provider = new FixtureProvider(fixture("finished"));

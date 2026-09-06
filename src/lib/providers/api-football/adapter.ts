@@ -427,6 +427,9 @@ export class ApiFootballAdapter implements FootballDataProvider {
       );
     }
     const lineup = record(trackedLineups[0], "tracked lineup");
+    if (lineup.startXI === undefined || lineup.substitutes === undefined) {
+      return null;
+    }
     const participants = new Map<string, ProviderMatchParticipant>();
     this.addLineupPlayers(
       participants,
