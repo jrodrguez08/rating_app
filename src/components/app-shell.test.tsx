@@ -9,7 +9,7 @@ import { AppShell } from "./app-shell";
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 
 describe("AppShell navigation", () => {
-  it("enables Partidos and Jugadores with current-route semantics", () => {
+  it("enables the product routes with current-route semantics", () => {
     render(
       <AppShell
         locale="es"
@@ -27,6 +27,10 @@ describe("AppShell navigation", () => {
     expect(screen.getByRole("link", { name: "Jugadores" })).toHaveAttribute(
       "href",
       "/players",
+    );
+    expect(screen.getByRole("link", { name: "Tabla" })).toHaveAttribute(
+      "href",
+      "/standings",
     );
     expect(screen.getByRole("link", { name: "Jugadores" })).toHaveAttribute(
       "aria-current",

@@ -13,13 +13,16 @@ import {
   syncMatchParticipants,
 } from "@/application/sync-match-participants";
 import { syncPlayerSquad } from "@/application/sync-player-squad";
+import { syncStandings } from "@/application/sync-standings";
 import type {
   FootballDataProvider,
   ProviderCompetitionSeason,
   ProviderFixture,
   ProviderMatchContext,
   ProviderSquadPlayer,
+  ProviderStandingsRow,
   ProviderTeamIdentity,
+  StandingsDataProvider,
 } from "@/domain/ports";
 
 import { ensureDevelopmentTeam } from "../../scripts/seed-development.mjs";
@@ -181,6 +184,18 @@ class FixtureProvider implements FootballDataProvider {
   }
 }
 
+class StandingsProvider implements StandingsDataProvider {
+  readonly name = "api-football";
+  requestCount = 0;
+
+  constructor(private readonly rows: ProviderStandingsRow[]) {}
+
+  async getStandings(): Promise<ProviderStandingsRow[]> {
+    this.requestCount += 1;
+    return this.rows;
+  }
+}
+
 beforeAll(async () => {
   emulatorHost = process.env.FIRESTORE_EMULATOR_HOST ?? "";
   const [host, port] = emulatorHost.split(":");
@@ -213,6 +228,45 @@ async function collectionData(collection: string) {
 }
 
 describe("football synchronization persistence", () => {
+  it("atomically replaces a valid standings snapshot and preserves it after an empty response", async () => {
+    const store = new EmulatorFootballSyncStore(emulatorHost, projectId);
+    const team = await store.getTeam("club-sport-herediano");
+    await syncFootballData(team, new FixtureProvider(), store, {
+      now: new Date("2026-09-01T10:00:00.000Z"),
+    });
+    const row: ProviderStandingsRow = {
+      rank: 1,
+      externalTeamId: "1234",
+      teamName: "Herediano",
+      played: 4,
+      won: 3,
+      drawn: 1,
+      lost: 0,
+      goalsFor: 8,
+      goalsAgainst: 3,
+      goalDifference: 5,
+      points: 10,
+    };
+    const first = await syncStandings(
+      team.id,
+      new StandingsProvider([row]),
+      store,
+      new Date("2026-09-02T09:00:00.000Z"),
+    );
+    const second = await syncStandings(
+      team.id,
+      new StandingsProvider([]),
+      store,
+      new Date("2026-09-03T09:00:00.000Z"),
+    );
+    const persisted = await store.getStandingsSnapshot(team.id);
+
+    expect(first.action).toBe("snapshot_replaced");
+    expect(second.action).toBe("snapshot_preserved");
+    expect(persisted?.rows).toEqual([row]);
+    expect(persisted?.providerSyncedAt).toBe("2026-09-02T09:00:00.000Z");
+  });
+
   it("merges squad metadata idempotently without deleting absent historical players or omitted fields", async () => {
     const store = new EmulatorFootballSyncStore(emulatorHost, projectId);
     const initial = await store.getTeam("club-sport-herediano");

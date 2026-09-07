@@ -2,12 +2,14 @@ import type { MatchGoalEvent, PlayerPosition } from "@/domain/models";
 import type {
   FixtureWindow,
   FootballDataProvider,
+  ProviderStandingsRow,
   ProviderMatchContext,
   ProviderMatchParticipant,
   ProviderSquadPlayer,
   ProviderCompetitionSeason,
   ProviderFixture,
   ProviderTeamIdentity,
+  StandingsDataProvider,
   TeamLookup,
 } from "@/domain/ports";
 import { isPlayerPhotoUrl } from "@/config/player-photos";
@@ -54,6 +56,30 @@ function number(value: unknown, label: string): number {
     malformed(`${label} must be a finite number.`);
   }
   return value;
+}
+
+function integer(value: unknown, label: string, minimum = 0): number {
+  const result = number(value, label);
+  if (!Number.isInteger(result) || result < minimum) {
+    malformed(`${label} must be an integer of at least ${minimum}.`);
+  }
+  return result;
+}
+
+function standingsLogo(value: unknown): string | undefined {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value !== "string")
+    malformed("standings team.logo must be a string.");
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" &&
+      url.hostname === "media.api-sports.io" &&
+      /^\/football\/teams\/\d+\.png$/.test(url.pathname)
+      ? url.href
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function optionalString(value: unknown, label: string): string | undefined {
@@ -162,7 +188,9 @@ export function mapApiFootballPlayerPosition(
   return positions[value.trim().toLowerCase()];
 }
 
-export class ApiFootballAdapter implements FootballDataProvider {
+export class ApiFootballAdapter
+  implements FootballDataProvider, StandingsDataProvider
+{
   readonly name = "api-football";
   requestCount = 0;
 
@@ -474,6 +502,129 @@ export class ApiFootballAdapter implements FootballDataProvider {
       }
     }
     return [...players.values()];
+  }
+
+  async getStandings(
+    externalCompetitionId: string,
+    providerSeason: number,
+  ): Promise<ProviderStandingsRow[]> {
+    const response = await this.request("/standings", {
+      league: externalCompetitionId,
+      season: String(providerSeason),
+    });
+    if (response.length === 0) {
+      emitOperationalLog(this.log, "provider.standings", {
+        request: "standings",
+        resultCount: 0,
+        rowsValidated: 0,
+        classification: "unavailable",
+      });
+      return [];
+    }
+    try {
+      const rows = this.parseStandings(
+        response,
+        externalCompetitionId,
+        providerSeason,
+      );
+      emitOperationalLog(this.log, "provider.standings", {
+        request: "standings",
+        resultCount: response.length,
+        rowsValidated: rows.length,
+        classification: "usable",
+      });
+      return rows;
+    } catch (error) {
+      emitOperationalLog(this.log, "provider.standings", {
+        request: "standings",
+        resultCount: response.length,
+        rowsValidated: 0,
+        classification: "malformed",
+      });
+      throw error;
+    }
+  }
+
+  private parseStandings(
+    response: unknown[],
+    externalCompetitionId: string,
+    providerSeason: number,
+  ): ProviderStandingsRow[] {
+    if (response.length !== 1) {
+      malformed("standings must contain exactly one league response.");
+    }
+    const item = record(response[0], "standings response item");
+    const league = record(item.league, "standings league");
+    if (
+      String(number(league.id, "standings league.id")) !== externalCompetitionId
+    ) {
+      malformed("standings league does not match the requested competition.");
+    }
+    if (integer(league.season, "standings league.season") !== providerSeason) {
+      malformed("standings season does not match the requested season.");
+    }
+    const groups = array(league.standings, "standings league.standings");
+    if (groups.length !== 1) {
+      malformed("standings must contain exactly one complete table.");
+    }
+    const seenRanks = new Set<number>();
+    const seenTeams = new Set<string>();
+    const rows = array(groups[0], "standings table").map((value) => {
+      const row = record(value, "standings row");
+      const team = record(row.team, "standings row.team");
+      const all = record(row.all, "standings row.all");
+      const goals = record(all.goals, "standings row.all.goals");
+      const rank = integer(row.rank, "standings row.rank", 1);
+      const externalTeamId = String(
+        integer(team.id, "standings row.team.id", 1),
+      );
+      if (seenRanks.has(rank) || seenTeams.has(externalTeamId)) {
+        malformed("standings contains duplicate ranks or Team identities.");
+      }
+      seenRanks.add(rank);
+      seenTeams.add(externalTeamId);
+      const played = integer(all.played, "standings row.all.played");
+      const won = integer(all.win, "standings row.all.win");
+      const drawn = integer(all.draw, "standings row.all.draw");
+      const lost = integer(all.lose, "standings row.all.lose");
+      const goalsFor = integer(goals.for, "standings row.all.goals.for");
+      const goalsAgainst = integer(
+        goals.against,
+        "standings row.all.goals.against",
+      );
+      const goalDifference = integer(
+        row.goalsDiff,
+        "standings row.goalsDiff",
+        Number.MIN_SAFE_INTEGER,
+      );
+      if (won + drawn + lost !== played) {
+        malformed("standings row results do not equal matches played.");
+      }
+      if (goalsFor - goalsAgainst !== goalDifference) {
+        malformed("standings row goal difference is inconsistent.");
+      }
+      const logoUrl = standingsLogo(team.logo);
+      return {
+        rank,
+        externalTeamId,
+        teamName: string(team.name, "standings row.team.name"),
+        ...(logoUrl === undefined ? {} : { logoUrl }),
+        played,
+        won,
+        drawn,
+        lost,
+        goalsFor,
+        goalsAgainst,
+        goalDifference,
+        points: integer(
+          row.points,
+          "standings row.points",
+          Number.MIN_SAFE_INTEGER,
+        ),
+      };
+    });
+    if (rows.length === 0) malformed("standings table is empty.");
+    return rows.sort((left, right) => left.rank - right.rank);
   }
 
   private addLineupPlayers(

@@ -1,0 +1,32 @@
+name: Daily standings trigger
+
+on:
+  schedule:
+    # GitHub cron uses UTC: 09:00 UTC is 03:00 America/Costa_Rica (UTC-6 year-round).
+    - cron: "0 9 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    env:
+      STANDINGS_SYNC_URL: ${{ secrets.STANDINGS_SYNC_URL }}
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+    steps:
+      - name: Skip until deployment secrets are configured
+        if: env.STANDINGS_SYNC_URL == '' || env.CRON_SECRET == ''
+        run: echo "Standings endpoint is not configured; skipping safely."
+      - name: Trigger daily standings synchronization
+        if: env.STANDINGS_SYNC_URL != '' && env.CRON_SECRET != ''
+        run: >-
+          curl --fail-with-body --silent --show-error
+          --connect-timeout 10
+          --retry 1 --retry-all-errors --retry-max-time 100
+          --max-time 45
+          --request POST
+          --header "Authorization: Bearer ${CRON_SECRET}"
+          "${STANDINGS_SYNC_URL}"

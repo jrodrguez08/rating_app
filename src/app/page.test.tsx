@@ -139,6 +139,9 @@ describe("Home", () => {
     expect(
       within(navigation).getByRole("link", { name: "Jugadores" }),
     ).toHaveAttribute("href", "/players");
+    expect(
+      within(navigation).getByRole("link", { name: "Tabla" }),
+    ).toHaveAttribute("href", "/standings");
   });
 
   it("provides a keyboard skip link and a labeled main region", () => {

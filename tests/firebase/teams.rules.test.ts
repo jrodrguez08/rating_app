@@ -130,6 +130,7 @@ describe("Team persistence and rules", () => {
     "players",
     "coaches",
     "footballSyncMetadata",
+    "standings",
     "matches/example/participants",
     "matches/example/coachAssignments",
   ])(
