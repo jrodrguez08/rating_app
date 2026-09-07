@@ -17,6 +17,9 @@ vi.mock("@/lib/firebase/server", () => ({
   AdminResultService: vi.fn(() => {
     throw new Error("metadata must not access Firebase");
   }),
+  AdminStandingsService: vi.fn(() => {
+    throw new Error("metadata must not access Firebase");
+  }),
 }));
 
 import AppleIcon, { size as appleIconSize } from "./apple-icon";
@@ -26,6 +29,7 @@ import { metadata as matchesMetadata } from "./matches/page";
 import { generateMetadata as generateMatchMetadata } from "./matches/[matchId]/page";
 import { generateMetadata as generateResultMetadata } from "./matches/[matchId]/results/page";
 import { metadata as playersMetadata } from "./players/page";
+import { metadata as standingsMetadata } from "./standings/page";
 import { generateMetadata as generatePlayerMetadata } from "./players/[playerId]/page";
 import {
   GET as getSocialCard,
@@ -82,6 +86,7 @@ describe("public app identity metadata", () => {
   it.each([
     ["Partidos", "/matches", matchesMetadata],
     ["Jugadores", "/players", playersMetadata],
+    ["Tabla de posiciones", "/standings", standingsMetadata],
   ])(
     "publishes the %s page with its own canonical and complete Open Graph identity",
     (title, pathname, pageMetadata) => {

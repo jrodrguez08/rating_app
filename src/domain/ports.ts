@@ -10,6 +10,7 @@ import type {
   Player,
   PlayerPosition,
   Season,
+  StandingsSnapshot,
   Team,
 } from "./models";
 
@@ -80,6 +81,51 @@ export interface ProviderSquadPlayer {
   name: string;
   position?: PlayerPosition;
   photoUrl?: string;
+}
+
+export interface ProviderStandingsRow {
+  rank: number;
+  externalTeamId: string;
+  teamName: string;
+  logoUrl?: string;
+  played: number;
+  won: number;
+  drawn: number;
+  lost: number;
+  goalsFor: number;
+  goalsAgainst: number;
+  goalDifference: number;
+  points: number;
+}
+
+export interface StandingsSyncTarget {
+  trackedTeamId: string;
+  competitionId: string;
+  competitionName: string;
+  seasonId: string;
+  seasonName: string;
+  externalProvider: string;
+  externalProviderCompetitionId: string;
+  externalProviderSeason: number;
+}
+
+export interface StandingsDataProvider {
+  readonly name: string;
+  readonly requestCount: number;
+  getStandings(
+    externalCompetitionId: string,
+    providerSeason: number,
+  ): Promise<ProviderStandingsRow[]>;
+}
+
+export interface StandingsSyncStore {
+  getStandingsTarget(
+    trackedTeamId: string,
+  ): Promise<StandingsSyncTarget | null>;
+  getStandingsSnapshot(
+    trackedTeamId: string,
+  ): Promise<StandingsSnapshot | null>;
+  replaceStandingsSnapshot(snapshot: StandingsSnapshot): Promise<void>;
 }
 
 export interface FixtureWindow {

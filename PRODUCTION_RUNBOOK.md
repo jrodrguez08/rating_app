@@ -4,7 +4,7 @@ Rating App is available on its current Vercel production URL and prepared for a 
 
 ## Architecture and prerequisites
 
-The browser loads the Node.js 22 Next.js app from Vercel and uses Firebase Authentication directly for persistent anonymous identity. Server-rendered pages and trusted endpoints use Firebase Admin with Cloud Firestore. API-Football Pro is called only by the lifecycle service. A private GitHub Actions workflow sends a credentialed request to the deployed lifecycle endpoint every 30 minutes; it performs no checkout or dependency installation.
+The browser loads the Node.js 22 Next.js app from Vercel and uses Firebase Authentication directly for persistent anonymous identity. Server-rendered pages and trusted endpoints use Firebase Admin with Cloud Firestore. API-Football Pro is called only by trusted synchronization services, never by page rendering. Private GitHub Actions workflows call the lifecycle endpoint every 30 minutes and the standings endpoint daily; they perform no checkout or dependency installation.
 
 Prepare Node.js 22, Firebase CLI 15.28.2, a production Firebase project, a Firebase Web app, a narrowly held Admin service-account key, a Vercel project, an API-Football Pro key with current quota, and repository-admin access. Use an exact production project ID that does not start with `demo-`.
 
@@ -34,6 +34,7 @@ Never configure `FIRESTORE_EMULATOR_HOST`, `FIREBASE_AUTH_EMULATOR_HOST`, `GCLOU
 ### GitHub repository secrets
 
 - `LIFECYCLE_SYNC_URL`: full production `/api/internal/match-lifecycle` URL
+- `STANDINGS_SYNC_URL`: full production `/api/internal/standings-sync` URL
 - `CRON_SECRET`: exactly the same value as Vercel
 
 No Firebase or API-Football credential belongs in GitHub for this workflow.
@@ -72,9 +73,10 @@ Jugadores V1 adds the tracked-Team/kickoff match-history composite index and par
 7. Repeat the authenticated health request and require `{"status":"ready"}`.
 8. Manually call the authenticated lifecycle endpoint once. It uses current-season discovery to persist competitions, seasons, and relevant Herediano fixtures; no production sync script or fixture ID is needed.
 9. Inspect Firestore and Home for the next fixture. Confirm home/away identity, competition, season, kickoff, and `not_ready` state.
-10. Add the two GitHub secrets, manually dispatch `Match lifecycle trigger`, and require a successful workflow plus a safe lifecycle response.
-11. Allow the schedule to operate only after the manual dispatch and Firestore inspection pass.
-12. Share the pilot URL only after the infrastructure smoke test is complete.
+10. Add the GitHub endpoint secrets and shared cron secret, manually dispatch `Match lifecycle trigger`, and require a successful workflow plus a safe lifecycle response.
+11. Manually dispatch `Daily standings trigger`. Confirm exactly one provider request, a valid `standings/{trackedTeamId}` snapshot, the `/standings` route, and a sanitized response.
+12. Allow both schedules to operate only after their manual dispatch and Firestore inspection pass.
+13. Share the pilot URL only after the infrastructure smoke test is complete.
 
 ## Public identity and domain operations
 
@@ -85,6 +87,8 @@ Open `/social-card` directly without authentication and require HTTP 200, `image
 To migrate later, point the custom domain at Vercel, add it to Firebase Authentication authorized domains, set the Production `NEXT_PUBLIC_SITE_URL` to the new HTTPS origin, redeploy, and repeat canonical/OG/image validation. Then refresh external social caches. No metadata or identity asset needs regeneration, and Preview deployments must retain either the configured production origin or the documented fallback.
 
 ## Request discipline and autonomous lifecycle
+
+The separate standings workflow runs at `09:00 UTC` (`03:00 America/Costa_Rica`) and calls only the authenticated standings endpoint. It resolves the current league/season from persisted provider-linked football data, makes one bounded `/standings` request, and atomically publishes only a fully validated non-empty table. Empty, malformed, and network-failed responses return a failed workflow outcome while preserving the last valid snapshot. The response/log trace contains stable IDs, row counts, request count, and safe reason codes only. `/standings` reads the persisted snapshot server-side and makes no provider request; Firestore client access remains denied. No additional index is required.
 
 Partidos page reads remain server-only and provider-free. During an active voting window, the existing browser identity boundary makes a separate authenticated, no-store ballot-status request for each rendered actionable match; that endpoint returns only a sanitized status and never exposes a UID or ballot content. A submitted voter is not offered another rating action, status-read failures expose no action, and result visibility remains governed solely by trusted close/finalization.
 

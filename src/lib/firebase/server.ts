@@ -37,12 +37,15 @@ import type {
   MatchParticipant,
   Player,
   Season,
+  StandingsSnapshot,
   Team,
 } from "@/domain/models";
 import type {
   FootballSyncStore,
   MatchLifecycleStore,
   ProviderMatchContext,
+  StandingsSyncStore,
+  StandingsSyncTarget,
   SyncWriteCounts,
 } from "@/domain/ports";
 import { readFirebaseAdminRuntimeConfig } from "@/lib/server/environment";
@@ -58,6 +61,7 @@ const TIMESTAMP_FIELDS = new Set([
   "votingOpensAt",
   "votingClosesAt",
   "lastFixtureDiscoveryAt",
+  "providerSyncedAt",
 ]);
 
 export function getServerFirestore(): Firestore {
@@ -284,6 +288,26 @@ export class AdminPlayerHistoryService {
   }
 }
 
+export class AdminStandingsService {
+  constructor(private readonly database = getServerFirestore()) {}
+
+  async get(trackedTeamId: string): Promise<{
+    snapshot: StandingsSnapshot;
+    trackedTeamExternalProviderId: string;
+  } | null> {
+    const store = new AdminFootballSyncStore(this.database);
+    const [team, snapshot] = await Promise.all([
+      store.getTeam(trackedTeamId),
+      store.getStandingsSnapshot(trackedTeamId),
+    ]);
+    if (snapshot === null || team.externalProviderId === undefined) return null;
+    return {
+      snapshot,
+      trackedTeamExternalProviderId: team.externalProviderId,
+    };
+  }
+}
+
 export class AdminBallotService {
   constructor(private readonly database = getServerFirestore()) {}
 
@@ -423,7 +447,7 @@ export class AdminBallotService {
 }
 
 export class AdminFootballSyncStore
-  implements FootballSyncStore, MatchLifecycleStore
+  implements FootballSyncStore, MatchLifecycleStore, StandingsSyncStore
 {
   constructor(private readonly database = getServerFirestore()) {}
 
@@ -545,6 +569,78 @@ export class AdminFootballSyncStore
     await this.database
       .doc(`footballSyncMetadata/${metadata.teamId}`)
       .set(toDocument(metadata));
+  }
+  async getStandingsTarget(
+    trackedTeamId: string,
+  ): Promise<StandingsSyncTarget | null> {
+    const matches = await this.listMatches(trackedTeamId);
+    if (matches.length === 0) return null;
+    const competitionIds = [
+      ...new Set(matches.map(({ competitionId }) => competitionId)),
+    ];
+    const seasonIds = [...new Set(matches.map(({ seasonId }) => seasonId))];
+    const snapshots = await this.database.getAll(
+      ...competitionIds.map((id) => this.database.doc(`competitions/${id}`)),
+      ...seasonIds.map((id) => this.database.doc(`seasons/${id}`)),
+    );
+    const competitions = new Map<string, Competition>();
+    const seasons = new Map<string, Season>();
+    for (const snapshot of snapshots) {
+      if (!snapshot.exists) continue;
+      if (snapshot.ref.parent.id === "competitions") {
+        competitions.set(snapshot.id, fromDocument<Competition>(snapshot));
+      } else if (snapshot.ref.parent.id === "seasons") {
+        seasons.set(snapshot.id, fromDocument<Season>(snapshot));
+      }
+    }
+    const selected = [...matches]
+      .sort(
+        (left, right) =>
+          new Date(right.kickoffAt).getTime() -
+          new Date(left.kickoffAt).getTime(),
+      )
+      .find((match) => {
+        const competition = competitions.get(match.competitionId);
+        const season = seasons.get(match.seasonId);
+        return (
+          competition?.type === "league" &&
+          season?.isCurrent === true &&
+          season.competitionId === competition.id &&
+          competition.externalProvider === match.externalProvider &&
+          season.externalProvider === match.externalProvider
+        );
+      });
+    if (selected === undefined) return null;
+    const competition = competitions.get(selected.competitionId)!;
+    const season = seasons.get(selected.seasonId)!;
+    return {
+      trackedTeamId,
+      competitionId: competition.id,
+      competitionName: competition.name,
+      seasonId: season.id,
+      seasonName: season.name,
+      externalProvider: competition.externalProvider,
+      externalProviderCompetitionId: competition.externalProviderId,
+      externalProviderSeason: season.externalProviderSeason,
+    };
+  }
+  async getStandingsSnapshot(
+    trackedTeamId: string,
+  ): Promise<StandingsSnapshot | null> {
+    const snapshot = await this.database
+      .doc(`standings/${trackedTeamId}`)
+      .get();
+    return snapshot.exists ? fromDocument<StandingsSnapshot>(snapshot) : null;
+  }
+  async replaceStandingsSnapshot(snapshot: StandingsSnapshot): Promise<void> {
+    await this.database.runTransaction(async (transaction) => {
+      const reference = this.database.doc(`standings/${snapshot.id}`);
+      const existing = await transaction.get(reference);
+      const createdAt = existing.exists
+        ? fromDocument<StandingsSnapshot>(existing).createdAt
+        : snapshot.createdAt;
+      transaction.set(reference, toDocument({ ...snapshot, createdAt }));
+    });
   }
   async updateTeamProviderId(
     team: Team,

@@ -37,9 +37,12 @@ matches/{matchId}/ballots/{voterId}
 matches/{matchId}/results/summary
 players/{playerId}/matchSummaries/{matchId}
 players/{playerId}/statistics/{seasonOrCareerId}
+standings/{trackedTeamId}
 ```
 
 The implemented `teams/{teamId}` document contains `displayName`, `shortName`, `countryName`, `countryCode`, `brandingKey`, optional `externalProviderId`, and Firestore `createdAt`/`updatedAt` timestamps. `club-sport-herediano` is the stable initial ID. The seed JSON is the canonical basic Team data; presentation configuration derives its identity and names from that record while keeping theme colors in source code. Firestore snapshots are converted and runtime-validated at the persistence boundary before becoming domain `Team` values.
+
+`standings/{trackedTeamId}` stores one ordered, provider-neutral league snapshot with its internal Competition/Season identity, provider competition/season identity, normalized rows, and provider-sync timestamp. The target is derived from persisted tracked-Team matches joined to a current league Season; it is not hardcoded in the page. A daily trusted sync makes exactly one `GET /standings?league=...&season=...` request and replaces the document atomically only after the entire collection validates. Empty, malformed, or failed responses leave the previous snapshot untouched. `/standings` reads this document only through Firebase Admin, so page views are provider-free and client rules remain deny-all for this collection. No index is required for the direct document read.
 
 An explicit emulator-only script ensures the initial document exists. It requires a local emulator host and a `demo-*` project ID, creates only when absent, and only adds a missing `countryName` to a pre-milestone record. It never runs during application rendering or startup.
 
@@ -104,6 +107,8 @@ The lifecycle service first reads persisted matches and, before discovery or ref
 Provider final status alone never opens voting. A finished fixture moves to `preparing_rating`; focused final participant reconciliation must succeed over a trusted current or persisted lineup, at least 11 tracked-Team participants must be rateable, and the deterministic fixture-specific head-coach assignment must exist. Only then does the service set `ratingReadyAt`, `votingOpensAt`, and `votingClosesAt` two hours later. Existing timestamps always win on repeated runs. Failures leave the match retryable and unopened; terminal rating states do not regress on transient provider status.
 
 A private GitHub Actions workflow runs every 30 minutes and performs only an authenticated `POST` to `/api/internal/match-lifecycle`; it does not check out or install the repository. Missing deployment secrets make scheduled runs exit successfully without calling anything. This uses existing GitHub/Vercel capacity and adds no separately billed scheduler, worker, queue, or always-on service under the current usage assumption; actual plan consumption must still be monitored. `CRON_SECRET` protects the endpoint with constant-time bearer comparison. Vercel holds API-Football and Firebase Admin credentials, while GitHub needs only the endpoint URL and matching cron secret.
+
+A separate private workflow calls `/api/internal/standings-sync` once daily at `09:00 UTC`, equivalent to `03:00 America/Costa_Rica` year-round. It shares the authenticated server boundary but not lifecycle polling, and emits only compact sanitized standings outcomes and counts. GitHub additionally holds `STANDINGS_SYNC_URL`; no provider or Firebase credential is added there.
 
 Controlled live verification on 2026-08-29 discovered API-Football fixture `1551672` (CS Cartaginés vs CS Herediano, 2026-08-30 17:00 UTC) and then refreshed that persisted fixture with exactly one focused provider request. The lifecycle remained `not_ready` with no voting timestamps while the provider status was scheduled, confirming that an away fixture is selected without opening a window early.
 

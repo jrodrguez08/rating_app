@@ -33,6 +33,35 @@ export interface Season {
   createdAt: string;
   updatedAt: string;
 }
+export interface StandingsRow {
+  rank: number;
+  externalTeamId: string;
+  teamName: string;
+  logoUrl?: string;
+  played: number;
+  won: number;
+  drawn: number;
+  lost: number;
+  goalsFor: number;
+  goalsAgainst: number;
+  goalDifference: number;
+  points: number;
+}
+export interface StandingsSnapshot {
+  id: EntityId;
+  trackedTeamId: EntityId;
+  competitionId: EntityId;
+  competitionName: string;
+  seasonId: EntityId;
+  seasonName: string;
+  externalProvider: string;
+  externalProviderCompetitionId: string;
+  externalProviderSeason: number;
+  rows: StandingsRow[];
+  providerSyncedAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
 export type MatchStatus =
   | "scheduled"
   | "live"

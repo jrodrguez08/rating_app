@@ -10,12 +10,15 @@ import type {
   MatchParticipant,
   Player,
   Season,
+  StandingsSnapshot,
   Team,
 } from "@/domain/models";
 import type {
   FootballSyncStore,
   MatchLifecycleStore,
   ProviderMatchContext,
+  StandingsSyncStore,
+  StandingsSyncTarget,
   SyncWriteCounts,
 } from "@/domain/ports";
 
@@ -62,7 +65,8 @@ function encode(value: unknown, key?: string): FirestoreValue {
     key === "votingOpensAt" ||
     key === "votingClosesAt" ||
     key === "generatedAt" ||
-    key === "lastFixtureDiscoveryAt"
+    key === "lastFixtureDiscoveryAt" ||
+    key === "providerSyncedAt"
   ) {
     if (typeof value !== "string" || Number.isNaN(new Date(value).getTime())) {
       throw new Error(`${key} must be an ISO timestamp.`);
@@ -136,7 +140,7 @@ function sortObject(value: unknown): unknown {
 }
 
 export class EmulatorFootballSyncStore
-  implements FootballSyncStore, MatchLifecycleStore
+  implements FootballSyncStore, MatchLifecycleStore, StandingsSyncStore
 {
   private readonly baseUrl: string;
 
@@ -283,6 +287,75 @@ export class EmulatorFootballSyncStore
       typeof existing.createdAt === "string"
         ? existing.createdAt
         : metadata.updatedAt,
+    );
+  }
+
+  async getStandingsTarget(
+    trackedTeamId: string,
+  ): Promise<StandingsSyncTarget | null> {
+    const matches = await this.listMatches(trackedTeamId);
+    const competitions = new Map(
+      (await this.list("competitions")).map((value) => [value.id, value]),
+    );
+    const seasons = new Map(
+      (await this.list("seasons")).map((value) => [value.id, value]),
+    );
+    const selected = [...matches]
+      .sort(
+        (left, right) =>
+          new Date(right.kickoffAt).getTime() -
+          new Date(left.kickoffAt).getTime(),
+      )
+      .find((match) => {
+        const competition = competitions.get(match.competitionId);
+        const season = seasons.get(match.seasonId);
+        return (
+          competition?.type === "league" &&
+          season?.isCurrent === true &&
+          season.competitionId === competition.id &&
+          competition.externalProvider === match.externalProvider &&
+          season.externalProvider === match.externalProvider
+        );
+      });
+    if (selected === undefined) return null;
+    const competition = competitions.get(selected.competitionId)!;
+    const season = seasons.get(selected.seasonId)!;
+    return {
+      trackedTeamId,
+      competitionId: String(competition.id),
+      competitionName: String(competition.name),
+      seasonId: String(season.id),
+      seasonName: String(season.name),
+      externalProvider: String(competition.externalProvider),
+      externalProviderCompetitionId: String(competition.externalProviderId),
+      externalProviderSeason: Number(season.externalProviderSeason),
+    };
+  }
+
+  async getStandingsSnapshot(
+    trackedTeamId: string,
+  ): Promise<StandingsSnapshot | null> {
+    return (await this.get(
+      "standings",
+      trackedTeamId,
+    )) as unknown as StandingsSnapshot | null;
+  }
+
+  async replaceStandingsSnapshot(snapshot: StandingsSnapshot): Promise<void> {
+    const existing = await this.get("standings", snapshot.id);
+    if (existing === null) {
+      await this.create(
+        "standings",
+        snapshot.id,
+        snapshot as unknown as Record<string, unknown>,
+      );
+      return;
+    }
+    await this.put(
+      "standings",
+      snapshot.id,
+      snapshot as unknown as Record<string, unknown>,
+      String(existing.createdAt),
     );
   }
 

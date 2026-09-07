@@ -8,6 +8,8 @@ Rating App gives a small football supporter community a fair, simple way to rate
 
 Implemented now: a mobile-first shell with an original 16-bit sports-game visual language, Herediano as the initial configured club, accessible Spanish/English localization, generic domain types, and Firestore-backed football persistence. Manual and scheduled server-side API-Football synchronization can discover fixtures, focus on the relevant match, capture one trusted tracked-Team lineup/head-coach snapshot during the final pre-kickoff hour when available, reconcile exact participation after `FT`, and establish an idempotent two-hour future voting window only when rating-ready. Firebase Anonymous Authentication quietly establishes and persists the canonical voter UID without a login screen. During that trusted window, the Home call to action opens a complete player-and-head-coach ballot; one validated, immutable ballot is stored per match and Firebase UID.
 
+`/standings` presents the current domestic league table from a persisted daily snapshot. It is explicitly periodic rather than live, highlights the configured club by stable provider Team ID, and keeps the last valid table visible when a later provider read is empty, malformed, or unavailable. Page rendering never calls the football provider.
+
 While that trusted voting window is open, Home also offers a compact secondary WhatsApp action that shares the canonical rating deep link without voter, ballot, provider, or tracking data.
 
 While a tracked match is live, Home and match detail show a compact chronological summary of persisted confirmed goals when available. Home/away placement mirrors the scoreboard and reflects the latest lifecycle refresh rather than a real-time feed.

@@ -88,6 +88,8 @@ Submission uses one focused confirmation dialog because ballots are immutable. I
 
 Final results use a scorecard hierarchy, not an analytics dashboard. The match score leads, a crisp secondary-accent block gives player MVP or co-MVP the strongest emphasis, ranked players use numbered inset rows, and the coach sits in a separate panel. Display averages use one decimal in score typography; names remain readable sans and wrap safely. Ranking and MVP labels must be explicit rather than color-only. Do not add traffic-light rating colors, glow, or casino treatment.
 
+League standings use a compact fixed-layout table. At mobile widths show rank, Team, played, goal difference, and points; reveal wins, draws, and losses at wider widths. Team names truncate safely, numeric cells use score typography, and the configured Team receives a club-accent row marker plus a screen-reader label so identity is never color-only. Do not require horizontal scrolling at 320 px.
+
 ## Spacing and responsive behavior
 
 Use a 4px base rhythm and tighter sports-scoreboard density: common gaps are 8, 12, 16, 20, 24, and 32px. Compact does not mean cramped. Body copy keeps comfortable line-height; actions keep touch separation.

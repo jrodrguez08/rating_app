@@ -4,6 +4,7 @@ import {
   competitionResponse,
   fixtureResponse,
   matchContextResponse,
+  standingsResponse,
   teamSearchResponse,
 } from "../../../../tests/fixtures/api-football";
 import {
@@ -108,7 +109,9 @@ describe("ApiFootballAdapter", () => {
     });
     expect(fetcher).toHaveBeenCalledWith(
       expect.objectContaining({ pathname: "/teams" }),
-      expect.objectContaining({ headers: { "x-apisports-key": "test-key" } }),
+      expect.objectContaining({
+        headers: expect.objectContaining({ "x-apisports-key": "test-key" }),
+      }),
     );
   });
 
@@ -148,6 +151,90 @@ describe("ApiFootballAdapter", () => {
       endsAt: "2027-05-30T00:00:00.000Z",
       isCurrent: true,
     });
+  });
+
+  it("normalizes and orders a complete standings table in one request", async () => {
+    const logs: string[] = [];
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(response(standingsResponse));
+    const adapter = new ApiFootballAdapter("test-key", fetcher, (message) =>
+      logs.push(message),
+    );
+
+    await expect(adapter.getStandings("162", 2026)).resolves.toEqual([
+      {
+        rank: 1,
+        externalTeamId: "815",
+        teamName: "CS Herediano",
+        logoUrl: "https://media.api-sports.io/football/teams/815.png",
+        played: 4,
+        won: 3,
+        drawn: 1,
+        lost: 0,
+        goalsFor: 8,
+        goalsAgainst: 3,
+        goalDifference: 5,
+        points: 10,
+      },
+      expect.objectContaining({
+        rank: 2,
+        externalTeamId: "820",
+        teamName: "CS Cartaginés",
+      }),
+    ]);
+    expect(adapter.requestCount).toBe(1);
+    expect(String(fetcher.mock.calls[0]?.[0])).toBe(
+      "https://v3.football.api-sports.io/standings?league=162&season=2026",
+    );
+    expect(logs).toEqual([
+      expect.stringContaining(
+        '"event":"provider.standings","request":"standings","resultCount":1,"rowsValidated":2,"classification":"usable"',
+      ),
+    ]);
+  });
+
+  it("keeps an empty standings response explicitly unavailable", async () => {
+    const adapter = new ApiFootballAdapter(
+      "test-key",
+      vi.fn<typeof fetch>().mockResolvedValue(response([])),
+    );
+
+    await expect(adapter.getStandings("162", 2026)).resolves.toEqual([]);
+    expect(adapter.requestCount).toBe(1);
+  });
+
+  it.each([
+    [
+      "wrong league",
+      (value: typeof standingsResponse) => (value[0].league.id = 999),
+    ],
+    [
+      "invalid row totals",
+      (value: typeof standingsResponse) =>
+        (value[0].league.standings[0][0].all.played = 99),
+    ],
+    [
+      "non-array table",
+      (value: typeof standingsResponse) =>
+        (value[0].league.standings = {} as never),
+    ],
+  ])("rejects malformed standings: %s", async (_label, mutate) => {
+    const malformed = structuredClone(standingsResponse);
+    mutate(malformed);
+    const logs: string[] = [];
+    const adapter = new ApiFootballAdapter(
+      "test-key",
+      vi.fn<typeof fetch>().mockResolvedValue(response(malformed)),
+      (message) => logs.push(message),
+    );
+
+    await expect(adapter.getStandings("162", 2026)).rejects.toMatchObject({
+      code: "malformed-response",
+    });
+    expect(logs).toEqual([
+      expect.stringContaining('"classification":"malformed"'),
+    ]);
   });
 
   it("normalizes fixture dates, scores, statuses, and home/away orientation", async () => {

@@ -12,7 +12,7 @@ interface AppShellProps {
   locale: Locale;
   messages: Messages;
   theme: TeamPresentation["theme"];
-  currentHref?: "/" | "/matches" | "/players" | null;
+  currentHref?: "/" | "/matches" | "/players" | "/standings" | null;
 }
 
 export function AppShell({
@@ -26,6 +26,11 @@ export function AppShell({
     { href: "/", label: messages.navigation.home, planned: false },
     { href: "/matches", label: messages.navigation.matches, planned: false },
     { href: "/players", label: messages.navigation.players, planned: false },
+    {
+      href: "/standings",
+      label: messages.navigation.standings,
+      planned: false,
+    },
   ] as const;
   const clubTheme = {
     "--club-primary": theme.primary,
@@ -71,13 +76,13 @@ export function AppShell({
             />
           </div>
           <nav aria-label={messages.navigation.label}>
-            <ul className="flex min-h-10 items-end gap-5">
+            <ul className="flex min-h-10 items-end gap-3 sm:gap-5">
               {navigation.map((item) => (
                 <li key={item.href}>
                   {item.planned ? (
                     <span
                       aria-disabled="true"
-                      className="flex min-h-10 items-center border-b-2 border-transparent text-sm font-semibold text-muted opacity-65"
+                      className="flex min-h-10 items-center border-b-2 border-transparent text-xs font-semibold text-muted opacity-65 sm:text-sm"
                     >
                       {item.label}
                     </span>
@@ -87,7 +92,7 @@ export function AppShell({
                       aria-current={
                         item.href === currentHref ? "page" : undefined
                       }
-                      className={`flex min-h-10 items-center border-b-2 text-sm font-extrabold text-foreground ${
+                      className={`flex min-h-10 items-center border-b-2 text-xs font-extrabold text-foreground sm:text-sm ${
                         item.href === currentHref
                           ? "border-accent"
                           : "border-transparent"

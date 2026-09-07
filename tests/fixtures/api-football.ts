@@ -35,6 +35,55 @@ export const competitionResponse = [
   },
 ];
 
+export const standingsResponse = [
+  {
+    league: {
+      id: 162,
+      name: "Primera División",
+      country: "Costa-Rica",
+      season: 2026,
+      standings: [
+        [
+          {
+            rank: 2,
+            team: {
+              id: 820,
+              name: "CS Cartaginés",
+              logo: "https://media.api-sports.io/football/teams/820.png",
+            },
+            points: 7,
+            goalsDiff: 2,
+            all: {
+              played: 4,
+              win: 2,
+              draw: 1,
+              lose: 1,
+              goals: { for: 6, against: 4 },
+            },
+          },
+          {
+            rank: 1,
+            team: {
+              id: 815,
+              name: "CS Herediano",
+              logo: "https://media.api-sports.io/football/teams/815.png",
+            },
+            points: 10,
+            goalsDiff: 5,
+            all: {
+              played: 4,
+              win: 3,
+              draw: 1,
+              lose: 0,
+              goals: { for: 8, against: 3 },
+            },
+          },
+        ],
+      ],
+    },
+  },
+];
+
 export const fixtureResponse = [
   {
     fixture: {
