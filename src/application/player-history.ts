@@ -68,9 +68,31 @@ export function buildPlayerCatalog({
     ) {
       continue;
     }
+    const canonicalResults = new Map<
+      string,
+      MatchResult["playerResults"][string]
+    >();
     for (const player of Object.values(result.playerResults)) {
       const playerId =
         canonicalPlayerIds.get(player.playerId) ?? player.playerId;
+      const existing = canonicalResults.get(playerId);
+      if (existing !== undefined) {
+        if (
+          existing.average !== player.average ||
+          existing.voteCount !== player.voteCount
+        ) {
+          throw new Error(
+            `MatchResult ${result.matchId} contains conflicting ratings for canonical Player ${playerId}.`,
+          );
+        }
+        if (player.playerId === playerId && existing.playerId !== playerId) {
+          canonicalResults.set(playerId, player);
+        }
+        continue;
+      }
+      canonicalResults.set(playerId, player);
+    }
+    for (const [playerId, player] of canonicalResults) {
       if (!playersById.has(playerId)) {
         playersById.set(playerId, {
           id: playerId,

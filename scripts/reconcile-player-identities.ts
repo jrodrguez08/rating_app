@@ -2,7 +2,10 @@ import { pathToFileURL } from "node:url";
 
 import { Timestamp, type Firestore } from "firebase-admin/firestore";
 
-import { planPlayerIdentityReconciliation } from "../src/application/reconcile-player-identities";
+import {
+  planPlayerIdentityReconciliation,
+  playerProviderAliasTransition,
+} from "../src/application/reconcile-player-identities";
 import { PLAYER_IDENTITY_RECONCILIATIONS } from "../src/config/player-identity-reconciliations";
 import type { Player, PlayerProviderAlias } from "../src/domain/models";
 import {
@@ -58,18 +61,21 @@ export async function main() {
   const summaries = [];
   for (const reconciliation of PLAYER_IDENTITY_RECONCILIATIONS) {
     const plan = await loadPlan(database, reconciliation, timestamp);
-    if (arguments_.apply) await applyPlan(database, plan);
+    const applied = arguments_.apply
+      ? await applyPlan(database, plan)
+      : undefined;
+    const canonicalPlayerUpdated =
+      applied?.canonicalPlayerUpdated ?? plan.canonicalPlayerWrite !== null;
     summaries.push({
       canonicalPlayerId: plan.canonicalPlayerId,
-      canonicalPlayerUpdated: plan.canonicalPlayerWrite !== null,
-      canonicalPlayerPath:
-        plan.canonicalPlayerWrite === null
-          ? null
-          : `players/${plan.canonicalPlayerId}`,
-      aliasWrites: plan.aliasWrites.length,
-      aliasPaths: plan.aliasWrites.map(
-        ({ id }) => `playerProviderAliases/${id}`,
-      ),
+      canonicalPlayerUpdated,
+      canonicalPlayerPath: !canonicalPlayerUpdated
+        ? null
+        : `players/${plan.canonicalPlayerId}`,
+      aliasWrites: applied?.aliasWrites ?? plan.aliasWrites.length,
+      aliasPaths: (
+        applied?.aliasIds ?? plan.aliasWrites.map(({ id }) => id)
+      ).map((id) => `playerProviderAliases/${id}`),
       retainedLegacyPlayerIds: plan.retainedLegacyPlayerIds,
     });
   }
@@ -85,7 +91,7 @@ export async function main() {
 type Reconciliation = (typeof PLAYER_IDENTITY_RECONCILIATIONS)[number];
 type Plan = ReturnType<typeof planPlayerIdentityReconciliation>;
 
-async function loadPlan(
+export async function loadPlan(
   database: Firestore,
   reconciliation: Reconciliation,
   timestamp: string,
@@ -122,20 +128,81 @@ async function loadPlan(
   });
 }
 
-async function applyPlan(database: Firestore, plan: Plan): Promise<void> {
-  await database.runTransaction(async (transaction) => {
+export async function applyPlan(
+  database: Firestore,
+  plan: Plan,
+): Promise<{
+  canonicalPlayerUpdated: boolean;
+  aliasWrites: number;
+  aliasIds: string[];
+}> {
+  return database.runTransaction(async (transaction) => {
+    const canonicalReference = database.doc(
+      `players/${plan.canonicalPlayerId}`,
+    );
+    const aliasReferences = plan.aliasWrites.map((alias) =>
+      database.doc(`playerProviderAliases/${alias.id}`),
+    );
+    const [canonicalSnapshot, ...aliasSnapshots] = await transaction.getAll(
+      canonicalReference,
+      ...aliasReferences,
+    );
+    if (!canonicalSnapshot.exists) {
+      throw new Error(
+        `Canonical Player ${plan.canonicalPlayerId} no longer exists.`,
+      );
+    }
+    const canonical = fromSnapshot<Player>(canonicalSnapshot);
+    if (
+      canonical.externalProvider !== plan.canonicalPlayer.externalProvider ||
+      canonical.externalProviderId !== plan.canonicalPlayer.externalProviderId
+    ) {
+      throw new Error(
+        `Canonical Player ${plan.canonicalPlayerId} changed identity before apply.`,
+      );
+    }
+
+    const canonicalUpdate: Partial<Player> = {};
     if (plan.canonicalPlayerWrite !== null) {
-      transaction.set(
-        database.doc(`players/${plan.canonicalPlayerId}`),
-        toDocument(plan.canonicalPlayerWrite),
-      );
+      if (
+        canonical.position === undefined &&
+        plan.canonicalPlayerWrite.position !== undefined
+      ) {
+        canonicalUpdate.position = plan.canonicalPlayerWrite.position;
+      }
+      if (
+        canonical.photoUrl === undefined &&
+        plan.canonicalPlayerWrite.photoUrl !== undefined
+      ) {
+        canonicalUpdate.photoUrl = plan.canonicalPlayerWrite.photoUrl;
+      }
     }
-    for (const alias of plan.aliasWrites) {
-      transaction.set(
-        database.doc(`playerProviderAliases/${alias.id}`),
-        toDocument(alias),
-      );
+    const canonicalPlayerUpdated = Object.keys(canonicalUpdate).length > 0;
+    if (canonicalPlayerUpdated) {
+      canonicalUpdate.updatedAt = plan.canonicalPlayerWrite!.updatedAt;
+      transaction.update(canonicalReference, toDocument(canonicalUpdate));
     }
+
+    let aliasWrites = 0;
+    const aliasIds: string[] = [];
+    plan.aliasWrites.forEach((alias, index) => {
+      const snapshot = aliasSnapshots[index];
+      const existing = snapshot?.exists
+        ? fromSnapshot<PlayerProviderAlias>(snapshot)
+        : undefined;
+      const transition = playerProviderAliasTransition(existing, alias);
+      if (transition === "unchanged") return;
+      transaction.set(
+        aliasReferences[index],
+        toDocument({
+          ...alias,
+          createdAt: existing?.createdAt ?? alias.createdAt,
+        }),
+      );
+      aliasWrites += 1;
+      aliasIds.push(alias.id);
+    });
+    return { canonicalPlayerUpdated, aliasWrites, aliasIds };
   });
 }
 

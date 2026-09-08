@@ -7,6 +7,7 @@ import { providerEntityId } from "@/domain/player-identity";
 
 export interface PlayerIdentityReconciliationPlan {
   canonicalPlayerId: string;
+  canonicalPlayer: Player;
   canonicalPlayerWrite: Player | null;
   aliasWrites: PlayerProviderAlias[];
   retainedLegacyPlayerIds: string[];
@@ -44,39 +45,7 @@ export function planPlayerIdentityReconciliation({
   const aliasWrites = aliases
     .filter((proposed) => {
       const existing = persistedAliases.get(proposed.id);
-      if (existing === undefined) return true;
-      const mappingMatches =
-        existing.canonicalPlayerId === proposed.canonicalPlayerId &&
-        existing.canonicalExternalProviderPlayerId ===
-          proposed.canonicalExternalProviderPlayerId &&
-        existing.externalProvider === proposed.externalProvider &&
-        existing.externalProviderPlayerId === proposed.externalProviderPlayerId;
-      if (mappingMatches) return false;
-      const isUnreconciledSelfAlias =
-        existing.externalProvider === proposed.externalProvider &&
-        existing.externalProviderPlayerId ===
-          proposed.externalProviderPlayerId &&
-        existing.canonicalPlayerId ===
-          providerEntityId(
-            "player",
-            existing.externalProvider,
-            existing.externalProviderPlayerId,
-          ) &&
-        existing.canonicalExternalProviderPlayerId ===
-          existing.externalProviderPlayerId;
-      if (isUnreconciledSelfAlias) return true;
-      if (
-        existing.canonicalPlayerId !== proposed.canonicalPlayerId ||
-        existing.canonicalExternalProviderPlayerId !==
-          proposed.canonicalExternalProviderPlayerId ||
-        existing.externalProvider !== proposed.externalProvider ||
-        existing.externalProviderPlayerId !== proposed.externalProviderPlayerId
-      ) {
-        throw new Error(
-          `Player provider alias ${proposed.id} conflicts with its persisted canonical identity.`,
-        );
-      }
-      return false;
+      return playerProviderAliasTransition(existing, proposed) !== "unchanged";
     })
     .map((proposed) => ({
       ...proposed,
@@ -111,10 +80,40 @@ export function planPlayerIdentityReconciliation({
       : merged;
   return {
     canonicalPlayerId,
+    canonicalPlayer: canonical,
     canonicalPlayerWrite,
     aliasWrites,
     retainedLegacyPlayerIds: legacyPlayers
       .map((player) => player.id)
       .filter((playerId) => playerId !== canonicalPlayerId),
   };
+}
+
+export function playerProviderAliasTransition(
+  existing: PlayerProviderAlias | undefined,
+  proposed: PlayerProviderAlias,
+): "create" | "reconcile-self" | "unchanged" {
+  if (existing === undefined) return "create";
+  const mappingMatches =
+    existing.canonicalPlayerId === proposed.canonicalPlayerId &&
+    existing.canonicalExternalProviderPlayerId ===
+      proposed.canonicalExternalProviderPlayerId &&
+    existing.externalProvider === proposed.externalProvider &&
+    existing.externalProviderPlayerId === proposed.externalProviderPlayerId;
+  if (mappingMatches) return "unchanged";
+  const isUnreconciledSelfAlias =
+    existing.externalProvider === proposed.externalProvider &&
+    existing.externalProviderPlayerId === proposed.externalProviderPlayerId &&
+    existing.canonicalPlayerId ===
+      providerEntityId(
+        "player",
+        existing.externalProvider,
+        existing.externalProviderPlayerId,
+      ) &&
+    existing.canonicalExternalProviderPlayerId ===
+      existing.externalProviderPlayerId;
+  if (isUnreconciledSelfAlias) return "reconcile-self";
+  throw new Error(
+    `Player provider alias ${proposed.id} conflicts with its persisted canonical identity.`,
+  );
 }

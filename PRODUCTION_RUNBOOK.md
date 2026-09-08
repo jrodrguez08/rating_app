@@ -112,7 +112,7 @@ Refresh current Jugadores squad presentation metadata manually after deployment,
 
 ### Player identity reconciliation
 
-API-Football reminders such as name, shirt number, age, birth details, nationality, height, weight, position, or photo are not trusted as automatic identity keys. A provider ID change is reconciled only through a reviewed entry in `src/config/player-identity-reconciliations.ts`. The migration creates auditable `playerProviderAliases/{aliasId}` mappings and may fill a missing canonical position/photo; it retains legacy Player, participant, ballot, and result documents. It never rewrites submitted ratings or immutable summaries.
+API-Football reminders such as name, shirt number, age, birth details, nationality, height, weight, position, or photo are not trusted as automatic identity keys. A provider ID change is reconciled only through a reviewed entry in `src/config/player-identity-reconciliations.ts`. The migration creates auditable `playerProviderAliases/{aliasId}` mappings and may fill a missing canonical position/photo; it retains legacy Player, participant, ballot, and result documents. It never rewrites submitted ratings or immutable summaries. Its apply transaction re-reads every planned alias and the canonical Player: absent aliases are created, matching mappings are no-ops, only the reviewed self-alias transition is allowed, and any other concurrent mapping aborts the transaction. Canonical metadata enrichment fills only fields that remain missing at apply time, so concurrent usable position/photo data is not overwritten or degraded.
 
 After deploying the reviewed identity-aware release, use a controlled checkout of that same commit with the production Firebase Admin variables loaded and no emulator variables present:
 
