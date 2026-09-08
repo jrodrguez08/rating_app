@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { PlayerCatalogEntry } from "@/application/player-history";
@@ -94,6 +94,9 @@ describe("player history UI", () => {
       "/matches/match-1/results",
     );
     expect(screen.getByText("vs Opponent")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("group", { name: /rating evolution/i }),
+    ).not.toBeInTheDocument();
   });
 
   it("renders a known-player empty state", () => {
@@ -116,21 +119,69 @@ describe("player history UI", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders a lightweight accessible multi-match evolution graphic", () => {
+  it("renders the fixed rating scale, guides, and accessible match points", () => {
     render(
       <PlayerProfile
         player={player({
           ratedMatchCount: 2,
-          history: [history(), history({ matchId: "match-0", average: 7 })],
+          history: [
+            history(),
+            history({
+              matchId: "match-0",
+              kickoffAt: "2026-08-23T17:00:00.000Z",
+              opponentName: "Earlier Opponent",
+              average: 7,
+            }),
+          ],
         })}
         locale="en"
         messages={messages}
       />,
     );
 
-    expect(
-      screen.getByRole("img", { name: /rating evolution/i }),
-    ).toBeInTheDocument();
+    const chart = screen.getByRole("group", { name: /rating evolution/i });
+    expect(within(chart).getByText("10")).toBeInTheDocument();
+    expect(within(chart).getByText("5")).toBeInTheDocument();
+    expect(within(chart).getByText("1")).toBeInTheDocument();
+    expect(within(chart).getAllByTestId("rating-guide")).toHaveLength(3);
+    expect(within(chart).getAllByTestId("rating-point")).toHaveLength(2);
+    expect(within(chart).getAllByTestId("rating-axis-label")).toHaveLength(2);
+    expect(within(chart).getByText("8/23")).toBeInTheDocument();
+    expect(within(chart).getByText("8/30")).toBeInTheDocument();
+
+    const latestPoint = within(chart).getByRole("img", {
+      name: /vs Opponent, Aug 30, 2026: rating 8\.0/i,
+    });
+    expect(latestPoint).toHaveAttribute("tabindex", "0");
+    latestPoint.focus();
+    expect(latestPoint).toHaveFocus();
+    expect(within(chart).getByText("Rating 8.0")).toBeInTheDocument();
+    expect(within(chart).getByText("vs Earlier Opponent")).toBeInTheDocument();
+  });
+
+  it("thins dense date labels and keeps the chart bounded on narrow layouts", () => {
+    const denseHistory = Array.from({ length: 8 }, (_, index) =>
+      history({
+        matchId: `match-${index}`,
+        kickoffAt: `2026-08-${String(index + 1).padStart(2, "0")}T17:00:00.000Z`,
+        opponentName: `Opponent ${index + 1}`,
+        average: index + 1,
+      }),
+    ).reverse();
+    render(
+      <PlayerProfile
+        player={player({ ratedMatchCount: 8, history: denseHistory })}
+        locale="en"
+        messages={messages}
+      />,
+    );
+
+    const chart = screen.getByRole("group", { name: /rating evolution/i });
+    expect(within(chart).getAllByTestId("rating-point")).toHaveLength(8);
+    expect(within(chart).getAllByTestId("rating-axis-label")).toHaveLength(4);
+    expect(chart).toHaveAttribute("viewBox", "0 0 320 152");
+    expect(chart).toHaveClass("w-full", "max-w-full");
+    expect(chart.parentElement).toHaveClass("overflow-hidden");
   });
 });
 

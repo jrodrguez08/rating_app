@@ -197,6 +197,8 @@ export const enMessages = {
     viewResults: "View results",
     back: "Back to players",
     trendLabel: "{name} rating evolution: {ratings}",
+    trendPointLabel: "vs {opponent}, {date}: rating {rating}",
+    trendRating: "Rating {rating}",
     avatarLabel: "Avatar for {name}",
     positions: {
       goalkeeper: "Goalkeeper",
