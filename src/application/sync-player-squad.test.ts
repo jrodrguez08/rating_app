@@ -53,6 +53,23 @@ describe("syncPlayerSquad", () => {
     expect(summary).toMatchObject({ squadSize: 1, apiRequests: 1 });
   });
 
+  it("resolves a known historical provider ID to the canonical Player", async () => {
+    const upsertPlayers = vi.fn().mockResolvedValue({
+      created: 0,
+      updated: 1,
+      unchanged: 0,
+    });
+    await syncPlayerSquad(
+      team.id,
+      providerWith([{ externalPlayerId: "541314", name: "S. Rodriguez" }]),
+      storeWith(upsertPlayers),
+    );
+    expect(upsertPlayers.mock.calls[0][0][0]).toMatchObject({
+      id: providerEntityId("player", "api-football", "36237"),
+      externalProviderId: "36237",
+    });
+  });
+
   it("omits missing optional metadata so persistence can preserve last-known values", async () => {
     const upsertPlayers = vi.fn().mockResolvedValue({
       created: 0,
@@ -66,6 +83,32 @@ describe("syncPlayerSquad", () => {
     );
     expect(upsertPlayers.mock.calls[0][0][0]).not.toHaveProperty("position");
     expect(upsertPlayers.mock.calls[0][0][0]).not.toHaveProperty("photoUrl");
+  });
+
+  it("resolves a known historical provider ID to the canonical Player", async () => {
+    const upsertPlayers = vi.fn().mockResolvedValue({
+      created: 0,
+      updated: 1,
+      unchanged: 0,
+    });
+    await syncPlayerSquad(
+      team.id,
+      providerWith([
+        {
+          externalPlayerId: "541314",
+          name: "S. Rodriguez",
+          position: "midfielder",
+        },
+      ]),
+      storeWith(upsertPlayers),
+    );
+
+    expect(upsertPlayers).toHaveBeenCalledWith([
+      expect.objectContaining({
+        id: providerEntityId("player", "api-football", "36237"),
+        externalProviderId: "36237",
+      }),
+    ]);
   });
 
   it("rejects an empty usable squad instead of implying a destructive success", async () => {
@@ -102,6 +145,7 @@ function storeWith(
     upsertSeasons: vi.fn(),
     upsertMatches: vi.fn(),
     upsertPlayers,
+    resolvePlayerProviderAliases: vi.fn(async (aliases) => aliases),
     upsertMatchParticipants: vi.fn(),
     replaceMatchParticipants: vi.fn(),
     getPersistedMatchContext: vi.fn(),

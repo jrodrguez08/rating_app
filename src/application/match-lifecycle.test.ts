@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import type { FootballSyncMetadata, Match, Team } from "@/domain/models";
+import type {
+  FootballSyncMetadata,
+  Match,
+  PlayerProviderAlias,
+  Team,
+} from "@/domain/models";
 import type {
   FootballDataProvider,
   MatchLifecycleStore,
@@ -68,6 +73,9 @@ class MemoryStore implements MatchLifecycleStore {
   }
   async getMatch(id: string) {
     return this.matches.find((value) => value.id === id)!;
+  }
+  async resolvePlayerProviderAliases(values: PlayerProviderAlias[]) {
+    return values;
   }
   async listMatches() {
     return this.matches;

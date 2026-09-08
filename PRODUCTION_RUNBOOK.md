@@ -108,7 +108,21 @@ The Partidos archive reads the fixture window already persisted by discovery and
 
 Jugadores pages use server-only, provider-free read-time derivation over at most 100 newest persisted tracked-Team matches, their immutable result summaries, and known participant/Player identities. They never read ballots and require no projection or production backfill; existing closed pilot results appear automatically. If the bound becomes insufficient, measure production volume/read cost before introducing an explicit trusted projection or migration.
 
-Refresh current Jugadores squad presentation metadata manually after deployment, after meaningful roster changes, or at most once daily. From a controlled operator environment with the production Firebase Admin variables and `API_FOOTBALL_KEY` loaded, run `npm run sync:player-squad -- --project-id rating-app-prod-8b7df --confirm sync-player-squad`. The command targets only the configured internal Team and its persisted provider Team mapping, makes one `GET /players/squads` request, never logs the key, and is safe to rerun: it upserts by stable provider player ID, preserves omitted optional metadata, and never deletes players or history. No new Firestore index is required.
+Refresh current Jugadores squad presentation metadata manually after deployment, after meaningful roster changes, or at most once daily. From a controlled operator environment with the production Firebase Admin variables and `API_FOOTBALL_KEY` loaded, run `npm run sync:player-squad -- --project-id rating-app-prod-8b7df --confirm sync-player-squad`. The command targets only the configured internal Team and its persisted provider Team mapping, makes one `GET /players/squads` request, never logs the key, and is safe to rerun: it resolves explicit provider aliases before upserting canonical Players, preserves omitted optional metadata, and never deletes players or history. No new Firestore index is required.
+
+### Player identity reconciliation
+
+API-Football reminders such as name, shirt number, age, birth details, nationality, height, weight, position, or photo are not trusted as automatic identity keys. A provider ID change is reconciled only through a reviewed entry in `src/config/player-identity-reconciliations.ts`. The migration creates auditable `playerProviderAliases/{aliasId}` mappings and may fill a missing canonical position/photo; it retains legacy Player, participant, ballot, and result documents. It never rewrites submitted ratings or immutable summaries.
+
+After deploying the reviewed identity-aware release, use a controlled checkout of that same commit with the production Firebase Admin variables loaded and no emulator variables present:
+
+1. Preview the exact plan: `npm run reconcile:player-identities -- --project-id rating-app-prod-8b7df`.
+2. Require the dry run to select canonical Player `player-f020ba4cf4c187bcedb2255d`, retain legacy Player `player-971dc7fe3b5c761cf85fb321`, and propose only the missing aliases/metadata. Stop on any conflict or unexpected path.
+3. Apply once: `npm run reconcile:player-identities -- --project-id rating-app-prod-8b7df --apply true --confirm reconcile-player-identities`.
+4. Repeat the dry run and require zero alias or canonical metadata writes.
+5. Inspect `/players` and both prior profile URLs. Require one canonical S. Rodriguez entry with combined published history; do not edit Firestore manually.
+
+The command rejects development/local mode, emulator hosts, demo projects, project mismatches, missing production Admin credentials, and an inexact apply confirmation. CI never runs it. Adding a future reconciliation requires confirming the real player identity independently, reviewing the canonical metadata choice and historical references, adding focused tests, deploying the code, and then following this dry-run/apply/dry-run sequence. Name-only or shirt-only merging is prohibited.
 
 Network/provider validation, lineup-not-observed/cache-empty, incomplete lineup, missing fixture coach, participant-evidence, Firebase write, and aggregation integrity failures remain retryable. They cannot open voting early, erase a trusted snapshot, extend timestamps, replace ballots, publish partial results, or regress finalized state. Cancelled/abandoned matches never open or finalize ratings; postponed/suspended matches retry conservatively.
 

@@ -36,6 +36,7 @@ import type {
   MatchResult,
   MatchParticipant,
   Player,
+  PlayerProviderAlias,
   Season,
   StandingsSnapshot,
   Team,
@@ -48,6 +49,10 @@ import type {
   StandingsSyncTarget,
   SyncWriteCounts,
 } from "@/domain/ports";
+import {
+  canonicalPlayerIdMap,
+  playerProviderAliasId,
+} from "@/domain/player-identity";
 import { readFirebaseAdminRuntimeConfig } from "@/lib/server/environment";
 
 const TIMESTAMP_FIELDS = new Set([
@@ -239,14 +244,40 @@ export class AdminPlayerHistoryService {
     const results = resultSnapshots
       .filter((snapshot) => snapshot.exists)
       .map((snapshot) => fromDocument<MatchResult>(snapshot));
-    const participantIdentities = participantSnapshot.docs.map((snapshot) => {
-      const participant = fromDocument<MatchParticipant>(snapshot);
-      return { id: participant.playerId, name: participant.playerName };
-    });
+    const participants = participantSnapshot.docs.map((snapshot) =>
+      fromDocument<MatchParticipant>(snapshot),
+    );
+    const participantIdentities = participants.map((participant) => ({
+      id: participant.playerId,
+      name: participant.playerName,
+    }));
+    const aliasIds = [
+      ...new Set(
+        participants.map((participant) =>
+          playerProviderAliasId(
+            participant.externalProvider,
+            participant.externalProviderPlayerId,
+          ),
+        ),
+      ),
+    ];
+    const aliasSnapshots =
+      aliasIds.length === 0
+        ? []
+        : await this.database.getAll(
+            ...aliasIds.map((id) =>
+              this.database.doc(`playerProviderAliases/${id}`),
+            ),
+          );
+    const aliases = aliasSnapshots
+      .filter((snapshot) => snapshot.exists)
+      .map((snapshot) => fromDocument<PlayerProviderAlias>(snapshot));
+    const canonicalPlayerIds = canonicalPlayerIdMap(aliases);
     const playerIds = [
       ...new Set([
         ...participantIdentities.map(({ id }) => id),
         ...results.flatMap((result) => Object.keys(result.playerResults)),
+        ...aliases.map(({ canonicalPlayerId }) => canonicalPlayerId),
       ]),
     ];
     const playerSnapshots =
@@ -278,13 +309,35 @@ export class AdminPlayerHistoryService {
       matches,
       results,
       trackedTeamExternalProviderId: team.externalProviderId,
+      canonicalPlayerIds,
     });
   }
 
   async get(playerId: string, teamId: string) {
-    return (await this.list(teamId)).players.find(
-      (player) => player.playerId === playerId,
+    const [catalog, canonicalPlayerId] = await Promise.all([
+      this.list(teamId),
+      this.resolveCanonicalPlayerId(playerId),
+    ]);
+    return catalog.players.find(
+      (player) => player.playerId === canonicalPlayerId,
     );
+  }
+
+  private async resolveCanonicalPlayerId(playerId: string): Promise<string> {
+    const playerSnapshot = await this.database.doc(`players/${playerId}`).get();
+    if (!playerSnapshot.exists) return playerId;
+    const player = fromDocument<Player>(playerSnapshot);
+    const aliasSnapshot = await this.database
+      .doc(
+        `playerProviderAliases/${playerProviderAliasId(
+          player.externalProvider,
+          player.externalProviderId,
+        )}`,
+      )
+      .get();
+    return aliasSnapshot.exists
+      ? fromDocument<PlayerProviderAlias>(aliasSnapshot).canonicalPlayerId
+      : playerId;
   }
 }
 
@@ -666,6 +719,29 @@ export class AdminFootballSyncStore
   upsertPlayers(values: Player[]) {
     return this.upsert("players", values);
   }
+  async resolvePlayerProviderAliases(
+    values: PlayerProviderAlias[],
+  ): Promise<PlayerProviderAlias[]> {
+    const unique = [
+      ...new Map(values.map((value) => [value.id, value])).values(),
+    ];
+    return this.database.runTransaction(async (transaction) => {
+      const references = unique.map((value) =>
+        this.database.doc(`playerProviderAliases/${value.id}`),
+      );
+      const snapshots = await transaction.getAll(...references);
+      return snapshots.map((snapshot, index) => {
+        const proposed = unique[index];
+        if (!snapshot.exists) {
+          transaction.create(snapshot.ref, toDocument(proposed));
+          return proposed;
+        }
+        const existing = fromDocument<PlayerProviderAlias>(snapshot);
+        assertMatchingPlayerProviderAlias(existing, proposed);
+        return existing;
+      });
+    });
+  }
   upsertMatchParticipants(matchId: string, values: MatchParticipant[]) {
     return this.upsert(
       `matches/${matchId}/participants`,
@@ -889,6 +965,23 @@ function comparable(value: object): string {
       Object.entries(copy).sort(([a], [b]) => a.localeCompare(b)),
     ),
   );
+}
+
+function assertMatchingPlayerProviderAlias(
+  existing: PlayerProviderAlias,
+  proposed: PlayerProviderAlias,
+): void {
+  if (
+    existing.canonicalPlayerId !== proposed.canonicalPlayerId ||
+    existing.canonicalExternalProviderPlayerId !==
+      proposed.canonicalExternalProviderPlayerId ||
+    existing.externalProvider !== proposed.externalProvider ||
+    existing.externalProviderPlayerId !== proposed.externalProviderPlayerId
+  ) {
+    throw new Error(
+      `Player provider alias ${proposed.id} conflicts with its persisted canonical identity.`,
+    );
+  }
 }
 
 function mergePlayerIdentities(

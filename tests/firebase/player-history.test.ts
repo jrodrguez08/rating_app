@@ -2,6 +2,10 @@ import { deleteApp, initializeApp } from "firebase-admin/app";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import {
+  playerProviderAliasId,
+  providerEntityId,
+} from "@/domain/player-identity";
 import { AdminPlayerHistoryService } from "@/lib/firebase/server";
 
 const projectId = process.env.GCLOUD_PROJECT ?? "demo-rating-app-local";
@@ -127,6 +131,21 @@ describe("trusted player history reads", () => {
       opponentName: "Opponent closed",
     });
   });
+
+  it("resolves a legacy alias to one combined canonical profile", async () => {
+    const { canonicalId, legacyId } = await seedAliasedHistory();
+    const service = new AdminPlayerHistoryService(database);
+    const catalog = await service.list(teamId);
+    expect(catalog.players.some(({ playerId }) => playerId === legacyId)).toBe(
+      false,
+    );
+    expect(await service.get(legacyId, teamId)).toMatchObject({
+      playerId: canonicalId,
+      overallAverage: 8,
+      ratedMatchCount: 2,
+      rank: 1,
+    });
+  });
 });
 
 async function seedMatch(
@@ -171,4 +190,88 @@ async function seedMatch(
       updatedAt: timestamp,
     });
   }
+}
+
+async function seedAliasedHistory() {
+  const canonicalId = providerEntityId("player", "api-football", "36237");
+  const legacyId = providerEntityId("player", "api-football", "541314");
+  const timestamp = Timestamp.fromDate(new Date("2026-09-01T00:00:00.000Z"));
+  await Promise.all([
+    database.doc(`players/${canonicalId}`).set({
+      displayName: "S. Rodriguez",
+      position: "midfielder",
+      externalProvider: "api-football",
+      externalProviderId: "36237",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }),
+    database.doc(`players/${legacyId}`).set({
+      displayName: "S. Rodriguez",
+      externalProvider: "api-football",
+      externalProviderId: "541314",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }),
+    ...["36237", "541314"].map((externalProviderPlayerId) =>
+      database
+        .doc(
+          `playerProviderAliases/${playerProviderAliasId(
+            "api-football",
+            externalProviderPlayerId,
+          )}`,
+        )
+        .set({
+          canonicalPlayerId: canonicalId,
+          canonicalExternalProviderPlayerId: "36237",
+          externalProvider: "api-football",
+          externalProviderPlayerId,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        }),
+    ),
+  ]);
+  for (const [matchId, playerId, externalPlayerId, average] of [
+    ["alias-old", legacyId, "541314", 7],
+    ["alias-new", canonicalId, "36237", 9],
+  ] as const) {
+    await seedMatch(matchId, "rating_closed", timestamp);
+    await database.doc(`matches/${matchId}/participants/${playerId}`).set({
+      matchId,
+      playerId,
+      playerName: "S. Rodriguez",
+      teamId,
+      externalProvider: "api-football",
+      externalProviderTeamId: "815",
+      externalProviderPlayerId: externalPlayerId,
+      squadRole: "starter",
+      starter: true,
+      participated: true,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    await database.doc(`matches/${matchId}/results/summary`).set({
+      matchId,
+      teamId,
+      ballotCount: 2,
+      playerResults: {
+        [playerId]: {
+          playerId,
+          playerName: "S. Rodriguez",
+          average,
+          voteCount: 2,
+          order: 0,
+        },
+      },
+      coachResult: {
+        coachId: "coach",
+        coachName: "Coach",
+        average: 7,
+        voteCount: 2,
+      },
+      mvpPlayerIds: [playerId],
+      status: "final",
+      generatedAt: timestamp,
+    });
+  }
+  return { canonicalId, legacyId };
 }

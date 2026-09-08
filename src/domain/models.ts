@@ -131,6 +131,15 @@ export interface Player {
   createdAt: string;
   updatedAt: string;
 }
+export interface PlayerProviderAlias {
+  id: EntityId;
+  canonicalPlayerId: EntityId;
+  canonicalExternalProviderPlayerId: string;
+  externalProvider: string;
+  externalProviderPlayerId: string;
+  createdAt: string;
+  updatedAt: string;
+}
 export type SquadRole = "starter" | "substitute";
 export interface MatchParticipant {
   matchId: EntityId;

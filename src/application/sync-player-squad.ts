@@ -1,11 +1,10 @@
+import { proposedPlayerProviderAlias } from "@/config/player-identity-reconciliations";
 import type { Player } from "@/domain/models";
 import type {
   FootballDataProvider,
   FootballSyncStore,
   SyncWriteCounts,
 } from "@/domain/ports";
-
-import { providerEntityId } from "./sync-match-participants";
 
 export interface PlayerSquadSyncSummary {
   teamId: string;
@@ -32,11 +31,24 @@ export async function syncPlayerSquad(
     );
   }
   const timestamp = now.toISOString();
+  const aliases = await store.resolvePlayerProviderAliases(
+    squad.map((player) =>
+      proposedPlayerProviderAlias(
+        provider.name,
+        player.externalPlayerId,
+        timestamp,
+      ),
+    ),
+  );
+  const canonicalIds = new Map(
+    aliases.map((alias) => [alias.externalProviderPlayerId, alias]),
+  );
   const players: Player[] = squad.map((player) => ({
-    id: providerEntityId("player", provider.name, player.externalPlayerId),
+    id: canonicalIds.get(player.externalPlayerId)!.canonicalPlayerId,
     displayName: player.name,
     externalProvider: provider.name,
-    externalProviderId: player.externalPlayerId,
+    externalProviderId: canonicalIds.get(player.externalPlayerId)!
+      .canonicalExternalProviderPlayerId,
     ...(player.position === undefined ? {} : { position: player.position }),
     ...(player.photoUrl === undefined ? {} : { photoUrl: player.photoUrl }),
     createdAt: timestamp,

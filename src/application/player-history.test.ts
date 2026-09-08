@@ -95,6 +95,39 @@ describe("player history", () => {
     ).toMatchObject({ overallAverage: 9, ratedMatchCount: 1, rank: null });
   });
 
+  it("combines explicit aliases into one ranked canonical history", () => {
+    const catalog = buildPlayerCatalog({
+      identities: [
+        { id: "canonical", name: "Current name", position: "midfielder" },
+        { id: "legacy", name: "Old snapshot" },
+        { id: "similar", name: "S. Rodriguez" },
+      ],
+      matches: [match("older"), match("newer", {}, 1)],
+      results: [
+        result("older", { legacy: player("legacy", "Old snapshot", 7) }),
+        result("newer", {
+          canonical: player("canonical", "Current name", 9),
+        }),
+      ],
+      trackedTeamExternalProviderId: "815",
+      canonicalPlayerIds: new Map([["legacy", "canonical"]]),
+    });
+
+    expect(catalog.players).toHaveLength(2);
+    expect(
+      catalog.players.find(({ playerId }) => playerId === "canonical"),
+    ).toMatchObject({
+      playerName: "Current name",
+      position: "midfielder",
+      overallAverage: 8,
+      ratedMatchCount: 2,
+      rank: 1,
+    });
+    expect(
+      catalog.players.find(({ playerId }) => playerId === "similar"),
+    ).toMatchObject({ ratedMatchCount: 0 });
+  });
+
   it("never exposes ballot or voter fields in its public DTO", () => {
     expect(JSON.stringify(build([result("older", {})]))).not.toMatch(
       /ballot|voterId|playerRatings/i,
