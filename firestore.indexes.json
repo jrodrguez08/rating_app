@@ -7,6 +7,14 @@
         { "fieldPath": "trackedTeamId", "order": "ASCENDING" },
         { "fieldPath": "kickoffAt", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "participants",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "participated", "order": "ASCENDING" },
+        { "fieldPath": "teamId", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [
