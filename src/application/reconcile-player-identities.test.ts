@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 
+import {
+  PLAYER_IDENTITY_RECONCILIATIONS,
+  proposedPlayerProviderAlias,
+} from "@/config/player-identity-reconciliations";
 import type { Player, PlayerProviderAlias } from "@/domain/models";
 import {
   playerProviderAliasId,
@@ -18,6 +22,90 @@ const canonicalId = providerEntityId("player", "api-football", "36237");
 const legacyId = providerEntityId("player", "api-football", "541314");
 
 describe("player identity reconciliation", () => {
+  it("plans and becomes idempotent for every configured reconciliation", () => {
+    for (const configured of PLAYER_IDENTITY_RECONCILIATIONS) {
+      const configuredCanonicalId = providerEntityId(
+        "player",
+        configured.externalProvider,
+        configured.canonicalExternalPlayerId,
+      );
+      const players = new Map(
+        configured.externalPlayerIds.map((externalPlayerId) => {
+          const id = providerEntityId(
+            "player",
+            configured.externalProvider,
+            externalPlayerId,
+          );
+          return [id, player(id, externalPlayerId, "attacker")] as const;
+        }),
+      );
+      const first = planPlayerIdentityReconciliation({
+        reconciliation: configured,
+        players,
+        persistedAliases: new Map(),
+        timestamp: now,
+      });
+
+      expect(first.canonicalPlayerId).toBe(configuredCanonicalId);
+      expect(first.aliasWrites).toHaveLength(2);
+      expect(
+        first.aliasWrites.every(
+          ({ canonicalPlayerId }) =>
+            canonicalPlayerId === configuredCanonicalId,
+        ),
+      ).toBe(true);
+
+      const second = planPlayerIdentityReconciliation({
+        reconciliation: configured,
+        players,
+        persistedAliases: new Map(
+          first.aliasWrites.map((alias) => [alias.id, alias]),
+        ),
+        timestamp: now,
+      });
+      expect(second.aliasWrites).toEqual([]);
+      expect(second.canonicalPlayerWrite).toBeNull();
+    }
+  });
+
+  it("keeps migrated Rodriguez aliases unchanged while planning only new pairs", () => {
+    const migratedRodriguezAliases = new Map(
+      ["36237", "541314"].map((externalPlayerId) => {
+        const alias = proposedPlayerProviderAlias(
+          "api-football",
+          externalPlayerId,
+          now,
+        );
+        return [alias.id, alias];
+      }),
+    );
+    const plannedAliasWrites = PLAYER_IDENTITY_RECONCILIATIONS.map(
+      (configured) => {
+        const players = new Map(
+          configured.externalPlayerIds.map((externalPlayerId) => {
+            const id = providerEntityId(
+              "player",
+              configured.externalProvider,
+              externalPlayerId,
+            );
+            return [id, player(id, externalPlayerId, "attacker")] as const;
+          }),
+        );
+        return planPlayerIdentityReconciliation({
+          reconciliation: configured,
+          players,
+          persistedAliases:
+            configured.canonicalExternalPlayerId === "36237"
+              ? migratedRodriguezAliases
+              : new Map(),
+          timestamp: now,
+        }).aliasWrites.length;
+      },
+    );
+
+    expect(plannedAliasWrites).toEqual([0, 2, 2]);
+  });
+
   it("keeps richer canonical metadata and plans both explicit aliases", () => {
     const plan = planPlayerIdentityReconciliation({
       reconciliation,
