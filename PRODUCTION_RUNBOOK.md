@@ -116,11 +116,11 @@ API-Football reminders such as name, shirt number, age, birth details, nationali
 
 After deploying the reviewed identity-aware release, use a controlled checkout of that same commit with the production Firebase Admin variables loaded and no emulator variables present:
 
-1. Preview the exact plan: `npm run reconcile:player-identities -- --project-id rating-app-prod-8b7df`.
-2. Require the dry run to select canonical Player `player-f020ba4cf4c187bcedb2255d`, retain legacy Player `player-971dc7fe3b5c761cf85fb321`, and propose only the missing aliases/metadata. Stop on any conflict or unexpected path.
-3. Apply once: `npm run reconcile:player-identities -- --project-id rating-app-prod-8b7df --apply true --confirm reconcile-player-identities`.
-4. Repeat the dry run and require zero alias or canonical metadata writes.
-5. Inspect `/players` and both prior profile URLs. Require one canonical S. Rodriguez entry with combined published history; do not edit Firestore manually.
+1. Preview the exact plan: `npx tsx scripts/reconcile-player-identities.ts --project-id rating-app-prod-8b7df`.
+2. Require the already-migrated S. Rodriguez reconciliation (`541314` → `36237`) to propose zero writes. Require only the reviewed E. Bravo (`669618` → `404115`) and K. Estrada (`628817` → `512850`) aliases plus any safe missing canonical metadata enrichment. Stop on any conflict or unexpected path.
+3. Apply once: `npx tsx scripts/reconcile-player-identities.ts --project-id rating-app-prod-8b7df --apply true --confirm reconcile-player-identities`.
+4. Repeat the dry run from step 1 and require zero alias or canonical metadata writes across every configured reconciliation.
+5. Inspect `/players` and each legacy/canonical profile URL pair. Require one canonical entry per reconciled player with combined published history; do not edit Firestore manually.
 
 The command rejects development/local mode, emulator hosts, demo projects, project mismatches, missing production Admin credentials, and an inexact apply confirmation. CI never runs it. Adding a future reconciliation requires confirming the real player identity independently, reviewing the canonical metadata choice and historical references, adding focused tests, deploying the code, and then following this dry-run/apply/dry-run sequence. Name-only or shirt-only merging is prohibited.
 

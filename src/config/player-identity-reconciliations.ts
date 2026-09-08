@@ -17,6 +17,16 @@ export const PLAYER_IDENTITY_RECONCILIATIONS: readonly PlayerIdentityReconciliat
       canonicalExternalPlayerId: "36237",
       externalPlayerIds: ["36237", "541314"],
     },
+    {
+      externalProvider: "api-football",
+      canonicalExternalPlayerId: "404115",
+      externalPlayerIds: ["404115", "669618"],
+    },
+    {
+      externalProvider: "api-football",
+      canonicalExternalPlayerId: "512850",
+      externalPlayerIds: ["512850", "628817"],
+    },
   ];
 
 export function proposedPlayerProviderAlias(

@@ -53,22 +53,33 @@ describe("syncPlayerSquad", () => {
     expect(summary).toMatchObject({ squadSize: 1, apiRequests: 1 });
   });
 
-  it("resolves a known historical provider ID to the canonical Player", async () => {
-    const upsertPlayers = vi.fn().mockResolvedValue({
-      created: 0,
-      updated: 1,
-      unchanged: 0,
-    });
-    await syncPlayerSquad(
-      team.id,
-      providerWith([{ externalPlayerId: "541314", name: "S. Rodriguez" }]),
-      storeWith(upsertPlayers),
-    );
-    expect(upsertPlayers.mock.calls[0][0][0]).toMatchObject({
-      id: providerEntityId("player", "api-football", "36237"),
-      externalProviderId: "36237",
-    });
-  });
+  it.each([
+    ["S. Rodriguez", "541314", "36237"],
+    ["E. Bravo", "669618", "404115"],
+    ["K. Estrada", "628817", "512850"],
+  ])(
+    "resolves the known %s provider alias during future squad sync",
+    async (name, legacyExternalPlayerId, canonicalExternalPlayerId) => {
+      const upsertPlayers = vi.fn().mockResolvedValue({
+        created: 0,
+        updated: 1,
+        unchanged: 0,
+      });
+      await syncPlayerSquad(
+        team.id,
+        providerWith([{ externalPlayerId: legacyExternalPlayerId, name }]),
+        storeWith(upsertPlayers),
+      );
+      expect(upsertPlayers.mock.calls[0][0][0]).toMatchObject({
+        id: providerEntityId(
+          "player",
+          "api-football",
+          canonicalExternalPlayerId,
+        ),
+        externalProviderId: canonicalExternalPlayerId,
+      });
+    },
+  );
 
   it("omits missing optional metadata so persistence can preserve last-known values", async () => {
     const upsertPlayers = vi.fn().mockResolvedValue({
@@ -83,32 +94,6 @@ describe("syncPlayerSquad", () => {
     );
     expect(upsertPlayers.mock.calls[0][0][0]).not.toHaveProperty("position");
     expect(upsertPlayers.mock.calls[0][0][0]).not.toHaveProperty("photoUrl");
-  });
-
-  it("resolves a known historical provider ID to the canonical Player", async () => {
-    const upsertPlayers = vi.fn().mockResolvedValue({
-      created: 0,
-      updated: 1,
-      unchanged: 0,
-    });
-    await syncPlayerSquad(
-      team.id,
-      providerWith([
-        {
-          externalPlayerId: "541314",
-          name: "S. Rodriguez",
-          position: "midfielder",
-        },
-      ]),
-      storeWith(upsertPlayers),
-    );
-
-    expect(upsertPlayers).toHaveBeenCalledWith([
-      expect.objectContaining({
-        id: providerEntityId("player", "api-football", "36237"),
-        externalProviderId: "36237",
-      }),
-    ]);
   });
 
   it("rejects an empty usable squad instead of implying a destructive success", async () => {

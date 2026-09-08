@@ -18,24 +18,36 @@ describe("participant synchronization identities", () => {
     );
   });
 
-  it("uses a known alias for future match participants", async () => {
-    const store = storeWith();
-    await syncMatchParticipants(
-      match.id,
-      providerWith("541314"),
-      store,
-      new Date("2026-09-07T12:00:00.000Z"),
-    );
-    expect(vi.mocked(store.upsertPlayers).mock.calls[0][0][0].id).toBe(
-      providerEntityId("player", "api-football", "36237"),
-    );
-    expect(
-      vi.mocked(store.replaceMatchParticipants).mock.calls[0][1][0],
-    ).toMatchObject({
-      playerId: providerEntityId("player", "api-football", "36237"),
-      externalProviderPlayerId: "541314",
-    });
-  });
+  it.each([
+    ["S. Rodriguez", "541314", "36237"],
+    ["E. Bravo", "669618", "404115"],
+    ["K. Estrada", "628817", "512850"],
+  ])(
+    "uses the known %s alias for future match participants",
+    async (name, legacyExternalPlayerId, canonicalExternalPlayerId) => {
+      const store = storeWith();
+      await syncMatchParticipants(
+        match.id,
+        providerWith(legacyExternalPlayerId, name),
+        store,
+        new Date("2026-09-07T12:00:00.000Z"),
+      );
+      const canonicalPlayerId = providerEntityId(
+        "player",
+        "api-football",
+        canonicalExternalPlayerId,
+      );
+      expect(vi.mocked(store.upsertPlayers).mock.calls[0][0][0].id).toBe(
+        canonicalPlayerId,
+      );
+      expect(
+        vi.mocked(store.replaceMatchParticipants).mock.calls[0][1][0],
+      ).toMatchObject({
+        playerId: canonicalPlayerId,
+        externalProviderPlayerId: legacyExternalPlayerId,
+      });
+    },
+  );
 
   it("does not merge unknown players that share a name and shirt", async () => {
     const firstStore = storeWith();
@@ -86,7 +98,10 @@ const match: Match = {
   updatedAt: "2026-01-01T00:00:00.000Z",
 };
 
-function providerWith(externalPlayerId: string): FootballDataProvider {
+function providerWith(
+  externalPlayerId: string,
+  name = "S. Rodriguez",
+): FootballDataProvider {
   return {
     name: "api-football",
     requestCount: 1,
@@ -95,7 +110,7 @@ function providerWith(externalPlayerId: string): FootballDataProvider {
         {
           externalTeamId: "815",
           externalPlayerId,
-          name: "S. Rodriguez",
+          name,
           shirtNumber: 24,
           position: "midfielder",
           squadRole: "starter",

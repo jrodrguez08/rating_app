@@ -146,6 +146,38 @@ describe("trusted player history reads", () => {
       rank: 1,
     });
   });
+
+  it.each([
+    ["E. Bravo", "bravo", "669618", "404115"],
+    ["K. Estrada", "estrada", "628817", "512850"],
+  ])(
+    "consolidates %s history and resolves the legacy profile route",
+    async (name, key, legacyExternalId, canonicalExternalId) => {
+      const { canonicalId, legacyId } = await seedAliasedHistory({
+        name,
+        key,
+        legacyExternalId,
+        canonicalExternalId,
+        position: "attacker",
+      });
+      const profile = await new AdminPlayerHistoryService(database).get(
+        legacyId,
+        teamId,
+      );
+
+      expect(profile).toMatchObject({
+        playerId: canonicalId,
+        playerName: name,
+        overallAverage: 8,
+        ratedMatchCount: 2,
+        recentRating: 9,
+        history: [
+          expect.objectContaining({ matchId: `${key}-new`, average: 9 }),
+          expect.objectContaining({ matchId: `${key}-old`, average: 7 }),
+        ],
+      });
+    },
+  );
 });
 
 async function seedMatch(
@@ -192,53 +224,76 @@ async function seedMatch(
   }
 }
 
-async function seedAliasedHistory() {
-  const canonicalId = providerEntityId("player", "api-football", "36237");
-  const legacyId = providerEntityId("player", "api-football", "541314");
+async function seedAliasedHistory(
+  identity: {
+    name: string;
+    key: string;
+    legacyExternalId: string;
+    canonicalExternalId: string;
+    position: "midfielder" | "attacker";
+  } = {
+    name: "S. Rodriguez",
+    key: "alias",
+    legacyExternalId: "541314",
+    canonicalExternalId: "36237",
+    position: "midfielder",
+  },
+) {
+  const canonicalId = providerEntityId(
+    "player",
+    "api-football",
+    identity.canonicalExternalId,
+  );
+  const legacyId = providerEntityId(
+    "player",
+    "api-football",
+    identity.legacyExternalId,
+  );
   const timestamp = Timestamp.fromDate(new Date("2026-09-01T00:00:00.000Z"));
   await Promise.all([
     database.doc(`players/${canonicalId}`).set({
-      displayName: "S. Rodriguez",
-      position: "midfielder",
+      displayName: identity.name,
+      position: identity.position,
       externalProvider: "api-football",
-      externalProviderId: "36237",
+      externalProviderId: identity.canonicalExternalId,
       createdAt: timestamp,
       updatedAt: timestamp,
     }),
     database.doc(`players/${legacyId}`).set({
-      displayName: "S. Rodriguez",
+      displayName: identity.name,
       externalProvider: "api-football",
-      externalProviderId: "541314",
+      externalProviderId: identity.legacyExternalId,
       createdAt: timestamp,
       updatedAt: timestamp,
     }),
-    ...["36237", "541314"].map((externalProviderPlayerId) =>
-      database
-        .doc(
-          `playerProviderAliases/${playerProviderAliasId(
-            "api-football",
+    ...[identity.canonicalExternalId, identity.legacyExternalId].map(
+      (externalProviderPlayerId) =>
+        database
+          .doc(
+            `playerProviderAliases/${playerProviderAliasId(
+              "api-football",
+              externalProviderPlayerId,
+            )}`,
+          )
+          .set({
+            canonicalPlayerId: canonicalId,
+            canonicalExternalProviderPlayerId: identity.canonicalExternalId,
+            externalProvider: "api-football",
             externalProviderPlayerId,
-          )}`,
-        )
-        .set({
-          canonicalPlayerId: canonicalId,
-          canonicalExternalProviderPlayerId: "36237",
-          externalProvider: "api-football",
-          externalProviderPlayerId,
-          createdAt: timestamp,
-          updatedAt: timestamp,
-        }),
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          }),
     ),
   ]);
   for (const [matchId, playerId, externalPlayerId, average] of [
-    ["alias-old", legacyId, "541314", 7],
-    ["alias-new", canonicalId, "36237", 9],
+    [`${identity.key}-old`, legacyId, identity.legacyExternalId, 7],
+    [`${identity.key}-new`, canonicalId, identity.canonicalExternalId, 9],
   ] as const) {
     await seedMatch(matchId, "rating_closed", timestamp);
     await database.doc(`matches/${matchId}/participants/${playerId}`).set({
       matchId,
       playerId,
-      playerName: "S. Rodriguez",
+      playerName: identity.name,
       teamId,
       externalProvider: "api-football",
       externalProviderTeamId: "815",
@@ -256,7 +311,7 @@ async function seedAliasedHistory() {
       playerResults: {
         [playerId]: {
           playerId,
-          playerName: "S. Rodriguez",
+          playerName: identity.name,
           average,
           voteCount: 2,
           order: 0,
