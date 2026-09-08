@@ -9,6 +9,7 @@ import type {
   Match,
   MatchParticipant,
   Player,
+  PlayerProviderAlias,
   Season,
   StandingsSnapshot,
   Team,
@@ -137,6 +138,23 @@ function sortObject(value: unknown): unknown {
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([key, field]) => [key, sortObject(field)]),
   );
+}
+
+function assertMatchingPlayerProviderAlias(
+  existing: PlayerProviderAlias,
+  proposed: PlayerProviderAlias,
+): void {
+  if (
+    existing.canonicalPlayerId !== proposed.canonicalPlayerId ||
+    existing.canonicalExternalProviderPlayerId !==
+      proposed.canonicalExternalProviderPlayerId ||
+    existing.externalProvider !== proposed.externalProvider ||
+    existing.externalProviderPlayerId !== proposed.externalProviderPlayerId
+  ) {
+    throw new Error(
+      `Player provider alias ${proposed.id} conflicts with its persisted canonical identity.`,
+    );
+  }
 }
 
 export class EmulatorFootballSyncStore
@@ -386,6 +404,31 @@ export class EmulatorFootballSyncStore
 
   upsertPlayers(players: Player[]): Promise<SyncWriteCounts> {
     return this.upsert("players", players);
+  }
+
+  async resolvePlayerProviderAliases(
+    aliases: PlayerProviderAlias[],
+  ): Promise<PlayerProviderAlias[]> {
+    const unique = [
+      ...new Map(aliases.map((alias) => [alias.id, alias])).values(),
+    ];
+    const resolved: PlayerProviderAlias[] = [];
+    for (const proposed of unique) {
+      const existing = await this.get("playerProviderAliases", proposed.id);
+      if (existing === null) {
+        await this.create(
+          "playerProviderAliases",
+          proposed.id,
+          proposed as unknown as Record<string, unknown>,
+        );
+        resolved.push(proposed);
+        continue;
+      }
+      const persisted = existing as unknown as PlayerProviderAlias;
+      assertMatchingPlayerProviderAlias(persisted, proposed);
+      resolved.push(persisted);
+    }
+    return resolved;
   }
 
   upsertMatchParticipants(

@@ -24,6 +24,7 @@
     "sync:football": "tsx --env-file=.env.local scripts/sync-football.ts",
     "sync:match-participants": "tsx --env-file=.env.local scripts/sync-match-participants.ts",
     "sync:player-squad": "tsx --env-file-if-exists=.env.local scripts/sync-player-squad.ts",
+    "reconcile:player-identities": "tsx scripts/reconcile-player-identities.ts",
     "sync:lifecycle": "tsx --env-file=.env.local scripts/sync-lifecycle.ts",
     "bootstrap:production-team": "tsx scripts/bootstrap-production-team.ts",
     "verify": "npm run format:check && npm run check:encoding && npm run lint && npm run typecheck && npm test && npm run build"

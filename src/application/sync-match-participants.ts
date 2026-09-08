@@ -1,5 +1,4 @@
-import { createHash } from "node:crypto";
-
+import { proposedPlayerProviderAlias } from "@/config/player-identity-reconciliations";
 import type {
   Coach,
   CoachAssignment,
@@ -11,6 +10,9 @@ import type {
   FootballSyncStore,
   SyncWriteCounts,
 } from "@/domain/ports";
+import { providerEntityId } from "@/domain/player-identity";
+
+export { providerEntityId } from "@/domain/player-identity";
 
 export interface MatchParticipantSyncSummary {
   matchId: string;
@@ -25,18 +27,6 @@ export interface MatchParticipantSyncSummary {
   coachAssignments: SyncWriteCounts;
   coach: { id: string; name: string };
   apiRequests: number;
-}
-
-export function providerEntityId(
-  kind: "player" | "coach",
-  provider: string,
-  externalId: string,
-): string {
-  const digest = createHash("sha256")
-    .update(`${provider}:${kind}:${externalId}`)
-    .digest("hex")
-    .slice(0, 24);
-  return `${kind}-${digest}`;
 }
 
 export async function syncMatchParticipants(
@@ -93,11 +83,24 @@ export async function syncMatchParticipants(
       `Provider returned a head coach for Team ${context.headCoach.externalTeamId}, not tracked Team ${externalTeamId}.`,
     );
   }
+  const aliases = await store.resolvePlayerProviderAliases(
+    trackedParticipants.map((participant) =>
+      proposedPlayerProviderAlias(
+        provider.name,
+        participant.externalPlayerId,
+        timestamp,
+      ),
+    ),
+  );
+  const canonicalIds = new Map(
+    aliases.map((alias) => [alias.externalProviderPlayerId, alias]),
+  );
   const players: Player[] = trackedParticipants.map((participant) => ({
-    id: providerEntityId("player", provider.name, participant.externalPlayerId),
+    id: canonicalIds.get(participant.externalPlayerId)!.canonicalPlayerId,
     displayName: participant.name,
     externalProvider: provider.name,
-    externalProviderId: participant.externalPlayerId,
+    externalProviderId: canonicalIds.get(participant.externalPlayerId)!
+      .canonicalExternalProviderPlayerId,
     ...(participant.position === undefined
       ? {}
       : { position: participant.position }),

@@ -44,15 +44,18 @@ export function buildPlayerCatalog({
   matches,
   results,
   trackedTeamExternalProviderId,
+  canonicalPlayerIds = new Map(),
 }: {
   identities: PlayerIdentity[];
   matches: Match[];
   results: MatchResult[];
   trackedTeamExternalProviderId: string;
+  canonicalPlayerIds?: ReadonlyMap<string, string>;
 }): PlayerCatalog {
   const matchesById = new Map(matches.map((match) => [match.id, match]));
-  const playersById = new Map(
-    identities.map((identity) => [identity.id, identity]),
+  const playersById = mergeCanonicalPlayerIdentities(
+    identities,
+    canonicalPlayerIds,
   );
   const histories = new Map<string, PlayerMatchRating[]>();
 
@@ -65,14 +68,38 @@ export function buildPlayerCatalog({
     ) {
       continue;
     }
+    const canonicalResults = new Map<
+      string,
+      MatchResult["playerResults"][string]
+    >();
     for (const player of Object.values(result.playerResults)) {
-      if (!playersById.has(player.playerId)) {
-        playersById.set(player.playerId, {
-          id: player.playerId,
+      const playerId =
+        canonicalPlayerIds.get(player.playerId) ?? player.playerId;
+      const existing = canonicalResults.get(playerId);
+      if (existing !== undefined) {
+        if (
+          existing.average !== player.average ||
+          existing.voteCount !== player.voteCount
+        ) {
+          throw new Error(
+            `MatchResult ${result.matchId} contains conflicting ratings for canonical Player ${playerId}.`,
+          );
+        }
+        if (player.playerId === playerId && existing.playerId !== playerId) {
+          canonicalResults.set(playerId, player);
+        }
+        continue;
+      }
+      canonicalResults.set(playerId, player);
+    }
+    for (const [playerId, player] of canonicalResults) {
+      if (!playersById.has(playerId)) {
+        playersById.set(playerId, {
+          id: playerId,
           name: player.playerName,
         });
       }
-      const history = histories.get(player.playerId) ?? [];
+      const history = histories.get(playerId) ?? [];
       history.push({
         matchId: match.id,
         kickoffAt: match.kickoffAt,
@@ -86,7 +113,7 @@ export function buildPlayerCatalog({
         average: player.average,
         voteCount: player.voteCount,
       });
-      histories.set(player.playerId, history);
+      histories.set(playerId, history);
     }
   }
 
@@ -142,6 +169,35 @@ export function buildPlayerCatalog({
     rankingMinimumMatches: PLAYER_RANKING_MIN_MATCHES,
     historyMatchLimit: PLAYER_HISTORY_MATCH_LIMIT,
   };
+}
+
+function mergeCanonicalPlayerIdentities(
+  identities: readonly PlayerIdentity[],
+  canonicalPlayerIds: ReadonlyMap<string, string>,
+): Map<string, PlayerIdentity> {
+  const players = new Map<string, PlayerIdentity>();
+  const ordered = [...identities].sort((left, right) => {
+    const leftCanonical = canonicalPlayerIds.get(left.id) ?? left.id;
+    const rightCanonical = canonicalPlayerIds.get(right.id) ?? right.id;
+    const leftPriority = left.id === leftCanonical ? 1 : 0;
+    const rightPriority = right.id === rightCanonical ? 1 : 0;
+    return leftPriority - rightPriority || left.id.localeCompare(right.id);
+  });
+  for (const identity of ordered) {
+    const id = canonicalPlayerIds.get(identity.id) ?? identity.id;
+    const current = players.get(id);
+    const merged: PlayerIdentity = {
+      id,
+      name:
+        identity.id === id ? identity.name : (current?.name ?? identity.name),
+    };
+    const position = identity.position ?? current?.position;
+    const photoUrl = identity.photoUrl ?? current?.photoUrl;
+    if (position !== undefined) merged.position = position;
+    if (photoUrl !== undefined) merged.photoUrl = photoUrl;
+    players.set(id, merged);
+  }
+  return players;
 }
 
 function compareRatedPlayers(

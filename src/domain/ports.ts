@@ -8,6 +8,7 @@ import type {
   Match,
   MatchParticipant,
   Player,
+  PlayerProviderAlias,
   PlayerPosition,
   Season,
   StandingsSnapshot,
@@ -176,6 +177,9 @@ export interface FootballSyncStore {
   upsertSeasons(seasons: Season[]): Promise<SyncWriteCounts>;
   upsertMatches(matches: Match[]): Promise<SyncWriteCounts>;
   upsertPlayers(players: Player[]): Promise<SyncWriteCounts>;
+  resolvePlayerProviderAliases(
+    aliases: PlayerProviderAlias[],
+  ): Promise<PlayerProviderAlias[]>;
   upsertMatchParticipants(
     matchId: string,
     participants: MatchParticipant[],

@@ -22,6 +22,7 @@ describe("player history", () => {
       overallAverage: 8,
       ratedMatchCount: 2,
       rank: 1,
+      recentRating: 9,
     });
     expect(value?.history.map(({ matchId }) => matchId)).toEqual([
       "newer",
@@ -93,6 +94,92 @@ describe("player history", () => {
     expect(
       catalog.players.find(({ playerId }) => playerId === "single"),
     ).toMatchObject({ overallAverage: 9, ratedMatchCount: 1, rank: null });
+  });
+
+  it("combines explicit aliases into one ranked canonical history", () => {
+    const catalog = buildPlayerCatalog({
+      identities: [
+        { id: "canonical", name: "Current name", position: "midfielder" },
+        { id: "legacy", name: "Old snapshot" },
+        { id: "similar", name: "S. Rodriguez" },
+      ],
+      matches: [match("older"), match("newer", {}, 1)],
+      results: [
+        result("older", { legacy: player("legacy", "Old snapshot", 7) }),
+        result("newer", {
+          canonical: player("canonical", "Current name", 9),
+        }),
+      ],
+      trackedTeamExternalProviderId: "815",
+      canonicalPlayerIds: new Map([["legacy", "canonical"]]),
+    });
+
+    expect(catalog.players).toHaveLength(2);
+    expect(
+      catalog.players.find(({ playerId }) => playerId === "canonical"),
+    ).toMatchObject({
+      playerName: "Current name",
+      position: "midfielder",
+      overallAverage: 8,
+      ratedMatchCount: 2,
+      rank: 1,
+      recentRating: 9,
+    });
+    expect(
+      catalog.players
+        .find(({ playerId }) => playerId === "canonical")
+        ?.history.map(({ matchId, average }) => ({ matchId, average })),
+    ).toEqual([
+      { matchId: "newer", average: 9 },
+      { matchId: "older", average: 7 },
+    ]);
+    expect(
+      catalog.players.find(({ playerId }) => playerId === "similar"),
+    ).toMatchObject({ ratedMatchCount: 0 });
+  });
+
+  it("counts equivalent alias and canonical results from one match once", () => {
+    const catalog = buildPlayerCatalog({
+      identities: [
+        { id: "canonical", name: "Current name" },
+        { id: "legacy", name: "Old snapshot" },
+      ],
+      matches: [match("same-match")],
+      results: [
+        result("same-match", {
+          legacy: player("legacy", "Old snapshot", 8),
+          canonical: player("canonical", "Current name", 8),
+        }),
+      ],
+      trackedTeamExternalProviderId: "815",
+      canonicalPlayerIds: new Map([["legacy", "canonical"]]),
+    });
+
+    expect(catalog.players).toEqual([
+      expect.objectContaining({
+        playerId: "canonical",
+        overallAverage: 8,
+        ratedMatchCount: 1,
+        recentRating: 8,
+      }),
+    ]);
+  });
+
+  it("rejects conflicting alias and canonical results from one match", () => {
+    expect(() =>
+      buildPlayerCatalog({
+        identities: [{ id: "canonical", name: "Current name" }],
+        matches: [match("same-match")],
+        results: [
+          result("same-match", {
+            legacy: player("legacy", "Old snapshot", 7),
+            canonical: player("canonical", "Current name", 9),
+          }),
+        ],
+        trackedTeamExternalProviderId: "815",
+        canonicalPlayerIds: new Map([["legacy", "canonical"]]),
+      }),
+    ).toThrow(/same-match.*conflicting ratings.*canonical/i);
   });
 
   it("never exposes ballot or voter fields in its public DTO", () => {
