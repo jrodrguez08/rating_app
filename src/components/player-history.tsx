@@ -184,7 +184,11 @@ export function PlayerProfile({
                 </p>
               </div>
             ) : (
-              <RatingSparkline player={player} messages={messages} />
+              <RatingSparkline
+                player={player}
+                locale={locale}
+                messages={messages}
+              />
             )}
           </section>
 
@@ -244,19 +248,29 @@ export function PlayerProfile({
 
 function RatingSparkline({
   player,
+  locale,
   messages,
 }: {
   player: PlayerCatalogEntry;
+  locale: Locale;
   messages: PlayerMessages;
 }) {
   const chronological = [...player.history].reverse();
-  const points = chronological
-    .map((entry, index) => {
-      const x = 8 + (index / (chronological.length - 1)) * 184;
-      const y = 92 - ((entry.average - 1) / 9) * 84;
-      return `${x},${y}`;
-    })
-    .join(" ");
+  const plot = {
+    left: 28,
+    right: 312,
+    top: 12,
+    bottom: 116,
+  };
+  const plotted = chronological.map((entry, index) => ({
+    entry,
+    x:
+      plot.left +
+      (index / (chronological.length - 1)) * (plot.right - plot.left),
+    y: ratingToY(entry.average, plot.top, plot.bottom),
+  }));
+  const points = plotted.map(({ x, y }) => `${x},${y}`).join(" ");
+  const labeledPointIndexes = axisLabelIndexes(chronological.length);
   const label = messages.trendLabel
     .replace("{name}", player.playerName)
     .replace(
@@ -264,13 +278,46 @@ function RatingSparkline({
       chronological.map((entry) => rating(entry.average)).join(", "),
     );
   return (
-    <div className="game-inset mt-4 p-3">
+    <div className="game-inset mt-4 overflow-hidden p-3">
       <svg
-        viewBox="0 0 200 100"
-        role="img"
+        viewBox="0 0 320 152"
+        role="group"
         aria-label={label}
-        className="h-32 w-full"
+        className="h-44 w-full max-w-full"
+        preserveAspectRatio="xMidYMid meet"
       >
+        <title>{label}</title>
+        <g aria-hidden="true">
+          {[
+            { rating: 10, y: plot.top },
+            { rating: 5, y: ratingToY(5, plot.top, plot.bottom) },
+            { rating: 1, y: plot.bottom },
+          ].map((guide) => (
+            <g key={guide.rating}>
+              <text
+                x="21"
+                y={guide.y}
+                dy="0.35em"
+                textAnchor="end"
+                fill="var(--game-muted)"
+                fontSize="10"
+              >
+                {guide.rating}
+              </text>
+              <line
+                data-testid="rating-guide"
+                x1={plot.left}
+                x2={plot.right}
+                y1={guide.y}
+                y2={guide.y}
+                stroke="var(--game-border)"
+                strokeWidth="1"
+                strokeDasharray="2 3"
+                opacity="0.55"
+              />
+            </g>
+          ))}
+        </g>
         <polyline
           points={points}
           fill="none"
@@ -278,23 +325,153 @@ function RatingSparkline({
           strokeWidth="4"
           strokeLinejoin="miter"
         />
-        {chronological.map((entry, index) => {
-          const [cx, cy] = points.split(" ")[index].split(",");
+        {plotted.map(({ entry, x, y }, index) => {
+          const shortDate = formatDate(entry.kickoffAt, locale, {
+            day: "numeric",
+            month: "numeric",
+          });
+          const fullDate = formatDate(entry.kickoffAt, locale, {
+            dateStyle: "medium",
+          });
+          const pointLabel = messages.trendPointLabel
+            .replace("{opponent}", entry.opponentName)
+            .replace("{date}", fullDate)
+            .replace("{rating}", rating(entry.average));
+          const tooltipWidth = 152;
+          const tooltipHeight = 50;
+          const tooltipX = Math.min(
+            Math.max(x - tooltipWidth / 2, plot.left),
+            316 - tooltipWidth,
+          );
+          const tooltipY =
+            y < plot.top + tooltipHeight + 8 ? y + 10 : y - tooltipHeight - 8;
           return (
-            <circle
+            <g
               key={entry.matchId}
-              cx={cx}
-              cy={cy}
-              r="4"
-              fill="var(--club-primary)"
-              stroke="var(--game-text)"
-              strokeWidth="2"
-            />
+              data-testid="rating-point"
+              role="img"
+              aria-label={pointLabel}
+              tabIndex={0}
+              focusable="true"
+              className="group outline-none"
+            >
+              <circle cx={x} cy={y} r="12" fill="transparent" />
+              <circle
+                cx={x}
+                cy={y}
+                r="8"
+                fill="none"
+                stroke="var(--game-focus)"
+                strokeWidth="2"
+                className="opacity-0 group-focus:opacity-100"
+              />
+              <circle
+                cx={x}
+                cy={y}
+                r="4"
+                fill="var(--club-primary)"
+                stroke="var(--game-text)"
+                strokeWidth="2"
+              />
+              <g
+                aria-hidden="true"
+                className="pointer-events-none opacity-0 transition-opacity group-hover:opacity-100 group-focus:opacity-100 motion-reduce:transition-none"
+              >
+                <rect
+                  x={tooltipX}
+                  y={tooltipY}
+                  width={tooltipWidth}
+                  height={tooltipHeight}
+                  fill="var(--game-surface-raised)"
+                  stroke="var(--game-text)"
+                  strokeWidth="1"
+                />
+                <text
+                  x={tooltipX + 7}
+                  y={tooltipY + 15}
+                  fill="var(--club-secondary)"
+                  fontSize="11"
+                  className="score-font"
+                >
+                  {messages.trendRating.replace(
+                    "{rating}",
+                    rating(entry.average),
+                  )}
+                </text>
+                <text
+                  x={tooltipX + 7}
+                  y={tooltipY + 29}
+                  fill="var(--game-text)"
+                  fontSize="10"
+                >
+                  {truncate(
+                    messages.versus.replace("{opponent}", entry.opponentName),
+                    24,
+                  )}
+                </text>
+                <text
+                  x={tooltipX + 7}
+                  y={tooltipY + 42}
+                  fill="var(--game-muted)"
+                  fontSize="9"
+                >
+                  {fullDate}
+                </text>
+              </g>
+              {labeledPointIndexes.has(index) ? (
+                <g aria-hidden="true">
+                  <line
+                    x1={x}
+                    x2={x}
+                    y1={plot.bottom}
+                    y2={plot.bottom + 4}
+                    stroke="var(--game-muted)"
+                    strokeWidth="1"
+                  />
+                  <text
+                    data-testid="rating-axis-label"
+                    x={x}
+                    y="139"
+                    textAnchor={
+                      index === 0
+                        ? "start"
+                        : index === chronological.length - 1
+                          ? "end"
+                          : "middle"
+                    }
+                    fill="var(--game-muted)"
+                    fontSize="9"
+                  >
+                    {shortDate}
+                  </text>
+                </g>
+              ) : null}
+            </g>
           );
         })}
       </svg>
     </div>
   );
+}
+
+function ratingToY(value: number, top: number, bottom: number) {
+  return bottom - ((value - 1) / 9) * (bottom - top);
+}
+
+function axisLabelIndexes(length: number) {
+  if (length <= 5) return new Set(Array.from({ length }, (_, index) => index));
+  return new Set([
+    0,
+    Math.round((length - 1) / 3),
+    Math.round(((length - 1) * 2) / 3),
+    length - 1,
+  ]);
+}
+
+function truncate(value: string, maximumLength: number) {
+  return value.length <= maximumLength
+    ? value
+    : `${value.slice(0, maximumLength - 1)}…`;
 }
 
 function matchCount(count: number, messages: PlayerMessages) {

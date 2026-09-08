@@ -88,6 +88,8 @@ Submission uses one focused confirmation dialog because ballots are immutable. I
 
 Final results use a scorecard hierarchy, not an analytics dashboard. The match score leads, a crisp secondary-accent block gives player MVP or co-MVP the strongest emphasis, ranked players use numbered inset rows, and the coach sits in a separate panel. Display averages use one decimal in score typography; names remain readable sans and wrap safely. Ranking and MVP labels must be explicit rather than color-only. Do not add traffic-light rating colors, glow, or casino treatment.
 
+Player evolution charts remain compact dark insets rather than analytics panels. Plot ratings against the fixed product scale of 1–10, label 10, 5, and 1 with only three low-contrast horizontal guides, and run history chronologically from left to right. Use localized short dates for horizontal context, thinning visible labels to a small representative set when history becomes dense. Every point must expose its exact one-decimal rating, opponent, and date through a viewport-bounded tooltip on pointer hover or focus, with a meaningful accessible label and visible keyboard focus. Do not auto-scale to observed results or rely on color alone.
+
 League standings use a compact fixed-layout table. At mobile widths show rank, Team, played, goal difference, and points; reveal wins, draws, and losses at wider widths. Team names truncate safely, numeric cells use score typography, and the configured Team receives a club-accent row marker plus a screen-reader label so identity is never color-only. Do not require horizontal scrolling at 320 px.
 
 ## Spacing and responsive behavior

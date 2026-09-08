@@ -203,6 +203,8 @@ export const esMessages = {
     viewResults: "Ver resultados",
     back: "Volver a jugadores",
     trendLabel: "Evolución de {name}: {ratings}",
+    trendPointLabel: "vs {opponent}, {date}: calificación {rating}",
+    trendRating: "Calificación {rating}",
     avatarLabel: "Avatar de {name}",
     positions: {
       goalkeeper: "Portero",
