@@ -82,7 +82,7 @@ Until an intentional provider/logo licensing strategy exists, team marks use ori
 
 Ratings use a five-column grid of discrete values `1` through `10`, not a precision slider. Each player and the head coach has a labeled fieldset; every value is a 44px-or-larger button with `aria-pressed`, keyboard operation, high contrast, and an unmistakable club-secondary selected state. The complete-count and sticky submission action remain visible on narrow screens without covering the final control.
 
-Submission uses one focused confirmation dialog because ballots are immutable. It explains that ratings cannot be changed, traps keyboard focus, supports Escape/cancel, and restores focus to the triggering button. Recoverable errors preserve every selected rating. Submitted, closed, not-open, and unavailable states use explicit localized text and never reveal individual or aggregate results.
+Submission uses one focused confirmation dialog because ballots are immutable. It explains that ratings cannot be changed, traps keyboard focus, supports Escape/cancel, and restores focus to the triggering button. Recoverable errors preserve every selected rating. On voting-entry surfaces, a submitted ballot becomes one compact, non-interactive inline success status with a decorative check; it has no button states, shadow, focus stop, or redundant explanation, and may sit beside a real sharing action. Closed, not-open, and unavailable states use explicit localized text. These states never reveal individual or aggregate results.
 
 ## Match results
 

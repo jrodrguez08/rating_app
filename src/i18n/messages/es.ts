@@ -89,7 +89,6 @@ export const esMessages = {
         action: "Calificar partido",
         share: "Compartir votación por WhatsApp",
         submitted: "Calificaci\u00f3n enviada",
-        submittedDescription: "Tu calificaci\u00f3n ya fue registrada.",
         checking: "Preparando tu sesi\u00f3n...",
         sessionError: "No pudimos preparar tu sesi\u00f3n. Intenta de nuevo.",
       },
