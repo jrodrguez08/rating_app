@@ -89,7 +89,6 @@ export const enMessages = {
         action: "Rate match",
         share: "Share voting via WhatsApp",
         submitted: "Rating submitted",
-        submittedDescription: "Your rating has already been recorded.",
         checking: "Preparing your session...",
         sessionError: "We couldn't prepare your session. Try again.",
       },

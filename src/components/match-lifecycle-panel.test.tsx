@@ -52,6 +52,32 @@ describe("Home WhatsApp rating share", () => {
     );
   });
 
+  it("keeps WhatsApp actionable beside a submitted non-interactive status", async () => {
+    vi.mocked(getBallotStatus).mockResolvedValue("submitted");
+    render(
+      <MatchLifecyclePanel
+        match={match({
+          ratingState: "rating_ready",
+          status: "finished",
+          votingOpensAt: new Date(now - 60_000).toISOString(),
+          votingClosesAt: new Date(now + 60_000).toISOString(),
+        })}
+        locale="es"
+        messages={messages}
+        goalMessages={getMessages("es").matches}
+      />,
+    );
+
+    const status = await screen.findByRole("status");
+    expect(status).toHaveTextContent("Calificación enviada");
+    expect(
+      screen.getByRole("link", { name: "Compartir votación por WhatsApp" }),
+    ).toHaveAttribute("title", "Compartir votación por WhatsApp");
+    expect(
+      screen.queryByRole("link", { name: "Calificar partido" }),
+    ).not.toBeInTheDocument();
+  });
+
   it.each([
     [
       "expired",

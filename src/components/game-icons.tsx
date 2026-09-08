@@ -32,6 +32,21 @@ export function StatusPanelIcon(props: GameIconProps) {
   );
 }
 
+export function CheckIcon(props: GameIconProps) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="16"
+      height="16"
+      fill="currentColor"
+      shapeRendering="crispEdges"
+      {...props}
+    >
+      <path d="M2 7h2v2h2v2h2V9h2V7h2V5h2v4h-2v2h-2v2H6v-2H4V9H2z" />
+    </svg>
+  );
+}
+
 export function WhatsAppIcon(props: GameIconProps) {
   return (
     <svg

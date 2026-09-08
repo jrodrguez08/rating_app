@@ -90,8 +90,8 @@ describe("Partidos presentation", () => {
 
     expect(await screen.findByText("Rating submitted")).toBeInTheDocument();
     expect(
-      screen.getByText("Your rating has already been recorded."),
-    ).toBeInTheDocument();
+      screen.queryByText("Your rating has already been recorded."),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("link", { name: "Rate match" }),
     ).not.toBeInTheDocument();
@@ -132,7 +132,7 @@ describe("Partidos presentation", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("keeps a submitted secondary card compact and non-actionable", async () => {
+  it("keeps a submitted secondary status compact and non-actionable", async () => {
     vi.mocked(getBallotStatus).mockResolvedValue("submitted");
     const ready = item(
       match({
@@ -154,7 +154,9 @@ describe("Partidos presentation", () => {
       />,
     );
 
-    expect(await screen.findByText("Rating submitted")).toBeInTheDocument();
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Rating submitted",
+    );
     expect(
       screen.queryByRole("link", { name: "Rate match" }),
     ).not.toBeInTheDocument();

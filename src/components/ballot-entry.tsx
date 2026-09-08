@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import type { Messages } from "@/i18n/messages";
 import { getBallotStatus } from "@/lib/firebase/ballot-client";
 
-import { WhatsAppIcon } from "./game-icons";
+import { CheckIcon, WhatsAppIcon } from "./game-icons";
 
 export function BallotEntry({
   matchId,
@@ -44,15 +44,13 @@ export function BallotEntry({
   }
   if (state === "submitted") {
     return actionRow(
-      <div
-        className={`game-inset ${compact ? `${shareHref ? "" : "mt-3"} px-3 py-2` : `${shareHref ? "" : "mt-5"} p-3`}`}
+      <span
+        className={`score-font inline-flex min-h-8 max-w-full items-center gap-2 border border-success/50 bg-success/10 px-2 py-1 text-[0.6875rem] uppercase tracking-[0.03em] text-success ${shareHref ? "" : compact ? "mt-3" : "mt-5"}`}
         role="status"
       >
-        <p className="status-badge">{messages.submitted}</p>
-        <p className="mt-1 text-sm text-muted">
-          {messages.submittedDescription}
-        </p>
-      </div>,
+        <CheckIcon aria-hidden="true" className="shrink-0" />
+        <span>{messages.submitted}</span>
+      </span>,
       shareHref,
       messages.share,
     );
@@ -90,7 +88,7 @@ function actionRow(
   if (!shareHref) return content;
 
   return (
-    <div className="mt-5 flex items-center gap-3">
+    <div className="mt-5 flex max-w-full flex-wrap items-center gap-3">
       <div className="min-w-0">{content}</div>
       {shareHref ? (
         <a
