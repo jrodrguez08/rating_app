@@ -55,7 +55,7 @@ No Firebase or API-Football credential belongs in GitHub for this workflow.
 6. From a clean reviewed commit, deploy with an explicit target: `firebase deploy --only firestore:rules,firestore:indexes --project <exact-production-project-id>`. Never rely on `.firebaserc`, whose default remains the safe demo project.
 7. Verify rules: only `teams/{teamId}` is public-readable; all client writes and all other reads, including ballots and results, are denied.
 
-Jugadores V1 adds the tracked-Team/kickoff match-history composite index and participant collection-group single-field index declared in `firestore.indexes.json`; deploy them with the existing explicit `firestore:indexes` command before releasing player pages.
+Jugadores V1 adds the tracked-Team/kickoff match-history composite index and participant collection-group single-field index declared in `firestore.indexes.json`. Lifecycle readiness additionally requires the collection-scoped `participants(participated, teamId)` composite index used by `countRateableParticipants()`. Deploy all declared indexes with the explicit `firestore:indexes` command before relying on player pages or post-FT voting readiness in production.
 
 ## Safe deployment and bootstrap order
 
