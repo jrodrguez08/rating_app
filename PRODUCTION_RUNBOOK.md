@@ -128,6 +128,8 @@ Network/provider validation, lineup-not-observed/cache-empty, incomplete lineup,
 
 ## Infrastructure smoke test
 
+For a published match, the result page may make one authenticated, private no-store comparison request for the current anonymous voter. The trusted endpoint reads only that voter's deterministic ballot after the existing result publication guard; absent ballots return a neutral status. Confirm an open or pending match returns no comparison, a voter without a ballot sees no fabricated ratings, and a submitted voter sees their own player and coach values. Firestore rules and indexes are unchanged; client ballot reads remain denied.
+
 - App shell loads in Spanish and English with no raw error details.
 - Anonymous Auth creates and reuses an identity; no UID is visible.
 - Authenticated health returns `ready`; missing/wrong secret returns 401.

@@ -25,6 +25,10 @@ import {
 import { validateBallotRatings } from "@/domain/ballot-validation";
 import { preserveMonotonicMatchStatus } from "@/domain/match-status";
 import { aggregateMatchResult } from "@/domain/result-aggregation";
+import {
+  compareVoteWithResult,
+  type VoteComparison,
+} from "@/domain/vote-comparison";
 import type {
   Ballot,
   Coach,
@@ -141,6 +145,57 @@ export class AdminResultService {
       match,
       result: fromDocument<MatchResult>(resultSnapshot),
     };
+  }
+
+  async getVoteComparison(
+    matchId: string,
+    voterId: string,
+    now = new Date(),
+  ): Promise<
+    | { status: "locked" | "no_ballot" | "unavailable" }
+    | { status: "ready"; comparison: VoteComparison }
+  > {
+    const page = await this.getPageState(matchId, now);
+    if (page.state !== "ready") return { status: "locked" };
+
+    const ballotSnapshot = await this.database
+      .doc(`matches/${matchId}/ballots/${voterId}`)
+      .get();
+    if (!ballotSnapshot.exists) return { status: "no_ballot" };
+    const ballot = fromDocument<Ballot>(ballotSnapshot);
+    if (ballot.voterId !== voterId) return { status: "unavailable" };
+
+    const participantSnapshot = await this.database
+      .collection(`matches/${matchId}/participants`)
+      .get();
+    const aliasIds = [
+      ...new Set(
+        participantSnapshot.docs.map((snapshot) => {
+          const participant = fromDocument<MatchParticipant>(snapshot);
+          return playerProviderAliasId(
+            participant.externalProvider,
+            participant.externalProviderPlayerId,
+          );
+        }),
+      ),
+    ];
+    const aliasSnapshots =
+      aliasIds.length === 0
+        ? []
+        : await this.database.getAll(
+            ...aliasIds.map((id) =>
+              this.database.doc(`playerProviderAliases/${id}`),
+            ),
+          );
+    const canonicalIds = canonicalPlayerIdMap(
+      aliasSnapshots
+        .filter((snapshot) => snapshot.exists)
+        .map((snapshot) => fromDocument<PlayerProviderAlias>(snapshot)),
+    );
+    const comparison = compareVoteWithResult(ballot, page.result, canonicalIds);
+    return comparison === null
+      ? { status: "unavailable" }
+      : { status: "ready", comparison };
   }
 }
 

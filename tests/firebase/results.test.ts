@@ -55,6 +55,46 @@ describe("trusted result finalization", () => {
       .get();
     expect(second.data()?.generatedAt).toEqual(first.data()?.generatedAt);
     expect((await reader.getPageState("two-votes", close)).state).toBe("ready");
+    expect(
+      await reader.getVoteComparison("two-votes", "voter-a", close),
+    ).toMatchObject({
+      status: "ready",
+      comparison: {
+        players: [
+          {
+            id: "starter",
+            userRating: 8,
+            communityAverage: 8.5,
+            difference: -0.5,
+          },
+        ],
+        coach: {
+          id: "coach-1",
+          userRating: 6,
+          communityAverage: 7,
+          difference: -1,
+        },
+      },
+    });
+    expect(
+      await reader.getVoteComparison("two-votes", "nonvoter", close),
+    ).toEqual({ status: "no_ballot" });
+  });
+
+  it("never reads a ballot or exposes averages while voting is open or publication is pending", async () => {
+    await seed("comparison-gated");
+    await writeBallot("comparison-gated", "voter-a", 8, 6);
+    expect(
+      await reader.getVoteComparison(
+        "comparison-gated",
+        "voter-a",
+        new Date(close.getTime() - 1),
+      ),
+    ).toEqual({ status: "locked" });
+    expect(
+      await reader.getVoteComparison("comparison-gated", "voter-a", close),
+    ).toEqual({ status: "locked" });
+    await store.finalizeMatchResult("comparison-gated", close);
   });
 
   it("creates an explicit stable zero-vote summary", async () => {
