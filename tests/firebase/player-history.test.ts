@@ -150,6 +150,7 @@ describe("trusted player history reads", () => {
   it.each([
     ["E. Bravo", "bravo", "669618", "404115"],
     ["K. Estrada", "estrada", "628817", "512850"],
+    ["J. Henestrosa", "henestrosa", "593270", "92547"],
   ])(
     "consolidates %s history and resolves the legacy profile route",
     async (name, key, legacyExternalId, canonicalExternalId) => {

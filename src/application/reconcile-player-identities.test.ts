@@ -103,7 +103,7 @@ describe("player identity reconciliation", () => {
       },
     );
 
-    expect(plannedAliasWrites).toEqual([0, 2, 2]);
+    expect(plannedAliasWrites).toEqual([0, 2, 2, 2]);
   });
 
   it("keeps richer canonical metadata and plans both explicit aliases", () => {

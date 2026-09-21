@@ -10,6 +10,7 @@ const reconciliations = [
   ["S. Rodriguez", "541314", "36237", "player-f020ba4cf4c187bcedb2255d"],
   ["E. Bravo", "669618", "404115", "player-497ecbd4e8df4c3996e95570"],
   ["K. Estrada", "628817", "512850", "player-86124cff51a0d24f11270789"],
+  ["J. Henestrosa", "593270", "92547", "player-99ddeb76f23c45ba53bd553f"],
 ] as const;
 
 describe("player identity reconciliations", () => {
@@ -52,5 +53,11 @@ describe("player identity reconciliations", () => {
       timestamp,
     );
     expect(first.canonicalPlayerId).not.toBe(second.canonicalPlayerId);
+  });
+
+  it("matches the observed Henestrosa legacy Player ID", () => {
+    expect(providerEntityId("player", "api-football", "593270")).toBe(
+      "player-de9d0a50eacbe6ab02f633d2",
+    );
   });
 });
