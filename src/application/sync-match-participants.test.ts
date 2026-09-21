@@ -22,6 +22,7 @@ describe("participant synchronization identities", () => {
     ["S. Rodriguez", "541314", "36237"],
     ["E. Bravo", "669618", "404115"],
     ["K. Estrada", "628817", "512850"],
+    ["J. Henestrosa", "593270", "92547"],
   ])(
     "uses the known %s alias for future match participants",
     async (name, legacyExternalPlayerId, canonicalExternalPlayerId) => {
