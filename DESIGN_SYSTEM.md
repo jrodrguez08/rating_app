@@ -86,7 +86,7 @@ Submission uses one focused confirmation dialog because ballots are immutable. I
 
 ## Match results
 
-The personal vote comparison follows the published scorecard in a compact inset list with player rows in the existing results order and the head coach in a separate group. Each row names the person, labels the supporter's rating and community average, and writes a signed one-decimal difference with explicit above/below/equal wording. Long names and labels wrap within the viewport. It adds no ranking, visual scale, or judgment of the supporter.
+The personal vote comparison follows the published scorecard as a compact, full-width score table with one shared localized header, thin row dividers, players in the existing results order, and a separate coach row group. Flexible name cells wrap without clipping at narrow widths; aligned numeric columns show the supporter's rating, community average, and signed one-decimal difference. The difference header has an explicit accessible label, and screen-reader row text states above, below, or equal. Individual rows have no card border or shadow. This adds no ranking, visual scale, or judgment of the supporter.
 
 Final results use a scorecard hierarchy, not an analytics dashboard. The match score leads, a crisp secondary-accent block gives player MVP or co-MVP the strongest emphasis, ranked players use numbered inset rows, and the coach sits in a separate panel. Display averages use one decimal in score typography; names remain readable sans and wrap safely. Ranking and MVP labels must be explicit rather than color-only. Do not add traffic-light rating colors, glow, or casino treatment.
 

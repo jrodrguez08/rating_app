@@ -82,31 +82,66 @@ export function VoteComparisonSection({
       ) : (
         <>
           <p className="mt-2 text-sm text-muted">{messages.description}</p>
-          <ul className="mt-4 space-y-2">
-            {state.players.map((player) => (
-              <ComparisonItem
-                key={player.id}
-                row={player}
+          <p className="mt-1 text-xs text-muted">{messages.differenceNote}</p>
+          <table className="mt-4 w-full table-fixed border-t-2 border-border text-[11px] sm:text-sm">
+            <colgroup>
+              <col className="w-[41%]" />
+              <col className="w-[19%]" />
+              <col className="w-[20%]" />
+              <col className="w-[20%]" />
+            </colgroup>
+            <thead>
+              <tr className="border-b border-border text-muted">
+                <th scope="col" className="py-2 pr-1 text-left font-normal">
+                  {messages.player}
+                </th>
+                <th scope="col" className="px-0.5 py-2 text-right font-normal">
+                  <span aria-hidden="true">{messages.yourShort}</span>
+                  <span className="sr-only">{messages.yourRating}</span>
+                </th>
+                <th scope="col" className="px-0.5 py-2 text-right font-normal">
+                  {messages.community}
+                </th>
+                <th scope="col" className="pl-0.5 py-2 text-right font-normal">
+                  <span aria-hidden="true">Δ</span>
+                  <span className="sr-only">{messages.difference}</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {state.players.map((player) => (
+                <ComparisonRow
+                  key={player.id}
+                  row={player}
+                  locale={locale}
+                  messages={messages}
+                />
+              ))}
+            </tbody>
+            <tbody>
+              <tr className="border-t-2 border-border">
+                <th
+                  scope="rowgroup"
+                  colSpan={4}
+                  className="pt-3 pb-1 text-left font-bold"
+                >
+                  {messages.coach}
+                </th>
+              </tr>
+              <ComparisonRow
+                row={state.coach}
                 locale={locale}
                 messages={messages}
               />
-            ))}
-          </ul>
-          <h3 className="score-font mt-6 text-base">{messages.coach}</h3>
-          <ul className="mt-3">
-            <ComparisonItem
-              row={state.coach}
-              locale={locale}
-              messages={messages}
-            />
-          </ul>
+            </tbody>
+          </table>
         </>
       )}
     </section>
   );
 }
 
-function ComparisonItem({
+function ComparisonRow({
   row,
   locale,
   messages,
@@ -124,27 +159,35 @@ function ComparisonItem({
       : difference < 0
         ? messages.below
         : messages.equal;
+  const tone =
+    difference > 0
+      ? "text-success"
+      : difference < 0
+        ? "text-warning"
+        : "text-muted";
   return (
-    <li className="game-inset min-w-0 p-3">
-      <p className="break-words font-bold">{row.name}</p>
-      <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-sm">
-        <p>
-          {messages.yourRating}{" "}
-          <span className="score-font">
-            {formatRating(row.userRating, locale)}
-          </span>
-        </p>
-        <p>
-          {messages.community}{" "}
-          <span className="score-font">
-            {formatRating(row.communityAverage, locale)}
-          </span>
-        </p>
-      </div>
-      <p className="mt-2 text-sm text-muted">
-        <span className="score-font text-foreground">{signed}</span> {relation}
-      </p>
-    </li>
+    <tr className="border-b border-border/60 align-top last:border-b-0">
+      <th
+        scope="row"
+        className="min-w-0 py-2 pr-1 text-left font-bold [overflow-wrap:anywhere]"
+      >
+        {row.name}
+      </th>
+      <td className="score-font whitespace-nowrap px-0.5 py-2 text-right">
+        {formatRating(row.userRating, locale)}
+      </td>
+      <td className="score-font whitespace-nowrap px-0.5 py-2 text-right">
+        {formatRating(row.communityAverage, locale)}
+      </td>
+      <td
+        className={`score-font whitespace-nowrap pl-0.5 py-2 text-right ${tone}`}
+      >
+        <span aria-hidden="true">{signed}</span>
+        <span className="sr-only">
+          {signed} {relation}
+        </span>
+      </td>
+    </tr>
   );
 }
 
