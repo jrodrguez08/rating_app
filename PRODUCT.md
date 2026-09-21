@@ -20,6 +20,8 @@ Not implemented now: cloud Team administration, identity-provider linking, seaso
 
 The public application is available on its current Vercel production URL. Guarded production configuration, bootstrap boundaries, and the runbook continue to control Firebase pilot operations.
 
+On a published match result, a supporter can compare their own submitted player and head-coach ratings with community averages in a compact "Mi voto vs la afición" section. It shows the signed difference (own rating minus average) to one decimal in the existing results order. A supporter without a ballot sees a neutral empty state. This comparison does not score or rank supporters and is unavailable before trusted close and result publication.
+
 ## MVP
 
 Partidos prioritizes one relevant featured match, then compact upcoming and recent fixture lists. During an active window it checks the current anonymous voter's deterministic ballot status through the same trusted boundary as Home: an available voter can enter the rating flow, while a voter who already submitted sees confirmation without a second rating action. Results remain hidden until trusted close.

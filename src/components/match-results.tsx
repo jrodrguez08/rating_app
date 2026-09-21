@@ -6,6 +6,7 @@ import { formatDate } from "@/i18n/format";
 import type { Messages } from "@/i18n/messages";
 
 import { Scoreboard } from "./match-archive";
+import { VoteComparisonSection } from "./vote-comparison";
 
 export function MatchResults({
   match,
@@ -109,6 +110,11 @@ export function MatchResults({
                 </span>
               </div>
             </div>
+            <VoteComparisonSection
+              matchId={match.id}
+              locale={locale}
+              messages={messages.comparison}
+            />
           </>
         )}
         <p className="mt-5 text-center text-sm text-muted">{ballotLabel}</p>
