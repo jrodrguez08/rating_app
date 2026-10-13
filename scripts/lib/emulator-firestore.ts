@@ -70,6 +70,10 @@ function encode(value: unknown, key?: string): FirestoreValue {
     key === "effectiveVotingOpensAt" ||
     key === "effectiveVotingClosesAt" ||
     key === "votingClosedEarlyAt" ||
+    key === "votingOpenNotificationFirstAttemptAt" ||
+    key === "votingOpenNotificationAttemptedAt" ||
+    key === "votingOpenNotificationLeaseUntil" ||
+    key === "votingOpenNotificationSentAt" ||
     key === "generatedAt" ||
     key === "lastFixtureDiscoveryAt" ||
     key === "providerSyncedAt"
@@ -743,6 +747,52 @@ function preserveMatchLifecycle(
       : {}),
     ...(typeof existing.votingClosedEarlyAt === "string"
       ? { votingClosedEarlyAt: existing.votingClosedEarlyAt }
+      : {}),
+    ...(typeof existing.votingOpenNotificationWindow === "number"
+      ? {
+          votingOpenNotificationWindow: existing.votingOpenNotificationWindow,
+        }
+      : {}),
+    ...(typeof existing.votingOpenNotificationStatus === "string"
+      ? {
+          votingOpenNotificationStatus:
+            existing.votingOpenNotificationStatus as Match["votingOpenNotificationStatus"],
+        }
+      : {}),
+    ...(typeof existing.votingOpenNotificationAttemptId === "string"
+      ? {
+          votingOpenNotificationAttemptId:
+            existing.votingOpenNotificationAttemptId,
+        }
+      : {}),
+    ...(typeof existing.votingOpenNotificationFirstAttemptAt === "string"
+      ? {
+          votingOpenNotificationFirstAttemptAt:
+            existing.votingOpenNotificationFirstAttemptAt,
+        }
+      : {}),
+    ...(typeof existing.votingOpenNotificationAttemptedAt === "string"
+      ? {
+          votingOpenNotificationAttemptedAt:
+            existing.votingOpenNotificationAttemptedAt,
+        }
+      : {}),
+    ...(typeof existing.votingOpenNotificationLeaseUntil === "string"
+      ? {
+          votingOpenNotificationLeaseUntil:
+            existing.votingOpenNotificationLeaseUntil,
+        }
+      : {}),
+    ...(typeof existing.votingOpenNotificationSentAt === "string"
+      ? {
+          votingOpenNotificationSentAt: existing.votingOpenNotificationSentAt,
+        }
+      : {}),
+    ...(typeof existing.votingOpenNotificationProviderId === "string"
+      ? {
+          votingOpenNotificationProviderId:
+            existing.votingOpenNotificationProviderId,
+        }
       : {}),
     ...(incoming.goalEvents === undefined && Array.isArray(existing.goalEvents)
       ? { goalEvents: existing.goalEvents as Match["goalEvents"] }

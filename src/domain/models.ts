@@ -110,6 +110,14 @@ export interface Match {
   effectiveVotingOpensAt?: string;
   effectiveVotingClosesAt?: string;
   votingClosedEarlyAt?: string;
+  votingOpenNotificationWindow?: number;
+  votingOpenNotificationStatus?: "pending" | "sending" | "sent";
+  votingOpenNotificationAttemptId?: string;
+  votingOpenNotificationFirstAttemptAt?: string;
+  votingOpenNotificationAttemptedAt?: string;
+  votingOpenNotificationLeaseUntil?: string;
+  votingOpenNotificationSentAt?: string;
+  votingOpenNotificationProviderId?: string;
   externalProvider: string;
   externalProviderFixtureId: string;
   createdAt: string;

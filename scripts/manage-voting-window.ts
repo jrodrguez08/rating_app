@@ -2,9 +2,19 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { pathToFileURL } from "node:url";
 
 import {
+  notifyVotingWindowOpenedIfPending,
+  type VotingWindowNotificationOutcome,
+} from "../src/application/voting-window-notification";
+import {
   AdminVotingWindowService,
+  AdminVotingWindowNotificationStore,
   getServerFirestore,
 } from "../src/lib/firebase/server";
+import {
+  readNotificationSiteUrl,
+  readResendNotificationConfig,
+  ResendVotingWindowNotifier,
+} from "../src/lib/notifications/resend";
 import { readFirebaseAdminRuntimeConfig } from "../src/lib/server/environment";
 
 type Environment = Readonly<Record<string, string | undefined>>;
@@ -118,11 +128,41 @@ export async function main() {
       : arguments_.apply
         ? await service.close(arguments_.matchId)
         : await service.planClose(arguments_.matchId);
+  const logs: string[] = [];
+  let notification: VotingWindowNotificationOutcome | undefined;
+  if (arguments_.operation === "reopen" && arguments_.apply) {
+    try {
+      const notificationConfig = readResendNotificationConfig();
+      notification = await notifyVotingWindowOpenedIfPending({
+        matchId: arguments_.matchId,
+        store: new AdminVotingWindowNotificationStore(getServerFirestore()),
+        notifier:
+          notificationConfig === null
+            ? null
+            : new ResendVotingWindowNotifier(notificationConfig),
+        siteUrl: readNotificationSiteUrl(),
+        log: (message) => logs.push(message),
+      });
+    } catch {
+      notification = "failed" as const;
+      logs.push(
+        JSON.stringify({
+          event: "voting.notification",
+          matchId: arguments_.matchId,
+          windowSequence: "unknown",
+          status: "failed",
+          reason: "setup-failed",
+        }),
+      );
+    }
+  }
   console.log(
     JSON.stringify(
       {
         status: arguments_.apply ? "applied" : "dry_run",
         ...plan,
+        ...(notification === undefined ? {} : { notification }),
+        ...(logs.length === 0 ? {} : { logs }),
       },
       null,
       2,

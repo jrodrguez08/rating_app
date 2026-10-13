@@ -1,6 +1,14 @@
-import { initialClub } from "@/config/club";
 import { runConfiguredLifecycle } from "@/application/run-lifecycle";
-import { AdminFootballSyncStore } from "@/lib/firebase/server";
+import { initialClub } from "@/config/club";
+import {
+  AdminFootballSyncStore,
+  AdminVotingWindowNotificationStore,
+} from "@/lib/firebase/server";
+import {
+  readNotificationSiteUrl,
+  readResendNotificationConfig,
+  ResendVotingWindowNotifier,
+} from "@/lib/notifications/resend";
 import { isAuthorizedCronRequest } from "@/lib/server/cron-auth";
 import { requireLifecycleRuntimeConfig } from "@/lib/server/environment";
 
@@ -20,10 +28,20 @@ export async function POST(request: Request) {
   }
 
   try {
+    const notificationConfig = readResendNotificationConfig();
     const result = await runConfiguredLifecycle(
       initialClub.teamId,
       new AdminFootballSyncStore(),
       apiKey,
+      undefined,
+      {
+        store: new AdminVotingWindowNotificationStore(),
+        notifier:
+          notificationConfig === null
+            ? null
+            : new ResendVotingWindowNotifier(notificationConfig),
+        siteUrl: readNotificationSiteUrl(),
+      },
     );
     if (
       result.action === "retryable_error" ||
@@ -43,6 +61,9 @@ export async function POST(request: Request) {
       ...(result.matchId ? { matchId: result.matchId } : {}),
       providerRequests: result.providerRequests,
       logs: result.logs,
+      ...(result.notification === undefined
+        ? {}
+        : { notification: result.notification }),
       ...(result.action === "preparing_rating" && result.reason
         ? { reason: result.reason }
         : {}),

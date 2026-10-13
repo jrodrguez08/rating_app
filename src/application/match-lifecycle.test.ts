@@ -442,6 +442,8 @@ describe("match lifecycle synchronization", () => {
       ratingState: "rating_ready",
       votingOpensAt: NOW.toISOString(),
       votingClosesAt: "2026-08-29T20:00:00.000Z",
+      votingOpenNotificationWindow: 0,
+      votingOpenNotificationStatus: "pending",
     });
 
     expect(
@@ -475,6 +477,8 @@ describe("match lifecycle synchronization", () => {
       ratingState: "rating_ready",
       votingOpensAt: NOW.toISOString(),
       votingClosesAt: "2026-08-29T20:00:00.000Z",
+      votingOpenNotificationWindow: 0,
+      votingOpenNotificationStatus: "pending",
     });
     expect((await run(store, provider)).action).toBe("idle");
     expect(store.matches[0].votingOpensAt).toBe(ready.votingOpensAt);

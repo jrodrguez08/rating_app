@@ -54,6 +54,8 @@ import type {
   StandingsSyncStore,
   StandingsSyncTarget,
   SyncWriteCounts,
+  VotingWindowNotificationClaim,
+  VotingWindowNotificationStore,
 } from "@/domain/ports";
 import {
   canonicalPlayerIdMap,
@@ -79,6 +81,10 @@ const TIMESTAMP_FIELDS = new Set([
   "effectiveVotingOpensAt",
   "effectiveVotingClosesAt",
   "votingClosedEarlyAt",
+  "votingOpenNotificationFirstAttemptAt",
+  "votingOpenNotificationAttemptedAt",
+  "votingOpenNotificationLeaseUntil",
+  "votingOpenNotificationSentAt",
   "archivedAt",
   "windowOpensAt",
   "windowClosesAt",
@@ -711,6 +717,14 @@ export class AdminVotingWindowService {
           effectiveVotingOpensAt: Timestamp.fromDate(trustedAt),
           effectiveVotingClosesAt: Timestamp.fromDate(requestedClosesAt),
           votingClosedEarlyAt: FieldValue.delete(),
+          votingOpenNotificationWindow: revision,
+          votingOpenNotificationStatus: "pending",
+          votingOpenNotificationAttemptId: FieldValue.delete(),
+          votingOpenNotificationFirstAttemptAt: FieldValue.delete(),
+          votingOpenNotificationAttemptedAt: FieldValue.delete(),
+          votingOpenNotificationLeaseUntil: FieldValue.delete(),
+          votingOpenNotificationSentAt: FieldValue.delete(),
+          votingOpenNotificationProviderId: FieldValue.delete(),
           updatedAt: Timestamp.fromDate(trustedAt),
         });
       }
@@ -801,6 +815,145 @@ export class AdminVotingWindowService {
         finalizesImmediately: true,
       },
     } satisfies VotingWindowPlan;
+  }
+}
+
+const NOTIFICATION_LEASE_MS = 5 * 60 * 1000;
+const NOTIFICATION_IDEMPOTENCY_SAFETY_MS = 23 * 60 * 60 * 1000;
+
+export class AdminVotingWindowNotificationStore implements VotingWindowNotificationStore {
+  constructor(private readonly database = getServerFirestore()) {}
+
+  async claimVotingWindowNotification(
+    matchId: string,
+    attemptId: string,
+  ): Promise<VotingWindowNotificationClaim> {
+    return this.database.runTransaction(async (transaction) => {
+      const reference = this.database.doc(`matches/${matchId}`);
+      const snapshot = await transaction.get(reference);
+      if (!snapshot.exists) return { status: "not_open" };
+      const match = fromDocument<Match>(snapshot);
+      const trustedAt = snapshot.readTime.toDate();
+      const windowSequence = match.votingReopenCount ?? 0;
+      const window = getEffectiveVotingWindow(match);
+      if (
+        match.status !== "finished" ||
+        window === null ||
+        getVotingWindowState(match, trustedAt) !== "active"
+      ) {
+        return { status: "not_open", windowSequence };
+      }
+      const sameWindow = match.votingOpenNotificationWindow === windowSequence;
+      if (sameWindow && match.votingOpenNotificationStatus === "sent") {
+        return { status: "already_sent", windowSequence };
+      }
+      if (
+        sameWindow &&
+        match.votingOpenNotificationStatus === "sending" &&
+        match.votingOpenNotificationLeaseUntil !== undefined &&
+        new Date(match.votingOpenNotificationLeaseUntil) > trustedAt
+      ) {
+        return { status: "in_flight", windowSequence };
+      }
+      const firstAttemptAt = sameWindow
+        ? match.votingOpenNotificationFirstAttemptAt
+        : undefined;
+      if (
+        firstAttemptAt !== undefined &&
+        trustedAt.getTime() - new Date(firstAttemptAt).getTime() >=
+          NOTIFICATION_IDEMPOTENCY_SAFETY_MS
+      ) {
+        return { status: "manual_review", windowSequence };
+      }
+      transaction.update(reference, {
+        votingOpenNotificationWindow: windowSequence,
+        votingOpenNotificationStatus: "sending",
+        votingOpenNotificationAttemptId: attemptId,
+        votingOpenNotificationFirstAttemptAt: Timestamp.fromDate(
+          firstAttemptAt === undefined ? trustedAt : new Date(firstAttemptAt),
+        ),
+        votingOpenNotificationAttemptedAt: Timestamp.fromDate(trustedAt),
+        votingOpenNotificationLeaseUntil: Timestamp.fromDate(
+          new Date(trustedAt.getTime() + NOTIFICATION_LEASE_MS),
+        ),
+        votingOpenNotificationSentAt: FieldValue.delete(),
+        votingOpenNotificationProviderId: FieldValue.delete(),
+      });
+      return {
+        status: "claimed",
+        context: {
+          matchId,
+          windowSequence,
+          homeTeamName: match.homeTeam.name,
+          awayTeamName: match.awayTeam.name,
+          score: match.score,
+          opensAt: window.opensAt,
+          closesAt: window.closesAt,
+        },
+      };
+    });
+  }
+
+  async markVotingWindowNotificationSent(
+    matchId: string,
+    windowSequence: number,
+    attemptId: string,
+    providerMessageId: string,
+    sentAt: Date,
+  ): Promise<boolean> {
+    return this.database.runTransaction(async (transaction) => {
+      const reference = this.database.doc(`matches/${matchId}`);
+      const snapshot = await transaction.get(reference);
+      if (!snapshot.exists) return false;
+      const match = fromDocument<Match>(snapshot);
+      if (
+        match.votingOpenNotificationWindow !== windowSequence ||
+        match.votingOpenNotificationStatus !== "sending" ||
+        match.votingOpenNotificationAttemptId !== attemptId
+      ) {
+        return false;
+      }
+      transaction.update(reference, {
+        votingOpenNotificationStatus: "sent",
+        votingOpenNotificationSentAt: Timestamp.fromDate(sentAt),
+        votingOpenNotificationProviderId: providerMessageId,
+        votingOpenNotificationAttemptId: FieldValue.delete(),
+        votingOpenNotificationLeaseUntil: FieldValue.delete(),
+      });
+      return true;
+    });
+  }
+
+  async releaseVotingWindowNotification(
+    matchId: string,
+    windowSequence: number,
+    attemptId: string,
+    resetFirstAttempt: boolean,
+  ): Promise<void> {
+    await this.database.runTransaction(async (transaction) => {
+      const reference = this.database.doc(`matches/${matchId}`);
+      const snapshot = await transaction.get(reference);
+      if (!snapshot.exists) return;
+      const match = fromDocument<Match>(snapshot);
+      if (
+        match.votingOpenNotificationWindow !== windowSequence ||
+        match.votingOpenNotificationStatus !== "sending" ||
+        match.votingOpenNotificationAttemptId !== attemptId
+      ) {
+        return;
+      }
+      transaction.update(reference, {
+        votingOpenNotificationStatus: "pending",
+        votingOpenNotificationAttemptId: FieldValue.delete(),
+        votingOpenNotificationLeaseUntil: FieldValue.delete(),
+        ...(resetFirstAttempt
+          ? {
+              votingOpenNotificationFirstAttemptAt: FieldValue.delete(),
+              votingOpenNotificationAttemptedAt: FieldValue.delete(),
+            }
+          : {}),
+      });
+    });
   }
 }
 
@@ -1438,7 +1591,7 @@ function reopenPlan({
       changes: [
         `create ${archivePath}`,
         `delete matches/${match.id}/results/summary`,
-        `update matches/${match.id}: ratingState, votingReopenedAt, votingReopenCount, effectiveVotingOpensAt, effectiveVotingClosesAt, updatedAt`,
+        `update matches/${match.id}: ratingState, votingReopenedAt, votingReopenCount, effectiveVotingOpensAt, effectiveVotingClosesAt, votingOpenNotificationWindow, votingOpenNotificationStatus, updatedAt`,
         `preserve matches/${match.id}/ballots/* unchanged`,
       ],
       finalizesImmediately: false,
@@ -1552,5 +1705,50 @@ function preserveMatchLifecycle(existing: Match, incoming: Match): Match {
     ...(existing.votingClosedEarlyAt === undefined
       ? {}
       : { votingClosedEarlyAt: existing.votingClosedEarlyAt }),
+    ...(existing.votingOpenNotificationWindow === undefined
+      ? {}
+      : {
+          votingOpenNotificationWindow: existing.votingOpenNotificationWindow,
+        }),
+    ...(existing.votingOpenNotificationStatus === undefined
+      ? {}
+      : {
+          votingOpenNotificationStatus: existing.votingOpenNotificationStatus,
+        }),
+    ...(existing.votingOpenNotificationAttemptId === undefined
+      ? {}
+      : {
+          votingOpenNotificationAttemptId:
+            existing.votingOpenNotificationAttemptId,
+        }),
+    ...(existing.votingOpenNotificationFirstAttemptAt === undefined
+      ? {}
+      : {
+          votingOpenNotificationFirstAttemptAt:
+            existing.votingOpenNotificationFirstAttemptAt,
+        }),
+    ...(existing.votingOpenNotificationAttemptedAt === undefined
+      ? {}
+      : {
+          votingOpenNotificationAttemptedAt:
+            existing.votingOpenNotificationAttemptedAt,
+        }),
+    ...(existing.votingOpenNotificationLeaseUntil === undefined
+      ? {}
+      : {
+          votingOpenNotificationLeaseUntil:
+            existing.votingOpenNotificationLeaseUntil,
+        }),
+    ...(existing.votingOpenNotificationSentAt === undefined
+      ? {}
+      : {
+          votingOpenNotificationSentAt: existing.votingOpenNotificationSentAt,
+        }),
+    ...(existing.votingOpenNotificationProviderId === undefined
+      ? {}
+      : {
+          votingOpenNotificationProviderId:
+            existing.votingOpenNotificationProviderId,
+        }),
   };
 }

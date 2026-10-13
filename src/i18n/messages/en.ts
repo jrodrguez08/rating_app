@@ -249,4 +249,14 @@ export const enMessages = {
   footer: {
     supporting: "Built for supporters. Ready to grow club by club.",
   },
+  operatorNotification: {
+    subject: "Voting is open: {home} vs {away}",
+    intro: "Voting is now open for {home} vs {away}.",
+    score: "Score: {score}",
+    scoreUnavailable: "Unavailable",
+    matchId: "Match ID: {matchId}",
+    opened: "Opened (UTC): {opensAt}",
+    closes: "Closes (UTC): {closesAt}",
+    vote: "Vote: {url}",
+  },
 } as const satisfies Messages;

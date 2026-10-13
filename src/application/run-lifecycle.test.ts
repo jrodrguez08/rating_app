@@ -1,0 +1,91 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import type {
+  MatchLifecycleStore,
+  VotingWindowNotificationStore,
+} from "@/domain/ports";
+
+const mocks = vi.hoisted(() => ({ runMatchLifecycle: vi.fn() }));
+
+vi.mock("@/application/match-lifecycle", () => ({
+  runMatchLifecycle: mocks.runMatchLifecycle,
+}));
+
+import { runConfiguredLifecycle } from "./run-lifecycle";
+
+describe("configured match lifecycle notifications", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+  });
+
+  it("notifies once after rating_ready and suppresses the repeated lifecycle pass", async () => {
+    mocks.runMatchLifecycle
+      .mockResolvedValueOnce({
+        action: "rating_ready",
+        matchId: "match-1",
+        providerRequests: 4,
+      })
+      .mockResolvedValueOnce({
+        action: "idle",
+        matchId: "match-1",
+        providerRequests: 0,
+      });
+    let sent = false;
+    const notificationStore = {
+      claimVotingWindowNotification: vi.fn(async () =>
+        sent
+          ? ({ status: "already_sent", windowSequence: 0 } as const)
+          : ({
+              status: "claimed",
+              context: {
+                matchId: "match-1",
+                windowSequence: 0,
+                homeTeamName: "Home",
+                awayTeamName: "Away",
+                score: { home: 2, away: 1 },
+                opensAt: "2026-10-13T02:00:00.000Z",
+                closesAt: "2026-10-13T04:00:00.000Z",
+              },
+            } as const),
+      ),
+      markVotingWindowNotificationSent: vi.fn(async () => {
+        sent = true;
+        return true;
+      }),
+      releaseVotingWindowNotification: vi.fn(),
+    } satisfies VotingWindowNotificationStore;
+    const send = vi.fn().mockResolvedValue({ providerMessageId: "email-1" });
+    const lifecycleStore = {} as MatchLifecycleStore;
+
+    const first = await runConfiguredLifecycle(
+      "tracked-team",
+      lifecycleStore,
+      "provider-key",
+      () => new Date("2026-10-13T02:00:00.000Z"),
+      { store: notificationStore, notifier: { send } },
+    );
+    const second = await runConfiguredLifecycle(
+      "tracked-team",
+      lifecycleStore,
+      "provider-key",
+      () => new Date("2026-10-13T02:01:00.000Z"),
+      { store: notificationStore, notifier: { send } },
+    );
+
+    expect(first).toMatchObject({
+      action: "rating_ready",
+      notification: "sent",
+      providerRequests: 4,
+    });
+    expect(second).toMatchObject({
+      action: "idle",
+      notification: "already_sent",
+      providerRequests: 0,
+    });
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(
+      notificationStore.claimVotingWindowNotification,
+    ).toHaveBeenCalledTimes(2);
+  });
+});
