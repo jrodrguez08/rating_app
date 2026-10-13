@@ -39,6 +39,12 @@ Never configure `FIRESTORE_EMULATOR_HOST`, `FIREBASE_AUTH_EMULATOR_HOST`, `GCLOU
 
 No Firebase or API-Football credential belongs in GitHub for this workflow.
 
+### Voting-window operator credential
+
+Exceptional voting-window recovery is a local production CLI operation. Generate one high-entropy secret in the operator's password manager. Keep the raw value out of the repository, `.env.local`, Vercel, GitHub, shell history, logs, and command arguments. Configure its lowercase SHA-256 digest as `VOTING_WINDOW_OPERATOR_SECRET_SHA256` only in the controlled operator environment. Supply the raw value for one command process as `VOTING_WINDOW_OPERATOR_TOKEN`. Both are separate from Firebase Admin credentials; the CLI requires all of them.
+
+To rotate, generate a new high-entropy value, replace the configured digest, remove the old digest, and use only the new raw value for later invocations. Rotation does not alter matches, ballots, results, or revision documents. Never print either value during verification.
+
 `NEXT_PUBLIC_SITE_URL` is public, non-sensitive canonical metadata configuration. It must be one HTTPS origin with no path, query, fragment, or credentials. The build has the same explicit Vercel production origin as a safe fallback, never derives canonical links from `VERCEL_URL` or an incoming request host, and therefore cannot silently canonize a Preview deployment.
 
 ### Local-only variables and commands
@@ -125,6 +131,78 @@ After deploying the reviewed identity-aware release, use a controlled checkout o
 The command rejects development/local mode, emulator hosts, demo projects, project mismatches, missing production Admin credentials, and an inexact apply confirmation. CI never runs it. Adding a future reconciliation requires confirming the real player identity independently, reviewing the canonical metadata choice and historical references, adding focused tests, deploying the code, and then following this dry-run/apply/dry-run sequence. Name-only or shirt-only merging is prohibited.
 
 Network/provider validation, lineup-not-observed/cache-empty, incomplete lineup, missing fixture coach, participant-evidence, Firebase write, and aggregation integrity failures remain retryable. They cannot open voting early, erase a trusted snapshot, extend timestamps, replace ballots, publish partial results, or regress finalized state. Cancelled/abandoned matches never open or finalize ratings; postponed/suspended matches retry conservatively.
+
+## Exceptional voting-window recovery
+
+Use `npm run manage:voting-window` only from a clean checkout of the reviewed production commit. Load the production Firebase Web/Admin variables, the configured operator digest, and the invocation-only raw operator token into the current controlled process. Confirm no emulator variables are present. The command rejects non-production and `demo-*` projects, project mismatches, missing or wrong operator authorization, malformed arguments, and incompatible persisted state. It never calls API-Football.
+
+The raw operator token is read only from `VOTING_WINDOW_OPERATOR_TOKEN`; never pass it as an argument. Dry-run is the default. Apply additionally requires `--apply true` and the exact match-specific confirmation. Reopen close time is explicit UTC and must be from five minutes through 24 hours after Firestore's trusted read time.
+
+Set the examples' placeholders in the controlled shell without echoing their values:
+
+```powershell
+$matchId = "<exact-match-id>"
+$projectId = "rating-app-prod-8b7df"
+$reopenCloseUtc = "<YYYY-MM-DDTHH:mm:ss.sssZ>"
+$env:VOTING_WINDOW_OPERATOR_SECRET_SHA256 = "<configured-64-character-sha256-digest>"
+$env:VOTING_WINDOW_OPERATOR_TOKEN = "<raw-high-entropy-operator-secret>"
+```
+
+### Reopen procedure
+
+1. Run the non-mutating plan:
+
+   ```powershell
+   npm run manage:voting-window -- reopen --project-id $projectId --match-id $matchId --close-at $reopenCloseUtc
+   ```
+
+   Review the closed match state, immutable original timestamps, current result `generatedAt`, ballot count, proposed trusted reopen/effective close timestamps, `matches/<match>/resultRevisions/reopen-<sequence>` path, and exact create/delete/update actions. Stop on any unexpected value.
+
+2. Apply once with the exact confirmation:
+
+   ```powershell
+   npm run manage:voting-window -- reopen --project-id $projectId --match-id $matchId --close-at $reopenCloseUtc --apply true --confirm "reopen-voting-window:$matchId"
+   ```
+
+   The transaction preserves all ballots and original window timestamps, copies the complete current summary into the deterministic revision, deletes only the current `results/summary`, writes reopen metadata/effective bounds, and returns the match to `rating_ready`.
+
+3. Verify the reopened state with a close dry-run:
+
+   ```powershell
+   npm run manage:voting-window -- close --project-id $projectId --match-id $matchId
+   ```
+
+   Require `reopened: true`, the expected reopen count/effective bounds, no current summary, the expected ballot count, and `finalizesImmediately: true`. Check the public result route is locked and the rating route accepts only voters without an existing ballot. Inspect the deterministic revision read-only through the Firebase console and confirm its result data and original `generatedAt`; never edit it.
+
+If no early close is needed, allow the normal lifecycle trigger after the effective close. It prioritizes the expired reopened window, uses zero provider requests, validates every persisted ballot through the normal aggregation path, publishes one new `results/summary`, and transitions to `rating_closed`.
+
+### Early-close procedure
+
+1. Immediately before closing, rerun the non-mutating close plan:
+
+   ```powershell
+   npm run manage:voting-window -- close --project-id $projectId --match-id $matchId
+   ```
+
+2. Apply once with the exact confirmation:
+
+   ```powershell
+   npm run manage:voting-window -- close --project-id $projectId --match-id $matchId --apply true --confirm "close-voting-window:$matchId"
+   ```
+
+   The final transaction takes its authoritative time from Firestore, reads the match, current-summary absence, participants, head coach, and ballots together, runs the canonical aggregation, creates exactly one current summary, records `votingClosedEarlyAt`, and changes `ratingState` to `rating_closed`. A concurrent ballot is either committed before the transaction and included or retries against the closed state and is rejected.
+
+3. Verify finalization with a non-mutating reopen plan using a newly reviewed future close timestamp:
+
+   ```powershell
+   npm run manage:voting-window -- reopen --project-id $projectId --match-id $matchId --close-at "<new-future-UTC-close-used-only-for-verification>"
+   ```
+
+   Require `rating_closed`, a current summary with the expected new `generatedAt` and ballot count, the preserved reopen count/original timestamps, and the next collision-free revision path. Do not add `--apply`. Confirm the public result and personal comparison are available and that the prior revision remains unchanged. A repeated close command must fail without mutation.
+
+If reopen fails after a dry-run, fix the reported prerequisite and rerun dry-run; never repair lifecycle documents manually. If apply outcome is uncertain, rerun the appropriate dry-run before doing anything else. Firestore transactions prevent a partial archive/delete/update or close/result transition. Do not delete revision documents during rollback. Remove `VOTING_WINDOW_OPERATOR_TOKEN` from the process environment when finished.
+
+No new Firestore index or rule deployment is required. The existing recursive deny rule keeps result revisions and operator metadata unavailable to all browser clients.
 
 ## Infrastructure smoke test
 

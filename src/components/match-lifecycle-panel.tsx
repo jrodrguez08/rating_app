@@ -3,6 +3,7 @@ import Link from "next/link";
 import { getTeamBadgePresentation } from "@/config/team-badges";
 import { buildWhatsAppRatingShareUrl } from "@/config/whatsapp-share";
 import type { Match } from "@/domain/models";
+import { getVotingWindowState } from "@/domain/voting-window";
 import type { Locale } from "@/i18n/config";
 import { formatDate } from "@/i18n/format";
 import type { Messages } from "@/i18n/messages";
@@ -94,14 +95,7 @@ export function MatchLifecyclePanel({
 }
 
 function isVotingOpen(match: Match): boolean {
-  const now = Date.now();
-  return (
-    match.ratingState === "rating_ready" &&
-    match.votingOpensAt !== undefined &&
-    match.votingClosesAt !== undefined &&
-    now >= new Date(match.votingOpensAt).getTime() &&
-    now < new Date(match.votingClosesAt).getTime()
-  );
+  return getVotingWindowState(match, new Date()) === "active";
 }
 
 function TeamName({ team }: { team: Match["homeTeam"] }) {

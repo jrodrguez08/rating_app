@@ -105,6 +105,11 @@ export interface Match {
   ratingReadyAt?: string;
   votingOpensAt?: string;
   votingClosesAt?: string;
+  votingReopenedAt?: string;
+  votingReopenCount?: number;
+  effectiveVotingOpensAt?: string;
+  effectiveVotingClosesAt?: string;
+  votingClosedEarlyAt?: string;
   externalProvider: string;
   externalProviderFixtureId: string;
   createdAt: string;

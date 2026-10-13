@@ -179,4 +179,33 @@ describe("Team persistence and rules", () => {
     await assertFails(result.update({ ballotCount: 99 }));
     await assertFails(result.delete());
   });
+
+  it("keeps voting-window revisions and match lifecycle writes unavailable to supporters", async () => {
+    await environment.withSecurityRulesDisabled(async (context) => {
+      await context
+        .firestore()
+        .doc("matches/example/resultRevisions/reopen-0001")
+        .set({ revision: 1, archiveReason: "voting_reopened" });
+    });
+    for (const context of [
+      environment.unauthenticatedContext(),
+      environment.authenticatedContext("supporter-1"),
+    ]) {
+      const database = context.firestore();
+      const revision = database.doc(
+        "matches/example/resultRevisions/reopen-0001",
+      );
+      await assertFails(revision.get());
+      await assertFails(revision.set({ revision: 2 }));
+      await assertFails(
+        database.doc("matches/example").set(
+          {
+            ratingState: "rating_ready",
+            effectiveVotingClosesAt: new Date(),
+          },
+          { merge: true },
+        ),
+      );
+    }
+  });
 });

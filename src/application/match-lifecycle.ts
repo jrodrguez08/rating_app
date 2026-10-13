@@ -5,6 +5,7 @@ import type {
   MatchLifecycleStore,
   ProviderFixture,
 } from "@/domain/ports";
+import { getEffectiveVotingClosesAt } from "@/domain/voting-window";
 import {
   emitOperationalLog,
   type OperationalLogger,
@@ -423,12 +424,14 @@ export function selectRelevantMatch(
       new Date(left.kickoffAt).getTime() - new Date(right.kickoffAt).getTime(),
   );
   return (
-    byKickoff.find(
-      (match) =>
+    byKickoff.find((match) => {
+      const closesAt = getEffectiveVotingClosesAt(match);
+      return (
         match.ratingState === "rating_ready" &&
-        match.votingClosesAt !== undefined &&
-        now < new Date(match.votingClosesAt),
-    ) ??
+        closesAt !== undefined &&
+        now < new Date(closesAt)
+      );
+    }) ??
     byKickoff.find((match) => match.status === "live") ??
     byKickoff.find(
       (match) =>
@@ -467,10 +470,11 @@ export function selectLifecycleMatch(
 }
 
 function isExpiredRatingWindow(match: Match, now: Date): boolean {
+  const closesAt = getEffectiveVotingClosesAt(match);
   return (
     match.ratingState === "rating_ready" &&
-    match.votingClosesAt !== undefined &&
-    now >= new Date(match.votingClosesAt)
+    closesAt !== undefined &&
+    now >= new Date(closesAt)
   );
 }
 

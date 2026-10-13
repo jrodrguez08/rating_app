@@ -1,4 +1,5 @@
 import type { MatchArchiveItem } from "@/application/match-archive";
+import { getVotingWindowState } from "@/domain/voting-window";
 import type { Messages } from "@/i18n/messages";
 
 export function matchPresentation(
@@ -7,12 +8,7 @@ export function matchPresentation(
   now: Date,
 ) {
   const { match, hasResults } = item;
-  const votingOpen =
-    match.ratingState === "rating_ready" &&
-    match.votingOpensAt !== undefined &&
-    match.votingClosesAt !== undefined &&
-    now >= new Date(match.votingOpensAt) &&
-    now < new Date(match.votingClosesAt);
+  const votingOpen = getVotingWindowState(match, now) === "active";
   if (votingOpen)
     return {
       label: messages.votingOpen,
