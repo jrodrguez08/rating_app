@@ -22,6 +22,7 @@ import type {
   StandingsSyncTarget,
   SyncWriteCounts,
 } from "@/domain/ports";
+import { getEffectiveVotingWindow } from "@/domain/voting-window";
 
 const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
 
@@ -65,6 +66,10 @@ function encode(value: unknown, key?: string): FirestoreValue {
     key === "ratingReadyAt" ||
     key === "votingOpensAt" ||
     key === "votingClosesAt" ||
+    key === "votingReopenedAt" ||
+    key === "effectiveVotingOpensAt" ||
+    key === "effectiveVotingClosesAt" ||
+    key === "votingClosedEarlyAt" ||
     key === "generatedAt" ||
     key === "lastFixtureDiscoveryAt" ||
     key === "providerSyncedAt"
@@ -244,11 +249,12 @@ export class EmulatorFootballSyncStore
       }
       return;
     }
+    const window = getEffectiveVotingWindow(match);
     if (
       match.status !== "finished" ||
       match.ratingState !== "rating_ready" ||
-      match.votingClosesAt === undefined ||
-      now < new Date(match.votingClosesAt)
+      window === null ||
+      now < new Date(window.closesAt)
     ) {
       throw new Error("Match is not eligible for result finalization.");
     }
@@ -722,6 +728,21 @@ function preserveMatchLifecycle(
       : {}),
     ...(typeof existing.votingClosesAt === "string"
       ? { votingClosesAt: existing.votingClosesAt }
+      : {}),
+    ...(typeof existing.votingReopenedAt === "string"
+      ? { votingReopenedAt: existing.votingReopenedAt }
+      : {}),
+    ...(typeof existing.votingReopenCount === "number"
+      ? { votingReopenCount: existing.votingReopenCount }
+      : {}),
+    ...(typeof existing.effectiveVotingOpensAt === "string"
+      ? { effectiveVotingOpensAt: existing.effectiveVotingOpensAt }
+      : {}),
+    ...(typeof existing.effectiveVotingClosesAt === "string"
+      ? { effectiveVotingClosesAt: existing.effectiveVotingClosesAt }
+      : {}),
+    ...(typeof existing.votingClosedEarlyAt === "string"
+      ? { votingClosedEarlyAt: existing.votingClosedEarlyAt }
       : {}),
     ...(incoming.goalEvents === undefined && Array.isArray(existing.goalEvents)
       ? { goalEvents: existing.goalEvents as Match["goalEvents"] }

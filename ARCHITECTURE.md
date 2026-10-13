@@ -36,10 +36,15 @@ matches/{matchId}/participants/{playerId}
 matches/{matchId}/coachAssignments/{coachId}
 matches/{matchId}/ballots/{voterId}
 matches/{matchId}/results/summary
+matches/{matchId}/resultRevisions/reopen-{sequence}
 players/{playerId}/matchSummaries/{matchId}
 players/{playerId}/statistics/{seasonOrCareerId}
 standings/{trackedTeamId}
 ```
+
+The original `ratingReadyAt`, `votingOpensAt`, and `votingClosesAt` fields remain the first-window audit record. An exceptional reopen adds `votingReopenedAt`, monotonic `votingReopenCount`, and the current `effectiveVotingOpensAt`/`effectiveVotingClosesAt`; ordinary matches continue to use the original bounds. `votingClosedEarlyAt` records an operator close. Provider synchronization preserves all of these lifecycle fields.
+
+`matches/{matchId}/resultRevisions/reopen-{sequence}` is an operator-owned, server-only immutable snapshot of the former `results/summary`. It retains the complete result, its original `generatedAt`, archive time/reason, revision number, and the window that produced it. Reopen creates this revision, deletes the current summary, and transitions the match to `rating_ready` in one transaction. The deterministic current summary is therefore absent and unpublished while the effective window is active. No query index is needed because revisions use deterministic document reads; existing deny-all client rules already protect them.
 
 The implemented `teams/{teamId}` document contains `displayName`, `shortName`, `countryName`, `countryCode`, `brandingKey`, optional `externalProviderId`, and Firestore `createdAt`/`updatedAt` timestamps. `club-sport-herediano` is the stable initial ID. The seed JSON is the canonical basic Team data; presentation configuration derives its identity and names from that record while keeping theme colors in source code. Firestore snapshots are converted and runtime-validated at the persistence boundary before becoming domain `Team` values.
 
@@ -72,6 +77,10 @@ Result reads remain behind Firebase Admin. `AdminResultService` checks trusted t
 The result page keeps its public, sanitized aggregate Server Component. A small client section obtains the persisted anonymous voter's ID token and calls a private, no-store comparison endpoint. The endpoint verifies the token, checks trusted close and published result state before reading only `matches/{matchId}/ballots/{verifiedUid}`, and computes the comparison at read time. It resolves player IDs through reviewed provider aliases found from the match participants, requires complete, consistent player and coach matches, and returns no comparison on absent or inconsistent data. No ballot, alias, or voter ID enters server-rendered HTML. No new collection, index, rule, projection, or scheduled task is required.
 
 ## Authentication and security
+
+Voting-window recovery uses only the local production CLI. It requires valid production Firebase Admin credentials for an explicitly repeated project ID and a separate high-entropy operator token. The configured `VOTING_WINDOW_OPERATOR_SECRET_SHA256` digest and invocation-only `VOTING_WINDOW_OPERATOR_TOKEN` are compared with constant-time bytes before Firebase access. Missing or mismatched authorization fails closed. No supporter route, browser bundle, Firebase Auth user, or hidden UI exposes these operations.
+
+Reopen dry-run and apply use the same transaction reads and validation. Apply verifies finished/closed state, a current result, auditable timestamps, current participant/coach/ballot consistency through canonical aggregation validation, a bounded requested close time, and a collision-free revision path before any write. Early close reads Firestore's server-assigned document read time, queries ballots inside the finalization transaction, rejects an existing current summary, and invokes the same `aggregateMatchResult` path as scheduled finalization. Firestore transaction retries ensure a concurrent ballot is either committed before the close and included, or observes the closed state and is rejected.
 
 Home and Partidos reuse the same client `BallotEntry` boundary only while a persisted match window is active. It obtains the anonymous voter's ID token and calls the trusted no-store ballot-status endpoint; the endpoint verifies the token, derives the deterministic ballot path, and returns only a sanitized availability/submitted status. Archive and detail DTOs contain no UID, ballot document, or ballot content, and direct client Firestore access remains denied.
 

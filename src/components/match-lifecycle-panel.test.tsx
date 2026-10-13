@@ -78,6 +78,30 @@ describe("Home WhatsApp rating share", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("uses the effective window after an operator reopen", async () => {
+    render(
+      <MatchLifecyclePanel
+        match={match({
+          ratingState: "rating_ready",
+          status: "finished",
+          votingOpensAt: new Date(now - 180_000).toISOString(),
+          votingClosesAt: new Date(now - 120_000).toISOString(),
+          votingReopenCount: 1,
+          votingReopenedAt: new Date(now - 60_000).toISOString(),
+          effectiveVotingOpensAt: new Date(now - 60_000).toISOString(),
+          effectiveVotingClosesAt: new Date(now + 60_000).toISOString(),
+        })}
+        locale="es"
+        messages={messages}
+        goalMessages={getMessages("es").matches}
+      />,
+    );
+
+    expect(
+      await screen.findByRole("link", { name: "Calificar partido" }),
+    ).toBeInTheDocument();
+  });
+
   it.each([
     [
       "expired",

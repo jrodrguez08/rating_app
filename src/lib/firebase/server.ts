@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from "node:util";
+
 import {
   applicationDefault,
   cert,
@@ -57,6 +59,10 @@ import {
   canonicalPlayerIdMap,
   playerProviderAliasId,
 } from "@/domain/player-identity";
+import {
+  getEffectiveVotingWindow,
+  getVotingWindowState,
+} from "@/domain/voting-window";
 import { readFirebaseAdminRuntimeConfig } from "@/lib/server/environment";
 
 const TIMESTAMP_FIELDS = new Set([
@@ -69,6 +75,16 @@ const TIMESTAMP_FIELDS = new Set([
   "ratingReadyAt",
   "votingOpensAt",
   "votingClosesAt",
+  "votingReopenedAt",
+  "effectiveVotingOpensAt",
+  "effectiveVotingClosesAt",
+  "votingClosedEarlyAt",
+  "archivedAt",
+  "windowOpensAt",
+  "windowClosesAt",
+  "windowReopenedAt",
+  "windowClosedEarlyAt",
+  "generatedAt",
   "lastFixtureDiscoveryAt",
   "providerSyncedAt",
 ]);
@@ -128,23 +144,22 @@ export class AdminResultService {
     const matchSnapshot = await this.database.doc(`matches/${matchId}`).get();
     if (!matchSnapshot.exists) return { state: "unavailable" };
     const match = fromDocument<Match>(matchSnapshot);
-    if (
-      match.votingClosesAt === undefined ||
-      now < new Date(match.votingClosesAt)
-    ) {
+    if (match.ratingState === "rating_closed") {
+      const resultSnapshot = await this.database
+        .doc(`matches/${matchId}/results/summary`)
+        .get();
+      if (!resultSnapshot.exists) return { state: "preparing", match };
+      const result = fromDocument<MatchResult>(resultSnapshot);
+      if (!isCompatibleCurrentResult(match, result)) {
+        return { state: "preparing", match };
+      }
+      return { state: "ready", match, result };
+    }
+    const window = getEffectiveVotingWindow(match);
+    if (window === null || now < new Date(window.closesAt)) {
       return { state: "locked", match };
     }
-    const resultSnapshot = await this.database
-      .doc(`matches/${matchId}/results/summary`)
-      .get();
-    if (!resultSnapshot.exists || match.ratingState !== "rating_closed") {
-      return { state: "preparing", match };
-    }
-    return {
-      state: "ready",
-      match,
-      result: fromDocument<MatchResult>(resultSnapshot),
-    };
+    return { state: "preparing", match };
   }
 
   async getVoteComparison(
@@ -426,7 +441,7 @@ export class AdminBallotService {
     const matchSnapshot = await this.database.doc(`matches/${matchId}`).get();
     if (!matchSnapshot.exists) return { state: "unavailable" };
     const match = fromDocument<Match>(matchSnapshot);
-    const windowState = getWindowState(match, now);
+    const windowState = getVotingWindowState(match, now);
     if (windowState !== "active") return { state: windowState };
 
     const [participantSnapshot, coachSnapshot] = await Promise.all([
@@ -469,7 +484,7 @@ export class AdminBallotService {
         homeTeamName: match.homeTeam.name,
         awayTeamName: match.awayTeam.name,
         score: match.score,
-        votingClosesAt: match.votingClosesAt!,
+        votingClosesAt: getEffectiveVotingWindow(match)!.closesAt,
         players,
         coach: { id: coach.coachId, name: coach.coachName },
       },
@@ -513,7 +528,7 @@ export class AdminBallotService {
       if (ballotSnapshot.exists) return { status: "already_submitted" };
       if (!matchSnapshot.exists) return { status: "data_unavailable" };
       const match = fromDocument<Match>(matchSnapshot);
-      const windowState = getWindowState(match, now);
+      const windowState = getVotingWindowState(match, now);
       if (windowState !== "active") return { status: windowState };
 
       const eligiblePlayerIds = participantSnapshot.docs
@@ -551,6 +566,241 @@ export class AdminBallotService {
       });
       return { status: "created" };
     });
+  }
+}
+
+export interface VotingWindowPlan {
+  operation: "reopen" | "close";
+  matchId: string;
+  trustedAt: string;
+  current: {
+    status: Match["status"];
+    ratingState: Match["ratingState"];
+    ratingReadyAt?: string;
+    originalVotingOpensAt?: string;
+    originalVotingClosesAt?: string;
+    effectiveVotingOpensAt: string;
+    effectiveVotingClosesAt: string;
+    reopened: boolean;
+    votingReopenCount: number;
+    resultSummaryExists: boolean;
+    resultGeneratedAt?: string;
+    ballotCount: number;
+  };
+  proposed: {
+    effectiveVotingOpensAt?: string;
+    effectiveVotingClosesAt: string;
+    archivePath?: string;
+    changes: string[];
+    finalizesImmediately: boolean;
+  };
+}
+
+export class AdminVotingWindowService {
+  constructor(private readonly database = getServerFirestore()) {}
+
+  async reopen(
+    matchId: string,
+    requestedClosesAt: Date,
+    apply: boolean,
+  ): Promise<VotingWindowPlan> {
+    return this.database.runTransaction(async (transaction) => {
+      const matchReference = this.database.doc(`matches/${matchId}`);
+      const resultReference = this.database.doc(
+        `matches/${matchId}/results/summary`,
+      );
+      const participantQuery = this.database.collection(
+        `matches/${matchId}/participants`,
+      );
+      const coachReference = this.database.doc(
+        `matches/${matchId}/coachAssignments/head-coach`,
+      );
+      const ballotQuery = this.database.collection(
+        `matches/${matchId}/ballots`,
+      );
+      const initial = await Promise.all([
+        transaction.get(matchReference),
+        transaction.get(resultReference),
+        transaction.get(participantQuery),
+        transaction.get(coachReference),
+        transaction.get(ballotQuery),
+      ]);
+      const [
+        matchSnapshot,
+        resultSnapshot,
+        participants,
+        coachSnapshot,
+        ballots,
+      ] = initial;
+      if (!matchSnapshot.exists) throw new Error("Match was not found.");
+      const match = fromDocument<Match>(matchSnapshot);
+      const trustedAt = matchSnapshot.readTime.toDate();
+      const window = requireAuditableWindow(match);
+      if (
+        match.status !== "finished" ||
+        match.ratingState !== "rating_closed"
+      ) {
+        throw new Error(
+          "Only a finished, closed rating window can be reopened.",
+        );
+      }
+      if (!resultSnapshot.exists) {
+        throw new Error("The current finalized result summary is missing.");
+      }
+      validateReopenCloseTime(requestedClosesAt, trustedAt);
+      if (!coachSnapshot.exists)
+        throw new Error("Head coach assignment is missing.");
+      const coach = fromDocument<CoachAssignment>(coachSnapshot);
+      const participantValues = participants.docs.map((document) =>
+        fromDocument<MatchParticipant>(document),
+      );
+      const ballotValues = ballots.docs.map((document) =>
+        fromDocument<Ballot>(document),
+      );
+      const expectedResult = aggregateMatchResult({
+        matchId,
+        teamId: match.trackedTeamId,
+        participants: participantValues,
+        coach,
+        ballots: ballotValues,
+        generatedAt: trustedAt.toISOString(),
+      });
+      const result = fromDocument<MatchResult>(resultSnapshot);
+      requireCanonicalCurrentResult(result, expectedResult);
+      const revision = (match.votingReopenCount ?? 0) + 1;
+      const archiveId = `reopen-${String(revision).padStart(4, "0")}`;
+      const archiveReference = this.database.doc(
+        `matches/${matchId}/resultRevisions/${archiveId}`,
+      );
+      const archiveSnapshot = await transaction.get(archiveReference);
+      if (archiveSnapshot.exists) {
+        throw new Error("The proposed result revision already exists.");
+      }
+      const plan = reopenPlan({
+        match,
+        result,
+        ballotCount: ballots.size,
+        trustedAt,
+        requestedClosesAt,
+        archivePath: archiveReference.path,
+      });
+      if (apply) {
+        transaction.create(
+          archiveReference,
+          toDocument({
+            ...result,
+            revision,
+            archiveReason: "voting_reopened",
+            archivedAt: trustedAt.toISOString(),
+            windowOpensAt: window.opensAt,
+            windowClosesAt: window.closesAt,
+            windowReopened: window.reopened,
+            ...(match.votingReopenedAt === undefined
+              ? {}
+              : { windowReopenedAt: match.votingReopenedAt }),
+            ...(match.votingClosedEarlyAt === undefined
+              ? {}
+              : { windowClosedEarlyAt: match.votingClosedEarlyAt }),
+          }),
+        );
+        transaction.delete(resultReference);
+        transaction.update(matchReference, {
+          ratingState: "rating_ready",
+          votingReopenedAt: Timestamp.fromDate(trustedAt),
+          votingReopenCount: revision,
+          effectiveVotingOpensAt: Timestamp.fromDate(trustedAt),
+          effectiveVotingClosesAt: Timestamp.fromDate(requestedClosesAt),
+          votingClosedEarlyAt: FieldValue.delete(),
+          updatedAt: Timestamp.fromDate(trustedAt),
+        });
+      }
+      return plan;
+    });
+  }
+
+  async planClose(matchId: string): Promise<VotingWindowPlan> {
+    const matchReference = this.database.doc(`matches/${matchId}`);
+    const resultReference = this.database.doc(
+      `matches/${matchId}/results/summary`,
+    );
+    const ballotQuery = this.database.collection(`matches/${matchId}/ballots`);
+    return this.database.runTransaction(async (transaction) => {
+      const [matchSnapshot, resultSnapshot, ballots] = await Promise.all([
+        transaction.get(matchReference),
+        transaction.get(resultReference),
+        transaction.get(ballotQuery),
+      ]);
+      if (!matchSnapshot.exists) throw new Error("Match was not found.");
+      const match = fromDocument<Match>(matchSnapshot);
+      const trustedAt = matchSnapshot.readTime.toDate();
+      requireAuditableWindow(match);
+      if (
+        match.status !== "finished" ||
+        getVotingWindowState(match, trustedAt) !== "active"
+      ) {
+        throw new Error("Only an active finished rating window can be closed.");
+      }
+      if (resultSnapshot.exists) {
+        throw new Error(
+          "An active rating window must not have a result summary.",
+        );
+      }
+      return {
+        operation: "close",
+        matchId,
+        trustedAt: trustedAt.toISOString(),
+        current: planCurrent(match, ballots.size, false, undefined),
+        proposed: {
+          effectiveVotingClosesAt: trustedAt.toISOString(),
+          changes: [
+            `create matches/${matchId}/results/summary`,
+            `update matches/${matchId}: ratingState, votingClosedEarlyAt, updatedAt`,
+          ],
+          finalizesImmediately: true,
+        },
+      } satisfies VotingWindowPlan;
+    });
+  }
+
+  async close(matchId: string): Promise<VotingWindowPlan> {
+    await this.planClose(matchId);
+    const finalizedAt = await new AdminFootballSyncStore(
+      this.database,
+    ).closeVotingWindowEarly(matchId);
+    return {
+      ...(await this.closedPlan(matchId, finalizedAt)),
+      trustedAt: finalizedAt.toISOString(),
+    };
+  }
+
+  private async closedPlan(matchId: string, finalizedAt: Date) {
+    const [matchSnapshot, resultSnapshot, ballots] = await Promise.all([
+      this.database.doc(`matches/${matchId}`).get(),
+      this.database.doc(`matches/${matchId}/results/summary`).get(),
+      this.database.collection(`matches/${matchId}/ballots`).get(),
+    ]);
+    const match = fromDocument<Match>(matchSnapshot);
+    return {
+      operation: "close" as const,
+      matchId,
+      trustedAt: finalizedAt.toISOString(),
+      current: planCurrent(
+        match,
+        ballots.size,
+        resultSnapshot.exists,
+        resultSnapshot.exists
+          ? fromDocument<MatchResult>(resultSnapshot).generatedAt
+          : undefined,
+      ),
+      proposed: {
+        effectiveVotingClosesAt: finalizedAt.toISOString(),
+        changes: [
+          `created matches/${matchId}/results/summary`,
+          `updated matches/${matchId}: ratingState, votingClosedEarlyAt, updatedAt`,
+        ],
+        finalizesImmediately: true,
+      },
+    } satisfies VotingWindowPlan;
   }
 }
 
@@ -596,6 +846,19 @@ export class AdminFootballSyncStore
     return snapshot.exists && snapshot.data()?.teamId === teamId;
   }
   async finalizeMatchResult(matchId: string, now: Date): Promise<void> {
+    await this.finalizeMatchResultTransaction(matchId, now, false);
+  }
+
+  async closeVotingWindowEarly(matchId: string): Promise<Date> {
+    return this.finalizeMatchResultTransaction(matchId, undefined, true);
+  }
+
+  private async finalizeMatchResultTransaction(
+    matchId: string,
+    requestedNow: Date | undefined,
+    closeEarly: boolean,
+  ): Promise<Date> {
+    let finalizedAt: Date | undefined;
     await this.database.runTransaction(async (transaction) => {
       const matchReference = this.database.doc(`matches/${matchId}`);
       const resultReference = this.database.doc(
@@ -626,7 +889,12 @@ export class AdminFootballSyncStore
       if (!matchSnapshot.exists)
         throw new Error(`Match ${matchId} was not found.`);
       const match = fromDocument<Match>(matchSnapshot);
+      const now = closeEarly ? matchSnapshot.readTime.toDate() : requestedNow!;
+      finalizedAt = now;
       if (resultSnapshot.exists) {
+        if (closeEarly) {
+          throw new Error("The voting window is already finalized.");
+        }
         if (match.ratingState !== "rating_closed") {
           transaction.update(matchReference, {
             ratingState: "rating_closed",
@@ -635,11 +903,14 @@ export class AdminFootballSyncStore
         }
         return;
       }
+      const window = getEffectiveVotingWindow(match);
       if (
         match.status !== "finished" ||
         match.ratingState !== "rating_ready" ||
-        match.votingClosesAt === undefined ||
-        now < new Date(match.votingClosesAt)
+        window === null ||
+        (closeEarly
+          ? getVotingWindowState(match, now) !== "active"
+          : now < new Date(window.closesAt))
       ) {
         throw new Error("Match is not eligible for result finalization.");
       }
@@ -661,9 +932,14 @@ export class AdminFootballSyncStore
       });
       transaction.update(matchReference, {
         ratingState: "rating_closed",
+        ...(closeEarly ? { votingClosedEarlyAt: Timestamp.fromDate(now) } : {}),
         updatedAt: Timestamp.fromDate(now),
       });
     });
+    if (finalizedAt === undefined) {
+      throw new Error("Result finalization did not establish a trusted time.");
+    }
+    return finalizedAt;
   }
   async getSyncMetadata(teamId: string): Promise<FootballSyncMetadata | null> {
     const snapshot = await this.database
@@ -945,22 +1221,6 @@ export class AdminFootballSyncStore
   }
 }
 
-function getWindowState(
-  match: Match,
-  now: Date,
-): "active" | "not_open" | "closed" {
-  if (
-    match.ratingState !== "rating_ready" ||
-    match.votingOpensAt === undefined ||
-    match.votingClosesAt === undefined
-  ) {
-    return "not_open";
-  }
-  if (now < new Date(match.votingOpensAt)) return "not_open";
-  if (now >= new Date(match.votingClosesAt)) return "closed";
-  return "active";
-}
-
 function compareParticipants(
   left: MatchParticipant,
   right: MatchParticipant,
@@ -983,6 +1243,207 @@ function compareParticipants(
     Number(left.shirtNumber ?? 999) - Number(right.shirtNumber ?? 999) ||
     left.playerName.localeCompare(right.playerName)
   );
+}
+
+function requireAuditableWindow(match: Match) {
+  const window = getEffectiveVotingWindow(match);
+  if (
+    window === null ||
+    !validTimestamp(window.opensAt) ||
+    !validTimestamp(window.closesAt) ||
+    new Date(window.opensAt) >= new Date(window.closesAt) ||
+    match.votingOpensAt === undefined ||
+    match.votingClosesAt === undefined ||
+    !validTimestamp(match.votingOpensAt) ||
+    !validTimestamp(match.votingClosesAt)
+  ) {
+    throw new Error("Persisted voting timestamps are incomplete or malformed.");
+  }
+  if (
+    window.reopened &&
+    (match.votingReopenedAt === undefined ||
+      !validTimestamp(match.votingReopenedAt) ||
+      !Number.isInteger(match.votingReopenCount) ||
+      match.votingReopenCount! < 1)
+  ) {
+    throw new Error("Persisted reopen metadata is incomplete or malformed.");
+  }
+  return window;
+}
+
+function validateReopenCloseTime(requested: Date, trustedAt: Date) {
+  const duration = requested.getTime() - trustedAt.getTime();
+  if (
+    !Number.isFinite(requested.getTime()) ||
+    duration < 5 * 60 * 1000 ||
+    duration > 24 * 60 * 60 * 1000
+  ) {
+    throw new Error(
+      "The reopen close time must be between 5 minutes and 24 hours after trusted time.",
+    );
+  }
+}
+
+function validTimestamp(value: string) {
+  return Number.isFinite(new Date(value).getTime());
+}
+
+function isCompatibleCurrentResult(match: Match, result: MatchResult): boolean {
+  if (
+    result.matchId !== match.id ||
+    result.teamId !== match.trackedTeamId ||
+    !Number.isInteger(result.ballotCount) ||
+    result.ballotCount < 0 ||
+    (result.status !== "final" && result.status !== "no_votes") ||
+    typeof result.generatedAt !== "string" ||
+    !validTimestamp(result.generatedAt) ||
+    !isRecord(result.playerResults) ||
+    !isRecord(result.coachResult) ||
+    !Array.isArray(result.mvpPlayerIds)
+  ) {
+    return false;
+  }
+  const playerResults = Object.entries(result.playerResults);
+  if (playerResults.length === 0) return false;
+  const orders = new Set<number>();
+  for (const [playerId, value] of playerResults) {
+    if (
+      !isRecord(value) ||
+      value.playerId !== playerId ||
+      typeof value.playerName !== "string" ||
+      value.playerName.length === 0 ||
+      !validAggregateRating(value.average) ||
+      value.voteCount !== result.ballotCount ||
+      !Number.isInteger(value.order) ||
+      (value.order as number) < 0 ||
+      orders.has(value.order as number)
+    ) {
+      return false;
+    }
+    orders.add(value.order as number);
+  }
+  const coach = result.coachResult;
+  if (
+    typeof coach.coachId !== "string" ||
+    coach.coachId.length === 0 ||
+    typeof coach.coachName !== "string" ||
+    coach.coachName.length === 0 ||
+    !validAggregateRating(coach.average) ||
+    coach.voteCount !== result.ballotCount
+  ) {
+    return false;
+  }
+  if (
+    result.mvpPlayerIds.some(
+      (playerId) =>
+        typeof playerId !== "string" || !(playerId in result.playerResults),
+    ) ||
+    new Set(result.mvpPlayerIds).size !== result.mvpPlayerIds.length
+  ) {
+    return false;
+  }
+  return result.status === "no_votes"
+    ? result.ballotCount === 0 && result.mvpPlayerIds.length === 0
+    : result.ballotCount > 0 && result.mvpPlayerIds.length > 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function validAggregateRating(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isFinite(value) &&
+    value >= 0 &&
+    value <= 10
+  );
+}
+
+function requireCanonicalCurrentResult(
+  result: MatchResult,
+  expected: MatchResult,
+): void {
+  if (
+    typeof result.generatedAt !== "string" ||
+    !validTimestamp(result.generatedAt)
+  ) {
+    throw new Error("The current result summary is malformed.");
+  }
+  const current = { ...result } as Record<string, unknown>;
+  delete current.id;
+  if (
+    !isDeepStrictEqual(current, {
+      ...expected,
+      generatedAt: result.generatedAt,
+    })
+  ) {
+    throw new Error("The current result summary is malformed or inconsistent.");
+  }
+}
+
+function planCurrent(
+  match: Match,
+  ballotCount: number,
+  resultSummaryExists: boolean,
+  resultGeneratedAt: string | undefined,
+): VotingWindowPlan["current"] {
+  const window = requireAuditableWindow(match);
+  return {
+    status: match.status,
+    ratingState: match.ratingState,
+    ...(match.ratingReadyAt === undefined
+      ? {}
+      : { ratingReadyAt: match.ratingReadyAt }),
+    ...(match.votingOpensAt === undefined
+      ? {}
+      : { originalVotingOpensAt: match.votingOpensAt }),
+    ...(match.votingClosesAt === undefined
+      ? {}
+      : { originalVotingClosesAt: match.votingClosesAt }),
+    effectiveVotingOpensAt: window.opensAt,
+    effectiveVotingClosesAt: window.closesAt,
+    reopened: window.reopened,
+    votingReopenCount: match.votingReopenCount ?? 0,
+    resultSummaryExists,
+    ...(resultGeneratedAt === undefined ? {} : { resultGeneratedAt }),
+    ballotCount,
+  };
+}
+
+function reopenPlan({
+  match,
+  result,
+  ballotCount,
+  trustedAt,
+  requestedClosesAt,
+  archivePath,
+}: {
+  match: Match;
+  result: MatchResult;
+  ballotCount: number;
+  trustedAt: Date;
+  requestedClosesAt: Date;
+  archivePath: string;
+}): VotingWindowPlan {
+  return {
+    operation: "reopen",
+    matchId: match.id,
+    trustedAt: trustedAt.toISOString(),
+    current: planCurrent(match, ballotCount, true, result.generatedAt),
+    proposed: {
+      effectiveVotingOpensAt: trustedAt.toISOString(),
+      effectiveVotingClosesAt: requestedClosesAt.toISOString(),
+      archivePath,
+      changes: [
+        `create ${archivePath}`,
+        `delete matches/${match.id}/results/summary`,
+        `update matches/${match.id}: ratingState, votingReopenedAt, votingReopenCount, effectiveVotingOpensAt, effectiveVotingClosesAt, updatedAt`,
+        `preserve matches/${match.id}/ballots/* unchanged`,
+      ],
+      finalizesImmediately: false,
+    },
+  };
 }
 
 function toDocument(value: object): Record<string, unknown> {
@@ -1076,5 +1537,20 @@ function preserveMatchLifecycle(existing: Match, incoming: Match): Match {
     ...(existing.votingClosesAt === undefined
       ? {}
       : { votingClosesAt: existing.votingClosesAt }),
+    ...(existing.votingReopenedAt === undefined
+      ? {}
+      : { votingReopenedAt: existing.votingReopenedAt }),
+    ...(existing.votingReopenCount === undefined
+      ? {}
+      : { votingReopenCount: existing.votingReopenCount }),
+    ...(existing.effectiveVotingOpensAt === undefined
+      ? {}
+      : { effectiveVotingOpensAt: existing.effectiveVotingOpensAt }),
+    ...(existing.effectiveVotingClosesAt === undefined
+      ? {}
+      : { effectiveVotingClosesAt: existing.effectiveVotingClosesAt }),
+    ...(existing.votingClosedEarlyAt === undefined
+      ? {}
+      : { votingClosedEarlyAt: existing.votingClosedEarlyAt }),
   };
 }
