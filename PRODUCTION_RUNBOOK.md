@@ -28,6 +28,9 @@ Prepare Node.js 22, Firebase CLI 15.28.2, a production Firebase project, a Fireb
 - `FIREBASE_ADMIN_PROJECT_ID` (must equal the public project ID)
 - `FIREBASE_ADMIN_CLIENT_EMAIL`
 - `FIREBASE_ADMIN_PRIVATE_KEY` (escaped `\n` newlines)
+- `RESEND_API_KEY`
+- `VOTING_WINDOW_OPERATOR_EMAIL`
+- `VOTING_WINDOW_FROM_EMAIL` (for example, `Rating App <notifications@example.com>`)
 
 Never configure `FIRESTORE_EMULATOR_HOST`, `FIREBASE_AUTH_EMULATOR_HOST`, `GCLOUD_PROJECT`, or public emulator host/port variables in Vercel production. Hosted runtime validation rejects emulator hosts and demo projects.
 
@@ -46,6 +49,16 @@ Exceptional voting-window recovery is a local production CLI operation. Generate
 To rotate, generate a new high-entropy value, replace the configured digest, remove the old digest, and use only the new raw value for later invocations. Rotation does not alter matches, ballots, results, or revision documents. Never print either value during verification.
 
 `NEXT_PUBLIC_SITE_URL` is public, non-sensitive canonical metadata configuration. It must be one HTTPS origin with no path, query, fragment, or credentials. The build has the same explicit Vercel production origin as a safe fallback, never derives canonical links from `VERCEL_URL` or an incoming request host, and therefore cannot silently canonize a Preview deployment.
+
+### Voting-window operator email
+
+Resend is the server-only delivery provider. Create a narrowly held production API key and [add a sending domain](https://resend.com/docs/dashboard/domains/introduction) in the Resend dashboard. Publish the exact SPF and DKIM records Resend supplies, wait for the domain to show as verified, and configure `VOTING_WINDOW_FROM_EMAIL` with an address on that domain. Configure the single monitored destination in `VOTING_WINDOW_OPERATOR_EMAIL`. Keep all three values out of browser-prefixed variables, GitHub, command output, and repository files. A missing or incomplete set leaves delivery disabled and produces a sanitized `voting.notification` `not_configured` outcome; it does not block voting.
+
+Before enabling lifecycle scheduling, use Resend's dashboard test for the verified sender and operator destination. Confirm inbox delivery, sender identity, spam placement, and that replies/bounces are handled as intended. Repository tests mock `fetch` and never send real mail. After deployment, use the next controlled eligible match opening as the application-path smoke test: require one message with the two team names, final score, match ID, open/close times, and canonical rating link; then invoke lifecycle again and require `already_sent` with no second message. Do not create or edit a production Match solely to test email.
+
+The lifecycle and successful reopen command emit `voting.notification` entries with match ID, window sequence, and a safe status: `attempted`, `sent`, `already_sent`, `in_flight`, `not_configured`, `failed`, or `manual_review`. They never include the operator address, API key, provider response, voter, ballot, or aggregate. Delivery failure remains `pending` for a later active-window lifecycle retry. `manual_review` means the first attempt is at least 23 hours old and an automatic retry can no longer rely on Resend's 24-hour idempotency retention; inspect the provider dashboard and Firestore receipt fields before taking any action.
+
+At pilot volume, one message per opened window should stay well below Resend's free allowance. Check the [current Resend pricing](https://resend.com/pricing) and dashboard limits before setup and monthly thereafter because quotas and prices can change. Alert on unexpected volume, `failed`/`manual_review` outcomes, approaching daily/monthly limits, domain-verification changes, or repeated bounces. Scaling to supporter notifications requires a separate product and cost decision.
 
 ### Local-only variables and commands
 
@@ -107,6 +120,8 @@ When no relevant future match is known, discovery is attempted at most every 12 
 API-Football has confirmed that fixture lineup publication can be followed by a cache interval in which the focused endpoint returns either an empty collection or Team/coach entries that omit `startXI` or `substitutes`. Treat both shapes as “currently no usable lineup observed,” not permanent absence or malformed data; they remain retryable. An explicitly present player field with a non-array value is structurally malformed and still fails closed. A trusted persisted snapshot and its fixture-specific coach survive unavailable or smaller later responses; malformed/incomplete evidence writes nothing. A coach published without both player arrays is not persisted independently because participant and coach context is validated and written atomically. Do not substitute `/coachs?team=...`, current roster membership, names, or bench presence for fixture evidence. At `FT`, only stable-ID substitution events or positive player minutes can add bench participation, and missing coach or insufficient participant evidence remains safely `preparing_rating` for a later scheduler retry.
 
 Every authenticated lifecycle response includes an ordered `logs` trace that the GitHub Actions `curl` invocation prints, including for HTTP failures through `--fail-with-body`. The same compact JSON entries appear in server logs. Use them to follow match/status selection, fixture score and elapsed-minute refresh, lifecycle phase, focused lineup/player/event structure, aggregate reconciliation, readiness and its blocking reason, voting/finalization, final action, and bounded provider request count. These entries intentionally omit raw provider payloads, individual player details, credentials, authorization headers, Firebase configuration, voters, ballots, and account data; logging is best-effort and does not add provider calls or alter lifecycle behavior.
+
+When voting opens, the response can also include the safe notification outcome. Delivery occurs only after the window is durable. Notification failure therefore requires investigation and a later lifecycle retry, never a window rollback or timestamp edit. A successful operator reopen command applies the transaction first and then reports its notification outcome in the same JSON output.
 
 Normal additional context cost is one pre-match lineup request and three final reconciliation requests. If no pre-match snapshot is captured, final reconciliation can establish it when focused lineups are available. With an approximately 30-minute scheduler, the pre-match window adds at most about three lineup requests while empty; a persistently incomplete finished match can use four total provider requests per retry (fixture + three context endpoints) for the existing eight-hour relevance horizon, up to roughly 64 requests in the conservative worst case. Monitor provider quota and investigate persistent `preparing_rating` rather than adding in-process sleeps or unbounded retries.
 
@@ -237,6 +252,7 @@ The workflow uses `curl` only, a 10-second connect timeout, 45-second request ti
 - Rotate `CRON_SECRET` in Vercel and GitHub together; keep the scheduler disabled until both match and a manual dispatch succeeds.
 - Rotate `API_FOOTBALL_KEY` in Vercel independently, then invoke lifecycle manually and verify quota/request behavior.
 - Rotate Firebase Admin by adding the new client email/private key in Vercel, verifying health, and revoking the old service-account key afterward.
+- Rotate `RESEND_API_KEY` by creating a replacement restricted key, updating Vercel and the controlled operator environment, confirming a dashboard test and the next application-path outcome, then revoking the old key. Reverify SPF/DKIM and update `VOTING_WINDOW_FROM_EMAIL` before removing an old sending domain. Update `VOTING_WINDOW_OPERATOR_EMAIL` directly when operator responsibility changes, then run the dashboard delivery test.
 
 Never log, commit, paste into issues, or expose these values to browser variables.
 

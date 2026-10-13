@@ -256,4 +256,14 @@ export const esMessages = {
   footer: {
     supporting: "Creado para aficionados. Listo para crecer club por club.",
   },
+  operatorNotification: {
+    subject: "Votaci\u00f3n abierta: {home} vs. {away}",
+    intro: "La votaci\u00f3n ya est\u00e1 abierta para {home} vs. {away}.",
+    score: "Marcador: {score}",
+    scoreUnavailable: "No disponible",
+    matchId: "ID del partido: {matchId}",
+    opened: "Apertura (UTC): {opensAt}",
+    closes: "Cierre (UTC): {closesAt}",
+    vote: "Calificar: {url}",
+  },
 } as const;

@@ -169,6 +169,44 @@ export interface MatchLifecycleStore extends FootballSyncStore {
   setSyncMetadata(metadata: FootballSyncMetadata): Promise<void>;
 }
 
+export interface VotingWindowNotificationContext {
+  matchId: string;
+  windowSequence: number;
+  homeTeamName: string;
+  awayTeamName: string;
+  score: Match["score"];
+  opensAt: string;
+  closesAt: string;
+}
+
+export type VotingWindowNotificationClaim =
+  | { status: "claimed"; context: VotingWindowNotificationContext }
+  | {
+      status: "already_sent" | "in_flight" | "not_open" | "manual_review";
+      windowSequence?: number;
+    };
+
+export interface VotingWindowNotificationStore {
+  claimVotingWindowNotification(
+    matchId: string,
+    attemptId: string,
+    now: Date,
+  ): Promise<VotingWindowNotificationClaim>;
+  markVotingWindowNotificationSent(
+    matchId: string,
+    windowSequence: number,
+    attemptId: string,
+    providerMessageId: string,
+    sentAt: Date,
+  ): Promise<boolean>;
+  releaseVotingWindowNotification(
+    matchId: string,
+    windowSequence: number,
+    attemptId: string,
+    resetFirstAttempt: boolean,
+  ): Promise<void>;
+}
+
 export interface FootballSyncStore {
   getTeam(teamId: string): Promise<Team>;
   getMatch(matchId: string): Promise<Match>;

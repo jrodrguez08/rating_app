@@ -6,6 +6,7 @@ vi.mock("@/application/run-lifecycle", () => ({
 }));
 vi.mock("@/lib/firebase/server", () => ({
   AdminFootballSyncStore: class {},
+  AdminVotingWindowNotificationStore: class {},
 }));
 
 import { POST } from "./route";

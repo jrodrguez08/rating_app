@@ -1,13 +1,15 @@
 import { deleteApp, initializeApp } from "firebase-admin/app";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { notifyVotingWindowOpenedIfPending } from "@/application/voting-window-notification";
 import type { FootballDataProvider } from "@/domain/ports";
 import { runMatchLifecycle } from "@/application/match-lifecycle";
 import {
   AdminBallotService,
   AdminFootballSyncStore,
   AdminResultService,
+  AdminVotingWindowNotificationStore,
   AdminVotingWindowService,
 } from "@/lib/firebase/server";
 
@@ -16,6 +18,7 @@ const app = initializeApp({ projectId }, `operator-window-tests-${Date.now()}`);
 const database = getFirestore(app);
 const store = new AdminFootballSyncStore(database);
 const operator = new AdminVotingWindowService(database);
+const notificationStore = new AdminVotingWindowNotificationStore(database);
 const ballots = new AdminBallotService(database);
 const results = new AdminResultService(database);
 
@@ -66,6 +69,8 @@ describe("operator voting-window persistence", () => {
     expect(reopened).toMatchObject({
       ratingState: "rating_ready",
       votingReopenCount: 1,
+      votingOpenNotificationWindow: 1,
+      votingOpenNotificationStatus: "pending",
       votingReopenedAt: expect.any(Timestamp),
       effectiveVotingOpensAt: expect.any(Timestamp),
       effectiveVotingClosesAt: Timestamp.fromDate(closesAt),
@@ -90,6 +95,40 @@ describe("operator voting-window persistence", () => {
     expect(await results.getVoteComparison(matchId, "voter-a")).toEqual({
       status: "locked",
     });
+    const send = vi.fn().mockResolvedValue({ providerMessageId: "email-1" });
+    const notificationOutcomes = await Promise.all([
+      notifyVotingWindowOpenedIfPending({
+        matchId,
+        store: notificationStore,
+        notifier: { send },
+      }),
+      notifyVotingWindowOpenedIfPending({
+        matchId,
+        store: notificationStore,
+        notifier: { send },
+      }),
+    ]);
+    expect(notificationOutcomes).toContain("sent");
+    expect(
+      notificationOutcomes.every((outcome) =>
+        ["sent", "in_flight", "already_sent"].includes(outcome),
+      ),
+    ).toBe(true);
+    await expect(
+      notifyVotingWindowOpenedIfPending({
+        matchId,
+        store: notificationStore,
+        notifier: { send },
+      }),
+    ).resolves.toBe("already_sent");
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        matchId,
+        windowSequence: 1,
+        idempotencyKey: `voting-open/${matchId}/1`,
+      }),
+    );
     await expect(operator.reopen(matchId, closesAt, true)).rejects.toThrow(
       /closed rating window/i,
     );

@@ -1,14 +1,26 @@
 import { runMatchLifecycle } from "@/application/match-lifecycle";
 import { syncFootballData } from "@/application/sync-football";
 import { syncMatchParticipants } from "@/application/sync-match-participants";
-import type { MatchLifecycleStore } from "@/domain/ports";
+import {
+  notifyVotingWindowOpenedIfPending,
+  type VotingWindowNotifier,
+} from "@/application/voting-window-notification";
+import type {
+  MatchLifecycleStore,
+  VotingWindowNotificationStore,
+} from "@/domain/ports";
 import { ApiFootballAdapter } from "@/lib/providers/api-football/adapter";
 
-export function runConfiguredLifecycle(
+export async function runConfiguredLifecycle(
   teamId: string,
   store: MatchLifecycleStore,
   apiKey: string,
   now: () => Date = () => new Date(),
+  notification?: {
+    store: VotingWindowNotificationStore;
+    notifier: VotingWindowNotifier | null;
+    siteUrl?: URL;
+  },
 ) {
   const logs: string[] = [];
   const log = (message: string) => {
@@ -16,7 +28,7 @@ export function runConfiguredLifecycle(
     console.info(message);
   };
   const provider = new ApiFootballAdapter(apiKey, fetch, log);
-  return runMatchLifecycle({
+  const result = await runMatchLifecycle({
     teamId,
     provider,
     store,
@@ -34,5 +46,23 @@ export function runConfiguredLifecycle(
       );
     },
     log,
-  }).then((result) => ({ ...result, logs }));
+  });
+  const notificationOutcome =
+    result.matchId === undefined || notification === undefined
+      ? undefined
+      : await notifyVotingWindowOpenedIfPending({
+          matchId: result.matchId,
+          store: notification.store,
+          notifier: notification.notifier,
+          siteUrl: notification.siteUrl,
+          now,
+          log,
+        });
+  return {
+    ...result,
+    ...(notificationOutcome === undefined
+      ? {}
+      : { notification: notificationOutcome }),
+    logs,
+  };
 }

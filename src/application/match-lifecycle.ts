@@ -341,6 +341,8 @@ async function executeMatchLifecycle({
       ratingReadyAt: synced.ratingReadyAt ?? currentTime.toISOString(),
       votingOpensAt: opensAt,
       votingClosesAt: closesAt,
+      votingOpenNotificationWindow: 0,
+      votingOpenNotificationStatus: "pending",
       updatedAt: currentTime.toISOString(),
     });
     emitOperationalLog(log, "lifecycle.voting_window", {
