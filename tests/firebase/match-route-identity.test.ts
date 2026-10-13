@@ -44,7 +44,16 @@ beforeAll(async () => {
     matchId: "rated",
     teamId: initialClub.teamId,
     ballotCount: 0,
-    playerResults: {},
+    playerResults: {
+      starter: {
+        playerId: "starter",
+        playerName: "Starter",
+        position: "Midfielder",
+        average: 0,
+        voteCount: 0,
+        order: 0,
+      },
+    },
     coachResult: {
       coachId: "coach",
       coachName: "Coach",

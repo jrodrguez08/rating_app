@@ -105,6 +105,9 @@ describe("operator voting-window persistence", () => {
     const oldBallot = (
       await database.doc(`matches/${matchId}/ballots/voter-a`).get()
     ).data();
+    const archivedBeforeClose = (
+      await database.doc(`matches/${matchId}/resultRevisions/reopen-0001`).get()
+    ).data();
 
     const plan = await operator.planClose(matchId);
     expect(plan).toMatchObject({
@@ -126,6 +129,14 @@ describe("operator voting-window persistence", () => {
     expect(
       (await database.doc(`matches/${matchId}/results/summary`).get()).data(),
     ).toMatchObject({ ballotCount: 2, status: "final" });
+    expect((await results.getPageState(matchId)).state).toBe("ready");
+    expect(await results.getVoteComparison(matchId, "voter-b")).toMatchObject({
+      status: "ready",
+      comparison: {
+        players: [{ id: "player-1", userRating: 10 }],
+        coach: { id: "coach-1", userRating: 9 },
+      },
+    });
     expect(
       (await database.doc(`matches/${matchId}/ballots/voter-a`).get()).data(),
     ).toEqual(oldBallot);
@@ -134,8 +145,8 @@ describe("operator voting-window persistence", () => {
         await database
           .doc(`matches/${matchId}/resultRevisions/reopen-0001`)
           .get()
-      ).exists,
-    ).toBe(true);
+      ).data(),
+    ).toEqual(archivedBeforeClose);
     await expect(
       ballots.submit(matchId, "late-voter", ratings(7, 7), new Date()),
     ).resolves.toEqual({ status: "not_open" });
@@ -166,6 +177,14 @@ describe("operator voting-window persistence", () => {
     expect(
       (await database.doc(`matches/${matchId}/results/summary`).get()).data(),
     ).toMatchObject({ ballotCount: 1 });
+    expect((await results.getPageState(matchId)).state).toBe("ready");
+    expect(await results.getVoteComparison(matchId, "voter-a")).toMatchObject({
+      status: "ready",
+      comparison: {
+        players: [{ id: "player-1", userRating: 8 }],
+        coach: { id: "coach-1", userRating: 7 },
+      },
+    });
   });
 
   it("aborts on an archive collision and on a concurrent reopen", async () => {

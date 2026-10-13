@@ -94,7 +94,45 @@ describe("trusted result finalization", () => {
     expect(
       await reader.getVoteComparison("comparison-gated", "voter-a", close),
     ).toEqual({ status: "locked" });
+    expect((await reader.getPageState("comparison-gated", close)).state).toBe(
+      "preparing",
+    );
     await store.finalizeMatchResult("comparison-gated", close);
+  });
+
+  it("does not publish an incompatible summary from a closed match", async () => {
+    const matchId = "incompatible-summary";
+    await seed(matchId);
+    await database.doc(`matches/${matchId}`).update({
+      ratingState: "rating_closed",
+    });
+    await database.doc(`matches/${matchId}/results/summary`).set({
+      matchId: "different-match",
+      teamId: "team-1",
+      ballotCount: 1,
+      playerResults: {},
+      coachResult: {
+        coachId: "coach-1",
+        coachName: "Coach",
+        average: 8,
+        voteCount: 1,
+      },
+      mvpPlayerIds: [],
+      status: "final",
+      generatedAt: Timestamp.fromDate(close),
+    });
+
+    expect(
+      (await reader.getPageState(matchId, new Date(close.getTime() - 60_000)))
+        .state,
+    ).toBe("preparing");
+    expect(
+      await reader.getVoteComparison(
+        matchId,
+        "voter-a",
+        new Date(close.getTime() - 60_000),
+      ),
+    ).toEqual({ status: "locked" });
   });
 
   it("creates an explicit stable zero-vote summary", async () => {
