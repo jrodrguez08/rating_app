@@ -21,13 +21,17 @@ function response(body: unknown, status = 200) {
   });
 }
 
-function matchContextFetcher(payload = matchContextResponse) {
+function matchContextFetcher(
+  payload = matchContextResponse,
+  coaches: readonly unknown[] = [],
+) {
   return vi.fn<typeof fetch>().mockImplementation(async (input) => {
     const pathname = new URL(String(input)).pathname;
     const fixture = payload[0];
     if (pathname === "/fixtures/lineups") return response(fixture.lineups);
     if (pathname === "/fixtures/players") return response(fixture.players);
     if (pathname === "/fixtures/events") return response(fixture.events);
+    if (pathname === "/coachs") return response(coaches);
     throw new Error(`Unexpected context request: ${pathname}`);
   });
 }
@@ -419,10 +423,15 @@ describe("ApiFootballAdapter", () => {
     );
     expect(context.participants).toHaveLength(13);
     expect(adapter.requestCount).toBe(3);
+    expect(
+      fetcher.mock.calls.some(
+        ([input]) => new URL(String(input)).pathname === "/coachs",
+      ),
+    ).toBe(false);
     expect(logs).toEqual(
       expect.arrayContaining([
         expect.stringContaining(
-          '"event":"provider.lineup","request":"fixtures/lineups","resultCount":2,"trackedTeamFound":true,"startXI":"present","substitutes":"present","fixtureCoachPresent":true,"starterCount":11,"substituteCount":2,"classification":"usable"',
+          '"event":"provider.lineup","request":"fixtures/lineups","resultCount":2,"trackedTeamFound":true,"startXI":"present","substitutes":"present","fixtureCoachPresent":true,"fixtureCoachIdUsable":true,"starterCount":11,"substituteCount":2,"classification":"usable"',
         ),
         expect.stringContaining(
           '"event":"provider.player_statistics","request":"fixtures/players"',
@@ -431,6 +440,164 @@ describe("ApiFootballAdapter", () => {
           '"event":"provider.substitutions_reconciled","relevantSubstitutions":2,"incomingSubstitutesMatched":2,"participationConfirmationsAdded":0',
         ),
       ]),
+    );
+  });
+
+  it.each([null, "not-a-number"])(
+    "recovers a stable coach ID when the lineup coach id is %s",
+    async (invalidCoachId) => {
+      const payload = structuredClone(matchContextResponse);
+      payload[0].lineups[0].coach.id = invalidCoachId as never;
+      const logs: string[] = [];
+      const fetcher = matchContextFetcher(payload, [
+        {
+          id: 990,
+          name: "Herediano Coach",
+          photo: "https://img.test/resolved-coach.png",
+          team: { id: 1234, name: "Herediano" },
+        },
+      ]);
+      const adapter = new ApiFootballAdapter("test-key", fetcher, (message) =>
+        logs.push(message),
+      );
+
+      const context = await adapter.getMatchContext("5001", "1234");
+
+      expect(context.headCoach).toEqual({
+        externalTeamId: "1234",
+        externalCoachId: "990",
+        name: "Herediano Coach",
+        photoUrl: "https://img.test/resolved-coach.png",
+      });
+      expect(adapter.requestCount).toBe(4);
+      expect(
+        fetcher.mock.calls.filter(
+          ([input]) => new URL(String(input)).pathname === "/coachs",
+        ),
+      ).toHaveLength(1);
+      expect(logs).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining('"fixtureCoachIdUsable":false'),
+          expect.stringContaining(
+            '"event":"provider.coach_fallback","teamId":"1234","status":"attempted"',
+          ),
+          expect.stringContaining(
+            '"event":"provider.coach_fallback","teamId":"1234","status":"resolved"',
+          ),
+        ]),
+      );
+    },
+  );
+
+  it.each([
+    [
+      "no exact match",
+      [
+        {
+          id: 990,
+          name: "Different Coach",
+          team: { id: 1234, name: "Herediano" },
+        },
+      ],
+      "coach-missing",
+      '"status":"no-match"',
+    ],
+    [
+      "same name on another team",
+      [
+        {
+          id: 990,
+          name: "Herediano Coach",
+          team: { id: 2000, name: "Opponent" },
+        },
+      ],
+      "coach-missing",
+      '"status":"no-match"',
+    ],
+    [
+      "duplicate exact matches",
+      [
+        {
+          id: 990,
+          name: "Herediano Coach",
+          team: { id: 1234, name: "Herediano" },
+        },
+        {
+          id: 991,
+          name: "Herediano Coach",
+          team: { id: 1234, name: "Herediano" },
+        },
+      ],
+      "ambiguous-coach",
+      '"status":"ambiguous"',
+    ],
+    [
+      "malformed resolved coach id",
+      [
+        {
+          id: null,
+          name: "Herediano Coach",
+          team: { id: 1234, name: "Herediano" },
+        },
+      ],
+      "malformed-response",
+      '"status":"malformed"',
+    ],
+  ] as const)(
+    "fails closed when coach fallback has %s",
+    async (_label, coaches, expectedCode, expectedLog) => {
+      const payload = structuredClone(matchContextResponse);
+      payload[0].lineups[0].coach.id = null as never;
+      const logs: string[] = [];
+      const adapter = new ApiFootballAdapter(
+        "test-key",
+        matchContextFetcher(payload, coaches),
+        (message) => logs.push(message),
+      );
+
+      await expect(
+        adapter.getMatchContext("5001", "1234"),
+      ).rejects.toMatchObject({ code: expectedCode });
+      expect(logs).toEqual(
+        expect.arrayContaining([expect.stringContaining(expectedLog)]),
+      );
+    },
+  );
+
+  it("logs provider coach fallback failures without exposing response data", async () => {
+    const payload = structuredClone(matchContextResponse);
+    payload[0].lineups[0].coach.id = null as never;
+    const fetcher = matchContextFetcher(payload);
+    fetcher.mockImplementation(async (input) => {
+      const pathname = new URL(String(input)).pathname;
+      if (pathname === "/coachs") {
+        return new Response("provider detail that must not be logged", {
+          status: 500,
+        });
+      }
+      const fixture = payload[0];
+      if (pathname === "/fixtures/lineups") return response(fixture.lineups);
+      if (pathname === "/fixtures/players") return response(fixture.players);
+      if (pathname === "/fixtures/events") return response(fixture.events);
+      throw new Error(`Unexpected context request: ${pathname}`);
+    });
+    const logs: string[] = [];
+    const adapter = new ApiFootballAdapter("test-key", fetcher, (message) =>
+      logs.push(message),
+    );
+
+    await expect(
+      adapter.getMatchContext("5001", "1234"),
+    ).rejects.toBeInstanceOf(ProviderError);
+    expect(logs).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          '"event":"provider.coach_fallback","teamId":"1234","status":"provider-error"',
+        ),
+      ]),
+    );
+    expect(logs.join("\n")).not.toContain(
+      "provider detail that must not be logged",
     );
   });
 

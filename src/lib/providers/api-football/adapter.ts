@@ -3,6 +3,7 @@ import type {
   FixtureWindow,
   FootballDataProvider,
   ProviderStandingsRow,
+  ProviderHeadCoach,
   ProviderMatchContext,
   ProviderMatchParticipant,
   ProviderSquadPlayer,
@@ -56,6 +57,12 @@ function number(value: unknown, label: string): number {
     malformed(`${label} must be a finite number.`);
   }
   return value;
+}
+
+function finiteNumberOrUndefined(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
 }
 
 function integer(value: unknown, label: string, minimum = 0): number {
@@ -342,7 +349,7 @@ export class ApiFootballAdapter
     this.logLineupSummary(lineups, externalTeamId);
     this.logPlayerStatisticsSummary(players, externalTeamId);
     this.logEventSummary(events, externalTeamId);
-    const observed = this.parseLineupContext(
+    const observed = await this.parseLineupContext(
       lineups,
       externalFixtureId,
       externalTeamId,
@@ -401,7 +408,11 @@ export class ApiFootballAdapter
       fixture: externalFixtureId,
     });
     this.logLineupSummary(lineups, externalTeamId);
-    return this.parseLineupContext(lineups, externalFixtureId, externalTeamId);
+    return await this.parseLineupContext(
+      lineups,
+      externalFixtureId,
+      externalTeamId,
+    );
   }
 
   private logLineupSummary(lineups: unknown[], externalTeamId: string): void {
@@ -435,13 +446,22 @@ export class ApiFootballAdapter
     ) {
       classification = isRecord(lineup?.coach) ? "usable" : "coach-missing";
     }
+    const fixtureCoach = isRecord(lineup?.coach) ? lineup.coach : null;
+    const fixtureCoachPresent = fixtureCoach !== null;
+    const fixtureCoachIdUsable =
+      fixtureCoach !== null &&
+      finiteNumberOrUndefined(fixtureCoach.id) !== undefined;
+    if (classification === "usable" && !fixtureCoachIdUsable) {
+      classification = "coach-id-unusable";
+    }
     emitOperationalLog(this.log, "provider.lineup", {
       request: "fixtures/lineups",
       resultCount: lineups.length,
       trackedTeamFound: tracked.length === 1,
       startXI,
       substitutes,
-      fixtureCoachPresent: isRecord(lineup?.coach),
+      fixtureCoachPresent,
+      fixtureCoachIdUsable,
       starterCount,
       substituteCount,
       classification,
@@ -661,11 +681,11 @@ export class ApiFootballAdapter
     }
   }
 
-  private parseLineupContext(
+  private async parseLineupContext(
     lineups: unknown[],
     externalFixtureId: string,
     externalTeamId: string,
-  ): ProviderMatchContext | null {
+  ): Promise<ProviderMatchContext | null> {
     if (lineups.length === 0) return null;
     const trackedLineups = lineups.filter((value) => {
       const lineup = record(value, "lineup");
@@ -718,15 +738,128 @@ export class ApiFootballAdapter
       );
     }
     const coach = record(lineup.coach, "lineup.coach");
-    const photoUrl = optionalString(coach.photo, "lineup.coach.photo");
     return {
       participants: [...participants.values()],
-      headCoach: {
+      headCoach: await this.resolveLineupCoach(coach, externalTeamId),
+    };
+  }
+
+  private async resolveLineupCoach(
+    coach: Record<string, unknown>,
+    externalTeamId: string,
+  ): Promise<ProviderHeadCoach> {
+    const name = string(coach.name, "lineup.coach.name");
+    const lineupCoachId = finiteNumberOrUndefined(coach.id);
+    const lineupPhotoUrl = optionalString(coach.photo, "lineup.coach.photo");
+    if (lineupCoachId !== undefined) {
+      return {
         externalTeamId,
-        externalCoachId: String(number(coach.id, "lineup.coach.id")),
-        name: string(coach.name, "lineup.coach.name"),
-        ...(photoUrl === undefined ? {} : { photoUrl }),
-      },
+        externalCoachId: String(lineupCoachId),
+        name,
+        ...(lineupPhotoUrl === undefined ? {} : { photoUrl: lineupPhotoUrl }),
+      };
+    }
+
+    emitOperationalLog(this.log, "provider.coach_fallback", {
+      teamId: externalTeamId,
+      status: "attempted",
+      reason: "lineup-coach-id-unusable",
+    });
+
+    let response: unknown[];
+    try {
+      response = await this.request("/coachs", { team: externalTeamId });
+    } catch (error) {
+      emitOperationalLog(this.log, "provider.coach_fallback", {
+        teamId: externalTeamId,
+        status: "provider-error",
+      });
+      throw error;
+    }
+
+    const exactMatches: Record<string, unknown>[] = [];
+    for (const value of response) {
+      if (!isRecord(value)) continue;
+      if (
+        typeof value.name !== "string" ||
+        normalize(value.name) !== normalize(name)
+      ) {
+        continue;
+      }
+      if (!isRecord(value.team)) {
+        emitOperationalLog(this.log, "provider.coach_fallback", {
+          teamId: externalTeamId,
+          status: "malformed",
+          reason: "matching-coach-team-missing",
+        });
+        return malformed("coachs matching record.team must be an object.");
+      }
+      const teamId = finiteNumberOrUndefined(value.team.id);
+      if (teamId === undefined) {
+        emitOperationalLog(this.log, "provider.coach_fallback", {
+          teamId: externalTeamId,
+          status: "malformed",
+          reason: "matching-coach-team-id-unusable",
+        });
+        return malformed(
+          "coachs matching record.team.id must be a finite number.",
+        );
+      }
+      if (String(teamId) === externalTeamId) {
+        exactMatches.push(value);
+      }
+    }
+
+    if (exactMatches.length === 0) {
+      emitOperationalLog(this.log, "provider.coach_fallback", {
+        teamId: externalTeamId,
+        status: "no-match",
+      });
+      throw new ProviderError(
+        "coach-missing",
+        `No exact current coach match was found for tracked Team ${externalTeamId}.`,
+      );
+    }
+    if (exactMatches.length > 1) {
+      emitOperationalLog(this.log, "provider.coach_fallback", {
+        teamId: externalTeamId,
+        status: "ambiguous",
+        matchCount: exactMatches.length,
+      });
+      throw new ProviderError(
+        "ambiguous-coach",
+        `Multiple exact current coach matches were found for tracked Team ${externalTeamId}.`,
+      );
+    }
+
+    const resolved = exactMatches[0];
+    const resolvedId = finiteNumberOrUndefined(resolved.id);
+    if (resolvedId === undefined) {
+      emitOperationalLog(this.log, "provider.coach_fallback", {
+        teamId: externalTeamId,
+        status: "malformed",
+        reason: "matching-coach-id-unusable",
+      });
+      return malformed("coachs matching record.id must be a finite number.");
+    }
+    const resolvedName = string(resolved.name, "coachs matching record.name");
+    const resolvedPhotoUrl = optionalString(
+      resolved.photo,
+      "coachs matching record.photo",
+    );
+    emitOperationalLog(this.log, "provider.coach_fallback", {
+      teamId: externalTeamId,
+      status: "resolved",
+    });
+    return {
+      externalTeamId,
+      externalCoachId: String(resolvedId),
+      name: resolvedName,
+      ...(resolvedPhotoUrl === undefined
+        ? lineupPhotoUrl === undefined
+          ? {}
+          : { photoUrl: lineupPhotoUrl }
+        : { photoUrl: resolvedPhotoUrl }),
     };
   }
 
