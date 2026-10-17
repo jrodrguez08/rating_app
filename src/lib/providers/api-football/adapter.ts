@@ -446,10 +446,11 @@ export class ApiFootballAdapter
     ) {
       classification = isRecord(lineup?.coach) ? "usable" : "coach-missing";
     }
-    const fixtureCoachPresent = isRecord(lineup?.coach);
+    const fixtureCoach = isRecord(lineup?.coach) ? lineup.coach : null;
+    const fixtureCoachPresent = fixtureCoach !== null;
     const fixtureCoachIdUsable =
-      fixtureCoachPresent &&
-      finiteNumberOrUndefined(lineup?.coach?.id) !== undefined;
+      fixtureCoach !== null &&
+      finiteNumberOrUndefined(fixtureCoach.id) !== undefined;
     if (classification === "usable" && !fixtureCoachIdUsable) {
       classification = "coach-id-unusable";
     }
@@ -779,7 +780,10 @@ export class ApiFootballAdapter
     const exactMatches: Record<string, unknown>[] = [];
     for (const value of response) {
       if (!isRecord(value)) continue;
-      if (typeof value.name !== "string" || normalize(value.name) !== normalize(name)) {
+      if (
+        typeof value.name !== "string" ||
+        normalize(value.name) !== normalize(name)
+      ) {
         continue;
       }
       if (!isRecord(value.team)) {
@@ -797,7 +801,9 @@ export class ApiFootballAdapter
           status: "malformed",
           reason: "matching-coach-team-id-unusable",
         });
-        return malformed("coachs matching record.team.id must be a finite number.");
+        return malformed(
+          "coachs matching record.team.id must be a finite number.",
+        );
       }
       if (String(teamId) === externalTeamId) {
         exactMatches.push(value);
