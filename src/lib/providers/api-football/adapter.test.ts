@@ -23,7 +23,7 @@ function response(body: unknown, status = 200) {
 
 function matchContextFetcher(
   payload = matchContextResponse,
-  coaches: unknown[] = [],
+  coaches: readonly unknown[] = [],
 ) {
   return vi.fn<typeof fetch>().mockImplementation(async (input) => {
     const pathname = new URL(String(input)).pathname;
@@ -551,7 +551,7 @@ describe("ApiFootballAdapter", () => {
       const logs: string[] = [];
       const adapter = new ApiFootballAdapter(
         "test-key",
-        matchContextFetcher(payload, coaches as unknown[]),
+        matchContextFetcher(payload, coaches),
         (message) => logs.push(message),
       );
 
