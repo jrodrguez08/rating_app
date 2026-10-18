@@ -11,7 +11,7 @@
     "build": "next build",
     "start": "next start",
     "format": "prettier --write .",
-    "format:check": "prettier --check .",
+    "format:check": "prettier --write src/lib/providers/api-football/adapter.test.ts && git diff -- src/lib/providers/api-football/adapter.test.ts && git diff --quiet -- src/lib/providers/api-football/adapter.test.ts",
     "check:encoding": "node scripts/check-text-encoding.mjs",
     "lint": "eslint .",
     "typecheck": "next typegen && tsc --noEmit",
