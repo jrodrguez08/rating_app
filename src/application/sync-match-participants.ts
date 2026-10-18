@@ -79,6 +79,24 @@ export async function syncMatchParticipants(
           provider.name,
         )
       : persistedContext;
+  const verifiedLineup =
+    phase === "final" && store.getVerifiedLineupSnapshot !== undefined
+      ? await store.getVerifiedLineupSnapshot(match.id)
+      : null;
+  validateVerifiedLineup({
+    match,
+    teamId: team.id,
+    providerName: provider.name,
+    verifiedLineup,
+  });
+  if (
+    verifiedLineup !== null &&
+    store.replaceMatchParticipantContext === undefined
+  ) {
+    throw new Error(
+      "Verified lineup reconciliation requires atomic context persistence.",
+    );
+  }
   let verified: Awaited<
     ReturnType<NonNullable<FootballSyncStore["getVerifiedCoachAssignment"]>>
   > = null;
@@ -94,17 +112,32 @@ export async function syncMatchParticipants(
       throw error;
     }
   }
-  const evidence =
-    phase === "lineup"
-      ? null
-      : provider.getMatchEvidence === undefined
-        ? null
-        : await provider.getMatchEvidence(
-            match.externalProviderFixtureId,
-            externalTeamId,
-            baseline ?? undefined,
-            match.kickoffAt,
-          );
+  let evidence = null;
+  let manualOnlyRecovery = false;
+  if (phase === "final" && provider.getMatchEvidence !== undefined) {
+    try {
+      evidence = await provider.getMatchEvidence(
+        match.externalProviderFixtureId,
+        externalTeamId,
+        baseline ?? undefined,
+        match.kickoffAt,
+      );
+    } catch (error) {
+      if (
+        !(error instanceof ProviderError) ||
+        error.code !== "lineup-unavailable" ||
+        verifiedLineup === null
+      ) {
+        throw error;
+      }
+      emitOperationalLog(log, "provider.lineup", {
+        matchId: match.id,
+        status: "unavailable",
+        recovery: "verified-lineup",
+      });
+      manualOnlyRecovery = true;
+    }
+  }
   let context;
   if (phase === "lineup") {
     context = await provider.getLineupContext(
@@ -112,6 +145,17 @@ export async function syncMatchParticipants(
       externalTeamId,
       match.kickoffAt,
     );
+  } else if (manualOnlyRecovery) {
+    context = {
+      participants: [],
+      headCoach: resolveVerifiedCoachForManualLineup({
+        match,
+        providerName: provider.name,
+        externalTeamId,
+        verified,
+        log,
+      }),
+    };
   } else if (evidence !== null) {
     const coachEvidence =
       evidence.coach.status === "unavailable" &&
@@ -164,7 +208,7 @@ export async function syncMatchParticipants(
   const trackedParticipants = context.participants.filter(
     (participant) => participant.externalTeamId === externalTeamId,
   );
-  if (trackedParticipants.length === 0) {
+  if (trackedParticipants.length === 0 && verifiedLineup === null) {
     throw new Error(
       `Provider returned no participants for tracked Team ${externalTeamId}.`,
     );
@@ -189,6 +233,7 @@ export async function syncMatchParticipants(
   const players: Player[] = trackedParticipants.map((participant) => ({
     id: canonicalIds.get(participant.externalPlayerId)!.canonicalPlayerId,
     displayName: participant.name,
+    identityProvenance: "provider",
     externalProvider: provider.name,
     externalProviderId: canonicalIds.get(participant.externalPlayerId)!
       .canonicalExternalProviderPlayerId,
@@ -216,6 +261,14 @@ export async function syncMatchParticipants(
       squadRole: participant.squadRole,
       starter: participant.squadRole === "starter",
       participated: participant.participated,
+      participationStatus:
+        participant.squadRole === "starter"
+          ? "confirmed_starter"
+          : participant.participated
+            ? "confirmed_substitute"
+            : "unused_substitute",
+      identityProvenance: "provider",
+      participationProvenance: "provider",
       ...(participant.enteredAtMinute === undefined
         ? {}
         : { enteredAtMinute: participant.enteredAtMinute }),
@@ -261,42 +314,84 @@ export async function syncMatchParticipants(
     updatedAt: timestamp,
   };
 
-  const counts =
-    store.replaceMatchParticipantContext === undefined
-      ? {
-          players: await store.upsertPlayers(players),
-          participants: await store.replaceMatchParticipants(
-            match.id,
+  let counts;
+  try {
+    counts =
+      store.replaceMatchParticipantContext === undefined
+        ? {
+            players: await store.upsertPlayers(players),
+            participants: await store.replaceMatchParticipants(
+              match.id,
+              participants,
+            ),
+            coaches: await store.upsertCoaches([coach]),
+            coachAssignments: await store.upsertCoachAssignment(
+              match.id,
+              assignment,
+            ),
+          }
+        : await store.replaceMatchParticipantContext(match.id, {
+            players,
             participants,
-          ),
-          coaches: await store.upsertCoaches([coach]),
-          coachAssignments: await store.upsertCoachAssignment(
-            match.id,
+            coach,
             assignment,
-          ),
-        }
-      : await store.replaceMatchParticipantContext(match.id, {
-          players,
-          participants,
-          coach,
-          assignment,
-        });
+          });
+  } catch (error) {
+    if (
+      verifiedLineup !== null &&
+      error instanceof Error &&
+      error.message.toLowerCase().includes("verified lineup")
+    ) {
+      emitOperationalLog(log, "participants.verified_evidence", {
+        matchId: match.id,
+        status: "conflict",
+        reason: "provider-conflict",
+      });
+    }
+    throw error;
+  }
+  const summaryParticipants = verifiedLineup?.participants ?? participants;
+  if (verifiedLineup !== null) {
+    const providerIdentities = verifiedLineup.participants.filter(
+      (participant) => participant.externalProviderPlayerId !== undefined,
+    ).length;
+    emitOperationalLog(log, "participants.verified_evidence", {
+      matchId: match.id,
+      status: "accepted",
+      identityMode:
+        providerIdentities === 0
+          ? "manual_only"
+          : providerIdentities === verifiedLineup.participants.length
+            ? "provider_backed"
+            : "mixed",
+      participantCount: verifiedLineup.participants.length,
+      rateableParticipantCount: verifiedLineup.participants.filter(
+        (participant) => participant.participated,
+      ).length,
+    });
+  }
   emitOperationalLog(log, "participants.reconciliation", {
     matchId: match.id,
     status: "completed",
-    participantCount: participants.length,
-    participated: participants.filter((value) => value.participated).length,
+    participantCount: summaryParticipants.length,
+    participated: summaryParticipants.filter((value) => value.participated)
+      .length,
     coachProvenance: assignment.provenance ?? "provider",
   });
 
   return {
     matchId: match.id,
     externalFixtureId: match.externalProviderFixtureId,
-    starters: participants.filter((value) => value.starter).length,
-    substitutes: participants.filter((value) => !value.starter).length,
-    participated: participants.filter((value) => value.participated).length,
-    unusedSubstitutes: participants.filter(
-      (value) => !value.starter && !value.participated,
+    starters: summaryParticipants.filter(
+      (value) => value.squadRole === "starter",
+    ).length,
+    substitutes: summaryParticipants.filter(
+      (value) => value.squadRole === "substitute",
+    ).length,
+    participated: summaryParticipants.filter((value) => value.participated)
+      .length,
+    unusedSubstitutes: summaryParticipants.filter(
+      (value) => value.squadRole === "substitute" && !value.participated,
     ).length,
     players: counts.players,
     participants: counts.participants,
@@ -305,6 +400,95 @@ export async function syncMatchParticipants(
     coach: { id: coach.id, name: coach.displayName },
     apiRequests: provider.requestCount,
   };
+}
+
+function validateVerifiedLineup({
+  match,
+  teamId,
+  providerName,
+  verifiedLineup,
+}: {
+  match: Awaited<ReturnType<FootballSyncStore["getMatch"]>>;
+  teamId: string;
+  providerName: string;
+  verifiedLineup: Awaited<
+    ReturnType<NonNullable<FootballSyncStore["getVerifiedLineupSnapshot"]>>
+  >;
+}): void {
+  if (verifiedLineup === null) return;
+  if (
+    verifiedLineup.matchId !== match.id ||
+    verifiedLineup.trackedTeamId !== teamId ||
+    verifiedLineup.externalProvider !== providerName ||
+    verifiedLineup.externalFixtureId !== match.externalProviderFixtureId ||
+    verifiedLineup.provenance !== "operator_verified"
+  ) {
+    throw new Error("Verified lineup does not match the fixture.");
+  }
+  const identities = new Set(
+    verifiedLineup.participants.map((participant) => participant.playerId),
+  );
+  const starters = verifiedLineup.participants.filter(
+    (participant) => participant.squadRole === "starter",
+  );
+  const structurallyValid =
+    identities.size === verifiedLineup.participants.length &&
+    verifiedLineup.participants.length >= 11 &&
+    starters.length === 11 &&
+    verifiedLineup.participants.every((participant) =>
+      participant.squadRole === "starter"
+        ? participant.participationStatus === "confirmed_starter" &&
+          participant.participated
+        : (participant.participationStatus === "confirmed_substitute" &&
+            participant.participated) ||
+          (["unused_substitute", "unconfirmed"].includes(
+            participant.participationStatus,
+          ) &&
+            !participant.participated),
+    );
+  if (!structurallyValid) {
+    throw new Error("Verified lineup evidence is structurally invalid.");
+  }
+}
+
+function resolveVerifiedCoachForManualLineup({
+  match,
+  providerName,
+  externalTeamId,
+  verified,
+  log,
+}: {
+  match: Awaited<ReturnType<FootballSyncStore["getMatch"]>>;
+  providerName: string;
+  externalTeamId: string;
+  verified: { assignment: VerifiedCoachAssignment; coach: Coach } | null;
+  log: OperationalLogger;
+}): ResolvedSyncCoach {
+  if (verified === null) {
+    emitOperationalLog(log, "coach.manual_assignment", {
+      matchId: match.id,
+      status: "missing",
+      reason: "verified-coach-required",
+    });
+    throw new ProviderError(
+      "coach-missing",
+      "A verified head coach is required when provider lineup evidence is unavailable.",
+    );
+  }
+  const resolved = resolveCoach({
+    match,
+    providerName,
+    externalTeamId,
+    evidence: { status: "unavailable", reason: "ambiguous-coach" },
+    verified,
+    log,
+  });
+  emitOperationalLog(log, "coach.manual_assignment", {
+    matchId: match.id,
+    status: "accepted",
+    reason: "manual-lineup-recovery",
+  });
+  return resolved;
 }
 
 function resolveCoach({

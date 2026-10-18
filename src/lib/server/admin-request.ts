@@ -3,6 +3,10 @@ import type { NextRequest } from "next/server";
 
 import { getMessages } from "@/i18n/messages";
 import type { AdminCoachAction } from "@/lib/server/admin-coach-action";
+import type {
+  AdminLineupAction,
+  AdminLineupParticipantAction,
+} from "@/lib/server/admin-lineup-action";
 import {
   ADMIN_CSRF_COOKIE,
   ADMIN_SESSION_COOKIE,
@@ -59,6 +63,75 @@ export function parseAdminCoachAction(value: unknown): AdminCoachAction {
       : {}),
     verificationSource: value.verificationSource as string,
     verificationReason: value.verificationReason as string,
+  };
+}
+
+export function parseAdminLineupAction(value: unknown): AdminLineupAction {
+  if (!isRecord(value) || !Array.isArray(value.participants)) {
+    throw new AdminAuthorizationError(403);
+  }
+  const required = [
+    "matchId",
+    "trackedTeamId",
+    "externalFixtureId",
+    "verificationSource",
+    "verificationReason",
+  ] as const;
+  for (const key of required) {
+    if (typeof value[key] !== "string") throw new AdminAuthorizationError(403);
+  }
+  return {
+    matchId: value.matchId as string,
+    trackedTeamId: value.trackedTeamId as string,
+    externalFixtureId: value.externalFixtureId as string,
+    participants: value.participants.map(parseLineupParticipant),
+    verificationSource: value.verificationSource as string,
+    verificationReason: value.verificationReason as string,
+  };
+}
+
+function parseLineupParticipant(value: unknown): AdminLineupParticipantAction {
+  if (
+    !isRecord(value) ||
+    typeof value.playerId !== "string" ||
+    typeof value.createInternalIdentity !== "boolean" ||
+    (value.playerName !== undefined && typeof value.playerName !== "string") ||
+    !["starter", "substitute"].includes(String(value.squadRole)) ||
+    ![
+      "confirmed_starter",
+      "confirmed_substitute",
+      "unused_substitute",
+      "unconfirmed",
+    ].includes(String(value.participationStatus)) ||
+    (value.shirtNumber !== undefined &&
+      typeof value.shirtNumber !== "number") ||
+    (value.position !== undefined &&
+      !["goalkeeper", "defender", "midfielder", "attacker"].includes(
+        String(value.position),
+      )) ||
+    (value.enteredAtMinute !== undefined &&
+      typeof value.enteredAtMinute !== "number")
+  ) {
+    throw new AdminAuthorizationError(403);
+  }
+  return {
+    playerId: value.playerId,
+    ...(value.playerName === undefined ? {} : { playerName: value.playerName }),
+    createInternalIdentity: value.createInternalIdentity,
+    squadRole: value.squadRole as AdminLineupParticipantAction["squadRole"],
+    participationStatus:
+      value.participationStatus as AdminLineupParticipantAction["participationStatus"],
+    ...(value.shirtNumber === undefined
+      ? {}
+      : { shirtNumber: value.shirtNumber }),
+    ...(value.position === undefined
+      ? {}
+      : {
+          position: value.position as AdminLineupParticipantAction["position"],
+        }),
+    ...(value.enteredAtMinute === undefined
+      ? {}
+      : { enteredAtMinute: value.enteredAtMinute }),
   };
 }
 

@@ -46,6 +46,8 @@ export async function syncPlayerSquad(
   const players: Player[] = squad.map((player) => ({
     id: canonicalIds.get(player.externalPlayerId)!.canonicalPlayerId,
     displayName: player.name,
+    identityProvenance: "provider",
+    currentTeamId: team.id,
     externalProvider: provider.name,
     externalProviderId: canonicalIds.get(player.externalPlayerId)!
       .canonicalExternalProviderPlayerId,

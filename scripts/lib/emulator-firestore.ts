@@ -502,7 +502,8 @@ export class EmulatorFootballSyncStore
     const tracked = participants.filter(
       (participant) =>
         participant.teamId === teamId &&
-        participant.externalProvider === provider,
+        participant.externalProvider === provider &&
+        participant.externalProviderPlayerId !== undefined,
     );
     if (tracked.length === 0) return null;
     return {
@@ -556,7 +557,7 @@ export class EmulatorFootballSyncStore
     return {
       participants: tracked.map((participant) => ({
         externalTeamId: participant.externalProviderTeamId,
-        externalPlayerId: participant.externalProviderPlayerId,
+        externalPlayerId: participant.externalProviderPlayerId!,
         name: participant.playerName,
         ...(participant.shirtNumber === undefined
           ? {}

@@ -38,7 +38,14 @@ describe("admin action security", () => {
     expect((await database.collection("adminActionPreviews").get()).empty).toBe(
       true,
     );
-    expect((await database.collection("adminAudit").get()).empty).toBe(true);
+    expect(
+      (
+        await database
+          .collection("adminAudit")
+          .where("matchId", "==", action.matchId)
+          .get()
+      ).empty,
+    ).toBe(true);
     await expect(
       store.authorizeAction({
         operatorUid: "owner-security",

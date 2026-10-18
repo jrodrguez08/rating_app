@@ -14,6 +14,7 @@ import type {
   StandingsSnapshot,
   Team,
   VerifiedCoachAssignment,
+  VerifiedLineupSnapshot,
 } from "./models";
 
 export interface TeamLookup {
@@ -259,6 +260,9 @@ export interface FootballSyncStore {
     assignment: VerifiedCoachAssignment;
     coach: Coach;
   } | null>;
+  getVerifiedLineupSnapshot?(
+    matchId: string,
+  ): Promise<VerifiedLineupSnapshot | null>;
   upsertCoaches(coaches: Coach[]): Promise<SyncWriteCounts>;
   upsertCoachAssignment(
     matchId: string,
