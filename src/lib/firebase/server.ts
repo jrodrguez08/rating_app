@@ -968,6 +968,108 @@ export class AdminVerifiedCoachService {
       const auditReference = auditId
         ? this.database.doc(`adminAudit/${auditId}`)
         : undefined;
+      const actionHash = challengeReference
+        ? hashAdminCoachAction(input)
+        : undefined;
+      if (challengeReference && auditReference && auditId && actionHash) {
+        const challengeSnapshot = await transaction.get(challengeReference);
+        const challenge = challengeSnapshot.data();
+        if (
+          !challengeSnapshot.exists ||
+          challenge?.operatorUid !== input.operatorId ||
+          challenge.matchId !== input.matchId ||
+          challenge.actionHash !== actionHash ||
+          !(challenge.expiresAt instanceof Timestamp)
+        ) {
+          throw new AdminVerifiedCoachAssignmentRejectedError(
+            "Admin action challenge is invalid.",
+          );
+        }
+        if (challenge.consumedAt !== undefined) {
+          if (
+            !(challenge.consumedAt instanceof Timestamp) ||
+            challenge.committedAuditId !== auditId
+          ) {
+            throw new AdminVerifiedCoachAssignmentRejectedError(
+              "Admin action challenge is invalid.",
+            );
+          }
+          const auditSnapshot = await transaction.get(auditReference);
+          const audit = auditSnapshot.data();
+          if (
+            !auditSnapshot.exists ||
+            audit?.operatorUid !== input.operatorId ||
+            audit.action !== "coach_assignment_apply" ||
+            audit.matchId !== input.matchId ||
+            audit.trackedTeamId !== input.trackedTeamId ||
+            audit.externalFixtureId !== input.externalFixtureId ||
+            audit.coachId !== input.coachId ||
+            audit.coachName !== input.coachName ||
+            audit.externalProviderCoachId !==
+              (input.externalProviderCoachId ?? null) ||
+            audit.evidenceReference !== input.verificationSource ||
+            audit.verificationReason !== input.verificationReason ||
+            audit.actionHash !== actionHash ||
+            audit.outcome !== "success" ||
+            audit.commitDisposition !== "committed" ||
+            !(audit.createdAt instanceof Timestamp) ||
+            typeof audit.coachExistedBefore !== "boolean" ||
+            typeof audit.verifiedAssignmentExistedBefore !== "boolean" ||
+            typeof audit.coachCreated !== "boolean" ||
+            typeof audit.assignmentCreated !== "boolean" ||
+            (audit.headCoachId !== undefined &&
+              typeof audit.headCoachId !== "string") ||
+            (audit.headCoachProvenance !== undefined &&
+              audit.headCoachProvenance !== "provider" &&
+              audit.headCoachProvenance !== "operator_verified")
+          ) {
+            throw new AdminVerifiedCoachAssignmentRejectedError(
+              "Committed admin action audit is invalid.",
+            );
+          }
+          return {
+            plan: {
+              matchId: input.matchId,
+              trackedTeamId: input.trackedTeamId,
+              externalFixtureId: input.externalFixtureId,
+              current: {
+                coachExists: audit.coachExistedBefore,
+                verifiedAssignmentExists: audit.verifiedAssignmentExistedBefore,
+                ...(audit.headCoachId
+                  ? {
+                      headCoachId: audit.headCoachId,
+                      ...(audit.headCoachProvenance
+                        ? {
+                            headCoachProvenance:
+                              audit.headCoachProvenance as NonNullable<
+                                CoachAssignment["provenance"]
+                              >,
+                          }
+                        : {}),
+                    }
+                  : {}),
+              },
+              coachId: input.coachId,
+              coachName: input.coachName,
+              coachCreated: audit.coachCreated,
+              assignmentCreated: audit.assignmentCreated,
+              verificationSource: input.verificationSource,
+              verificationReason: input.verificationReason,
+            },
+            auditId,
+            disposition: "idempotent_retry" as const,
+          };
+        }
+        if (
+          challenge.committedAuditId !== undefined ||
+          challenge.expiresAt.toMillis() <=
+            challengeSnapshot.readTime.toMillis()
+        ) {
+          throw new AdminVerifiedCoachAssignmentRejectedError(
+            "Admin action challenge is invalid.",
+          );
+        }
+      }
       const matchSnapshot = await transaction.get(matchReference);
       const coachSnapshot = await transaction.get(coachReference);
       const verifiedSnapshot = await transaction.get(verifiedReference);
@@ -975,9 +1077,6 @@ export class AdminVerifiedCoachService {
       const resultSnapshot = await transaction.get(resultReference);
       const ballots = await transaction.get(ballotQuery);
       const revisions = await transaction.get(revisionQuery);
-      const challengeSnapshot = challengeReference
-        ? await transaction.get(challengeReference)
-        : undefined;
       if (!matchSnapshot.exists) {
         throw new AdminVerifiedCoachAssignmentRejectedError(
           "Match was not found.",
@@ -1110,78 +1209,6 @@ export class AdminVerifiedCoachService {
         verificationReason: input.verificationReason,
       };
 
-      if (
-        challengeSnapshot &&
-        challengeReference &&
-        auditReference &&
-        auditId
-      ) {
-        const challenge = challengeSnapshot.data();
-        const actionHash = hashAdminCoachAction(input);
-        if (
-          !challengeSnapshot.exists ||
-          challenge?.operatorUid !== input.operatorId ||
-          challenge.matchId !== input.matchId ||
-          challenge.actionHash !== actionHash ||
-          !(challenge.expiresAt instanceof Timestamp)
-        ) {
-          throw new AdminVerifiedCoachAssignmentRejectedError(
-            "Admin action challenge is invalid.",
-          );
-        }
-        if (challenge.consumedAt !== undefined) {
-          if (challenge.committedAuditId !== auditId) {
-            throw new AdminVerifiedCoachAssignmentRejectedError(
-              "Admin action challenge is invalid.",
-            );
-          }
-          const auditSnapshot = await transaction.get(auditReference);
-          const audit = auditSnapshot.data();
-          if (
-            !auditSnapshot.exists ||
-            audit?.operatorUid !== input.operatorId ||
-            audit.matchId !== input.matchId ||
-            audit.coachId !== input.coachId ||
-            audit.actionHash !== actionHash ||
-            audit.outcome !== "success"
-          ) {
-            throw new AdminVerifiedCoachAssignmentRejectedError(
-              "Committed admin action audit is invalid.",
-            );
-          }
-          transaction.update(auditReference, {
-            idempotentRetryCount: FieldValue.increment(1),
-            lastIdempotentRetryAt: Timestamp.fromDate(trustedDate),
-          });
-          return {
-            plan: {
-              ...plan,
-              current: {
-                coachExists: audit.coachExistedBefore === true,
-                verifiedAssignmentExists:
-                  audit.verifiedAssignmentExistedBefore === true,
-                ...(typeof audit.headCoachId === "string" &&
-                (audit.headCoachProvenance === "provider" ||
-                  audit.headCoachProvenance === "operator_verified")
-                  ? {
-                      headCoachId: audit.headCoachId,
-                      headCoachProvenance: audit.headCoachProvenance,
-                    }
-                  : {}),
-              },
-              coachCreated: audit.coachCreated === true,
-              assignmentCreated: audit.assignmentCreated === true,
-            },
-            auditId,
-            disposition: "idempotent_retry" as const,
-          };
-        }
-        if (challenge.expiresAt.toMillis() <= trustedDate.getTime()) {
-          throw new AdminVerifiedCoachAssignmentRejectedError(
-            "Admin action challenge is invalid.",
-          );
-        }
-      }
       if (apply) {
         if (!coachSnapshot.exists) {
           transaction.create(coachReference, toDocument(proposedCoach));
@@ -1191,7 +1218,9 @@ export class AdminVerifiedCoachService {
         }
       }
       if (challengeReference && auditReference && auditId) {
-        const actionHash = hashAdminCoachAction(input);
+        if (!actionHash) {
+          throw new Error("Admin action hash is unavailable.");
+        }
         transaction.update(challengeReference, {
           consumedAt: Timestamp.fromDate(trustedDate),
           committedAuditId: auditId,
@@ -1200,13 +1229,16 @@ export class AdminVerifiedCoachService {
           operatorUid: input.operatorId,
           action: "coach_assignment_apply",
           matchId: input.matchId,
+          trackedTeamId: input.trackedTeamId,
+          externalFixtureId: input.externalFixtureId,
           coachId: input.coachId,
+          coachName: input.coachName,
+          externalProviderCoachId: input.externalProviderCoachId ?? null,
           evidenceReference: input.verificationSource,
           verificationReason: input.verificationReason,
           actionHash,
           outcome: "success",
           commitDisposition: "committed",
-          idempotentRetryCount: 0,
           coachExistedBefore: plan.current.coachExists,
           verifiedAssignmentExistedBefore:
             plan.current.verifiedAssignmentExists,

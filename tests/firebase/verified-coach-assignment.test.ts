@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { deleteApp, initializeApp } from "firebase-admin/app";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -117,7 +119,10 @@ describe("verified coach assignment persistence", () => {
       operatorUid: input.operatorId,
       action: "coach_assignment_apply",
       matchId,
+      trackedTeamId: input.trackedTeamId,
+      externalFixtureId: input.externalFixtureId,
       coachId: input.coachId,
+      coachName: input.coachName,
       outcome: "success",
       coachCreated: true,
       assignmentCreated: true,
@@ -200,18 +205,6 @@ describe("verified coach assignment persistence", () => {
           .get()
       ).size,
     ).toBe(1);
-    expect(
-      (
-        await database
-          .doc(
-            `adminAudit/${adminCoachAssignmentAuditId(adminChallengeDocumentId(token))}`,
-          )
-          .get()
-      ).data(),
-    ).toMatchObject({
-      commitDisposition: "committed",
-      idempotentRetryCount: 1,
-    });
   });
 
   it("serializes concurrent requests using one challenge and one audit", async () => {
@@ -238,15 +231,211 @@ describe("verified coach assignment persistence", () => {
           .get()
       ).size,
     ).toBe(1);
+  });
+
+  it.each([
+    ["rating_ready", { ratingState: "rating_ready" }],
+    [
+      "an open voting window",
+      {
+        ratingState: "rating_open",
+        votingOpensAt: new Date("2026-10-11T22:01:00.000Z"),
+        votingClosesAt: new Date("2026-10-12T00:01:00.000Z"),
+      },
+    ],
+    ["rating_closed", { ratingState: "rating_closed" }],
+  ])("recovers the original receipt after %s", async (suffix, matchUpdate) => {
+    const matchId = `verified-coach-receipt-${suffix.replaceAll(" ", "-")}`;
+    const { committed, input, token } = await commitAuthorized(matchId);
+    await database.doc(`matches/${matchId}`).update(matchUpdate);
+
+    await expect(service.assignAuthorized(input, token)).resolves.toEqual({
+      ...committed,
+      disposition: "idempotent_retry",
+    });
+  });
+
+  it("recovers the original receipt after ballots and immutable results exist without mutating them", async () => {
+    const matchId = "verified-coach-receipt-finalized";
+    const { committed, input, token } = await commitAuthorized(matchId);
+    const participantPath = `matches/${matchId}/participants/player-1`;
+    const assignmentPath = `matches/${matchId}/verifiedCoachAssignments/head-coach`;
+    const ballotPath = `matches/${matchId}/ballots/voter-1`;
+    const resultPath = `matches/${matchId}/results/summary`;
+    await Promise.all([
+      database.doc(`matches/${matchId}`).update({
+        ratingState: "rating_closed",
+        votingOpensAt: new Date("2026-10-11T22:01:00.000Z"),
+        votingClosesAt: new Date("2026-10-12T00:01:00.000Z"),
+      }),
+      database.doc(participantPath).set({
+        participantId: "player-1",
+        participated: true,
+      }),
+      database.doc(ballotPath).set({ ratings: { "player-1": 8 } }),
+      database.doc(resultPath).set({ generatedAt: "immutable-result" }),
+    ]);
+    const protectedPaths = [
+      `matches/${matchId}`,
+      participantPath,
+      `coaches/${input.coachId}`,
+      assignmentPath,
+      ballotPath,
+      resultPath,
+      `adminActionChallenges/${adminChallengeDocumentId(token)}`,
+      `adminAudit/${committed.auditId}`,
+    ];
+    const before = await readDocuments(protectedPaths);
+
+    await expect(service.assignAuthorized(input, token)).resolves.toEqual({
+      ...committed,
+      disposition: "idempotent_retry",
+    });
+
+    expect(await readDocuments(protectedPaths)).toEqual(before);
     expect(
       (
         await database
-          .doc(
-            `adminAudit/${adminCoachAssignmentAuditId(adminChallengeDocumentId(token))}`,
-          )
+          .collection("adminAudit")
+          .where("matchId", "==", matchId)
           .get()
-      ).data()?.idempotentRetryCount,
+      ).size,
     ).toBe(1);
+  });
+
+  it("recovers a committed receipt after its consumed challenge expires", async () => {
+    const matchId = "verified-coach-receipt-expired";
+    const { committed, input, token } = await commitAuthorized(matchId);
+    await database
+      .doc(`adminActionChallenges/${adminChallengeDocumentId(token)}`)
+      .update({ expiresAt: Timestamp.fromMillis(0) });
+
+    await expect(service.assignAuthorized(input, token)).resolves.toEqual({
+      ...committed,
+      disposition: "idempotent_retry",
+    });
+  });
+
+  it("fails closed for missing or inconsistent committed receipt evidence", async () => {
+    const missingMatchId = "verified-coach-receipt-missing-audit";
+    const missing = await commitAuthorized(missingMatchId);
+    const missingChallengeId = adminChallengeDocumentId(missing.token);
+    await database
+      .doc(`adminAudit/${adminCoachAssignmentAuditId(missingChallengeId)}`)
+      .delete();
+    await expect(
+      service.assignAuthorized(missing.input, missing.token),
+    ).rejects.toBeInstanceOf(AdminVerifiedCoachAssignmentRejectedError);
+
+    const mismatchMatchId = "verified-coach-receipt-mismatched-audit";
+    const mismatch = await commitAuthorized(mismatchMatchId);
+    await database
+      .doc(
+        `adminAudit/${adminCoachAssignmentAuditId(adminChallengeDocumentId(mismatch.token))}`,
+      )
+      .update({ externalFixtureId: "different-fixture" });
+    await expect(
+      service.assignAuthorized(mismatch.input, mismatch.token),
+    ).rejects.toBeInstanceOf(AdminVerifiedCoachAssignmentRejectedError);
+
+    const idMismatchMatchId = "verified-coach-receipt-mismatched-id";
+    const idMismatch = await commitAuthorized(idMismatchMatchId);
+    await database
+      .doc(
+        `adminActionChallenges/${adminChallengeDocumentId(idMismatch.token)}`,
+      )
+      .update({ committedAuditId: "different-audit" });
+    await expect(
+      service.assignAuthorized(idMismatch.input, idMismatch.token),
+    ).rejects.toBeInstanceOf(AdminVerifiedCoachAssignmentRejectedError);
+  });
+
+  it("rejects forged challenges and modified committed actions", async () => {
+    const matchId = "verified-coach-receipt-forgery";
+    const { input, token } = await commitAuthorized(matchId);
+    await expect(
+      service.assignAuthorized(input, challengeToken("forged")),
+    ).rejects.toBeInstanceOf(AdminVerifiedCoachAssignmentRejectedError);
+    await expect(
+      service.assignAuthorized(
+        { ...input, externalFixtureId: "different-fixture" },
+        token,
+      ),
+    ).rejects.toBeInstanceOf(AdminVerifiedCoachAssignmentRejectedError);
+    await expect(
+      service.assignAuthorized(
+        { ...input, trackedTeamId: "different-team" },
+        token,
+      ),
+    ).rejects.toBeInstanceOf(AdminVerifiedCoachAssignmentRejectedError);
+    await expect(
+      service.assignAuthorized({ ...input, matchId: "different-match" }, token),
+    ).rejects.toBeInstanceOf(AdminVerifiedCoachAssignmentRejectedError);
+    await expect(
+      service.assignAuthorized(
+        { ...input, operatorId: "different-owner@example.com" },
+        token,
+      ),
+    ).rejects.toBeInstanceOf(AdminVerifiedCoachAssignmentRejectedError);
+    await expect(
+      service.assignAuthorized(
+        { ...input, verificationReason: "Different valid evidence reason." },
+        token,
+      ),
+    ).rejects.toBeInstanceOf(AdminVerifiedCoachAssignmentRejectedError);
+  });
+
+  it("returns consistent read-only receipts for concurrent exact retries", async () => {
+    const matchId = "verified-coach-receipt-concurrent";
+    const { committed, input, token } = await commitAuthorized(matchId);
+    await database.doc(`matches/${matchId}`).update({
+      ratingState: "rating_closed",
+    });
+
+    const retries = await Promise.all([
+      service.assignAuthorized(input, token),
+      service.assignAuthorized(input, token),
+      service.assignAuthorized(input, token),
+    ]);
+
+    expect(retries).toEqual(
+      Array.from({ length: 3 }, () => ({
+        ...committed,
+        disposition: "idempotent_retry",
+      })),
+    );
+    expect(
+      (
+        await database
+          .collection("adminAudit")
+          .where("matchId", "==", matchId)
+          .get()
+      ).size,
+    ).toBe(1);
+  });
+
+  it("rejects a new authorized mutation after voting opens", async () => {
+    const matchId = "verified-coach-new-during-voting";
+    const token = challengeToken("new-during-voting");
+    await seedMatch(matchId);
+    const input = assignmentInput(matchId);
+    await seedChallenge(input, token);
+    await database.doc(`matches/${matchId}`).update({
+      ratingState: "rating_open",
+      votingOpensAt: new Date("2026-10-11T22:01:00.000Z"),
+      votingClosesAt: new Date("2026-10-12T00:01:00.000Z"),
+    });
+
+    await expect(service.assignAuthorized(input, token)).rejects.toBeInstanceOf(
+      AdminVerifiedCoachAssignmentRejectedError,
+    );
+    expect(
+      (
+        await database
+          .doc(`matches/${matchId}/verifiedCoachAssignments/head-coach`)
+          .get()
+      ).exists,
+    ).toBe(false);
   });
 
   it("rejects expired, wrong-owner, wrong-match, and replayed challenges", async () => {
@@ -340,7 +529,7 @@ function assignmentInput(matchId: string): VerifiedCoachAssignmentInput {
 }
 
 function challengeToken(seed: string): string {
-  return Buffer.from(seed.padEnd(32, "_").slice(0, 32)).toString("base64url");
+  return createHash("sha256").update(seed).digest("base64url");
 }
 
 async function seedChallenge(
@@ -358,6 +547,21 @@ async function seedChallenge(
       expiresAt: Timestamp.fromMillis(Date.now() + 120_000),
       ...overrides,
     });
+}
+
+async function commitAuthorized(matchId: string) {
+  const token = challengeToken(matchId);
+  await seedMatch(matchId);
+  const input = assignmentInput(matchId);
+  await seedChallenge(input, token);
+  const committed = await service.assignAuthorized(input, token);
+  return { committed, input, token };
+}
+
+async function readDocuments(paths: string[]) {
+  return Promise.all(
+    paths.map(async (path) => (await database.doc(path).get()).data()),
+  );
 }
 
 async function seedMatch(matchId: string) {
