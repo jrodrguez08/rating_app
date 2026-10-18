@@ -564,76 +564,79 @@ describe("ApiFootballAdapter", () => {
     },
   );
 
-  it("recovers a missing coach identity from the unique career covering fixture kickoff", async () => {
-    const payload = structuredClone(matchContextResponse);
-    payload[0].lineups[0].coach.id = null as never;
-    payload[0].lineups[0].coach.name = "" as never;
-    const logs: string[] = [];
-    const fetcher = matchContextFetcher(payload, [
-      {
-        id: 990,
+  it(
+    "recovers a missing coach identity from the unique career covering fixture kickoff",
+    async () => {
+      const payload = structuredClone(matchContextResponse);
+      payload[0].lineups[0].coach.id = null as never;
+      payload[0].lineups[0].coach.name = "" as never;
+      const logs: string[] = [];
+      const fetcher = matchContextFetcher(payload, [
+        {
+          id: 990,
+          name: "Jafet Soto",
+          photo: "https://img.test/jafet.png",
+          team: { id: 1234, name: "Herediano" },
+          career: [
+            {
+              team: { id: 1234, name: "Herediano" },
+              start: "2026-10-01",
+              end: null,
+            },
+          ],
+        },
+        {
+          id: 991,
+          name: "Paulo Wanchope",
+          photo: null,
+          team: { id: 1234, name: "Herediano" },
+          career: [
+            {
+              team: { id: 1234, name: "Herediano" },
+              start: "2026-07-01",
+              end: "2026-09-30",
+            },
+          ],
+        },
+      ]);
+      const adapter = new ApiFootballAdapter("test-key", fetcher, (message) =>
+        logs.push(message),
+      );
+
+      const context = await adapter.getMatchContext(
+        "5001",
+        "1234",
+        undefined,
+        "2026-10-17T20:00:00.000Z",
+      );
+
+      expect(context.headCoach).toEqual({
+        externalTeamId: "1234",
+        externalCoachId: "990",
         name: "Jafet Soto",
-        photo: "https://img.test/jafet.png",
-        team: { id: 1234, name: "Herediano" },
-        career: [
-          {
-            team: { id: 1234, name: "Herediano" },
-            start: "2026-10-01",
-            end: null,
-          },
-        ],
-      },
-      {
-        id: 991,
-        name: "Paulo Wanchope",
-        photo: null,
-        team: { id: 1234, name: "Herediano" },
-        career: [
-          {
-            team: { id: 1234, name: "Herediano" },
-            start: "2026-07-01",
-            end: "2026-09-30",
-          },
-        ],
-      },
-    ]);
-    const adapter = new ApiFootballAdapter("test-key", fetcher, (message) =>
-      logs.push(message),
-    );
-
-    const context = await adapter.getMatchContext(
-      "5001",
-      "1234",
-      undefined,
-      "2026-10-17T20:00:00.000Z",
-    );
-
-    expect(context.headCoach).toEqual({
-      externalTeamId: "1234",
-      externalCoachId: "990",
-      name: "Jafet Soto",
-      photoUrl: "https://img.test/jafet.png",
-    });
-    expect(adapter.requestCount).toBe(4);
-    expect(
-      fetcher.mock.calls.filter(
-        ([input]) => new URL(String(input)).pathname === "/coachs",
-      ),
-    ).toHaveLength(1);
-    expect(logs).toEqual(
-      expect.arrayContaining([
-        expect.stringContaining(
-          '"reason":"lineup-coach-identity-unusable","mode":"career-at-kickoff"',
+        photoUrl: "https://img.test/jafet.png",
+      });
+      expect(adapter.requestCount).toBe(4);
+      expect(
+        fetcher.mock.calls.filter(
+          ([input]) => new URL(String(input)).pathname === "/coachs",
         ),
-        expect.stringContaining(
-          '"status":"candidates","mode":"career-at-kickoff","candidateCount":1',
-        ),
-        expect.stringContaining(
-          '"status":"resolved","mode":"career-at-kickoff"',
-        ),
-      ]),
-    );
-  });
+      ).toHaveLength(1);
+      expect(logs).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining(
+            '"reason":"lineup-coach-identity-unusable","mode":"career-at-kickoff"',
+          ),
+          expect.stringContaining(
+            '"status":"candidates","mode":"career-at-kickoff","candidateCount":1',
+          ),
+          expect.stringContaining(
+            '"status":"resolved","mode":"career-at-kickoff"',
+          ),
+        ]),
+      );
+    },
+  );
 
   it.each([
     [
