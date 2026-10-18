@@ -134,6 +134,9 @@ describe("Team persistence and rules", () => {
     "matches/example/participants",
     "matches/example/coachAssignments",
     "matches/example/verifiedCoachAssignments",
+    "adminActionChallenges",
+    "adminSecurity",
+    "adminAudit",
   ])(
     "keeps %s client reads and writes denied until a browsing feature needs them",
     async (collection) => {

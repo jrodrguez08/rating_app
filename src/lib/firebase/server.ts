@@ -839,21 +839,23 @@ export interface VerifiedCoachAssignmentPlan {
   verificationReason: string;
 }
 
+export interface VerifiedCoachAssignmentInput {
+  matchId: string;
+  trackedTeamId: string;
+  externalFixtureId: string;
+  coachId: string;
+  coachName: string;
+  externalProviderCoachId?: string;
+  verificationSource: string;
+  verificationReason: string;
+  operatorId: string;
+}
+
 export class AdminVerifiedCoachService {
   constructor(private readonly database = getServerFirestore()) {}
 
   async assign(
-    input: {
-      matchId: string;
-      trackedTeamId: string;
-      externalFixtureId: string;
-      coachId: string;
-      coachName: string;
-      externalProviderCoachId?: string;
-      verificationSource: string;
-      verificationReason: string;
-      operatorId: string;
-    },
+    input: VerifiedCoachAssignmentInput,
     apply: boolean,
   ): Promise<VerifiedCoachAssignmentPlan> {
     if (
@@ -887,12 +889,16 @@ export class AdminVerifiedCoachService {
       const ballotQuery = this.database.collection(
         `matches/${input.matchId}/ballots`,
       );
+      const revisionQuery = this.database.collection(
+        `matches/${input.matchId}/resultRevisions`,
+      );
       const matchSnapshot = await transaction.get(matchReference);
       const coachSnapshot = await transaction.get(coachReference);
       const verifiedSnapshot = await transaction.get(verifiedReference);
       const assignmentSnapshot = await transaction.get(assignmentReference);
       const resultSnapshot = await transaction.get(resultReference);
       const ballots = await transaction.get(ballotQuery);
+      const revisions = await transaction.get(revisionQuery);
       if (!matchSnapshot.exists) throw new Error("Match was not found.");
       const match = fromDocument<Match>(matchSnapshot);
       if (
@@ -905,7 +911,8 @@ export class AdminVerifiedCoachService {
         match.status !== "finished" ||
         !["not_ready", "preparing_rating"].includes(match.ratingState) ||
         resultSnapshot.exists ||
-        !ballots.empty
+        !ballots.empty ||
+        !revisions.empty
       ) {
         throw new Error(
           "Verified coach recovery is not permitted in the current match state.",

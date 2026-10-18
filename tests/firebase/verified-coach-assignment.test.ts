@@ -104,6 +104,13 @@ describe("verified coach assignment persistence", () => {
       /not permitted/i,
     );
     await database.doc(`matches/${matchId}/ballots/voter`).delete();
+    await database
+      .doc(`matches/${matchId}/resultRevisions/reopen-1`)
+      .set({ any: true });
+    await expect(service.assign(input, false)).rejects.toThrow(
+      /not permitted/i,
+    );
+    await database.doc(`matches/${matchId}/resultRevisions/reopen-1`).delete();
     await database.doc(`matches/${matchId}/results/summary`).set({ any: true });
     await expect(service.assign(input, false)).rejects.toThrow(
       /not permitted/i,
