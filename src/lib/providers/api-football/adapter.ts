@@ -74,7 +74,10 @@ function providerDateOrUndefined(value: unknown): string | undefined {
     return undefined;
   }
   const parsed = new Date(`${value}T00:00:00.000Z`);
-  return Number.isNaN(parsed.getTime()) ? undefined : value;
+  return !Number.isNaN(parsed.getTime()) &&
+    parsed.toISOString().slice(0, 10) === value
+    ? value
+    : undefined;
 }
 
 function integer(value: unknown, label: string, minimum = 0): number {
@@ -467,8 +470,17 @@ export class ApiFootballAdapter
     const fixtureCoachIdUsable =
       fixtureCoach !== null &&
       finiteNumberOrUndefined(fixtureCoach.id) !== undefined;
-    if (classification === "usable" && !fixtureCoachIdUsable) {
-      classification = "coach-id-unusable";
+    const fixtureCoachNameUsable =
+      fixtureCoach !== null &&
+      nonEmptyStringOrUndefined(fixtureCoach.name) !== undefined;
+    if (
+      classification === "usable" &&
+      (!fixtureCoachIdUsable || !fixtureCoachNameUsable)
+    ) {
+      classification =
+        !fixtureCoachIdUsable && !fixtureCoachNameUsable
+          ? "coach-identity-unusable"
+          : "coach-identity-partial";
     }
     emitOperationalLog(this.log, "provider.lineup", {
       request: "fixtures/lineups",
@@ -478,6 +490,7 @@ export class ApiFootballAdapter
       substitutes,
       fixtureCoachPresent,
       fixtureCoachIdUsable,
+      fixtureCoachNameUsable,
       starterCount,
       substituteCount,
       classification,
