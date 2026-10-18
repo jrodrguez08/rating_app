@@ -936,18 +936,6 @@ export class ApiFootballAdapter
     const matches: Record<string, unknown>[] = [];
     for (const value of response) {
       if (!isRecord(value)) continue;
-      const providerId = finiteNumberOrUndefined(value.id);
-      const providerName = nonEmptyStringOrUndefined(value.name);
-      if (providerId === undefined || providerName === undefined) {
-        emitOperationalLog(this.log, "provider.coach_fallback", {
-          teamId: externalTeamId,
-          status: "malformed",
-          mode: "career-at-kickoff",
-          reason: "coach-identity-unusable",
-        });
-        return malformed("coachs record has an unusable identity.");
-      }
-
       if (!Array.isArray(value.career)) {
         emitOperationalLog(this.log, "provider.coach_fallback", {
           teamId: externalTeamId,
@@ -998,6 +986,17 @@ export class ApiFootballAdapter
       }
 
       if (coversFixture) {
+        const providerId = finiteNumberOrUndefined(value.id);
+        const providerName = nonEmptyStringOrUndefined(value.name);
+        if (providerId === undefined || providerName === undefined) {
+          emitOperationalLog(this.log, "provider.coach_fallback", {
+            teamId: externalTeamId,
+            status: "malformed",
+            mode: "career-at-kickoff",
+            reason: "coach-identity-unusable",
+          });
+          return malformed("coachs matching record has an unusable identity.");
+        }
         matches.push(value);
       }
     }
