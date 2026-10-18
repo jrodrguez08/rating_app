@@ -151,10 +151,12 @@ export interface FootballDataProvider {
     externalFixtureId: string,
     externalTeamId: string,
     baseline?: ProviderMatchContext,
+    fixtureKickoffAt?: string,
   ): Promise<ProviderMatchContext>;
   getLineupContext(
     externalFixtureId: string,
     externalTeamId: string,
+    fixtureKickoffAt?: string,
   ): Promise<ProviderMatchContext | null>;
   getSquad(externalTeamId: string): Promise<ProviderSquadPlayer[]>;
 }
