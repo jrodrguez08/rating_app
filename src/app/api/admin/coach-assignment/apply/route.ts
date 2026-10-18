@@ -1,7 +1,11 @@
 import type { NextRequest } from "next/server";
 
 import { AdminSecurityStore } from "@/lib/firebase/admin-security";
-import { AdminVerifiedCoachService } from "@/lib/firebase/server";
+import {
+  AdminVerifiedCoachAssignmentCommitError,
+  AdminVerifiedCoachAssignmentRejectedError,
+  AdminVerifiedCoachService,
+} from "@/lib/firebase/server";
 import { ADMIN_ACTION_COOKIE } from "@/lib/server/admin-auth";
 import {
   adminError,
@@ -13,6 +17,8 @@ import {
 export async function POST(request: NextRequest) {
   const security = new AdminSecurityStore();
   let response;
+  let clearChallenge = true;
+  let assignmentStarted = false;
   let audit:
     | {
         uid: string;
@@ -41,27 +47,16 @@ export async function POST(request: NextRequest) {
     if (confirmation !== `assign-verified-coach:${action.matchId}`) {
       throw new Error("La confirmación no coincide con el partido.");
     }
-    await security.consumeChallenge(
-      identity.uid,
-      action,
+    assignmentStarted = true;
+    const result = await new AdminVerifiedCoachService().assignAuthorized(
+      { ...action, operatorId: identity.uid },
       request.cookies.get(ADMIN_ACTION_COOKIE)?.value,
     );
-    const plan = await new AdminVerifiedCoachService().assign(
-      { ...action, operatorId: identity.uid },
-      true,
-    );
-    const auditId = await security.audit({
-      operatorUid: identity.uid,
-      action: "coach_assignment_apply",
-      matchId: action.matchId,
-      coachId: action.coachId,
-      evidenceReference: action.verificationSource,
-      verificationReason: action.verificationReason,
-      outcome: "success",
-    });
-    response = adminJson({ applied: true, plan, auditId });
+    response = adminJson({ applied: true, ...result });
   } catch (error) {
-    if (audit) {
+    const rejected = error instanceof AdminVerifiedCoachAssignmentRejectedError;
+    const failed = error instanceof AdminVerifiedCoachAssignmentCommitError;
+    if (audit && (!assignmentStarted || rejected || failed)) {
       await security.audit({
         operatorUid: audit.uid,
         action: "coach_assignment_apply",
@@ -69,16 +64,21 @@ export async function POST(request: NextRequest) {
         coachId: audit.coachId,
         evidenceReference: audit.evidence,
         verificationReason: audit.reason,
-        outcome: "failed",
+        outcome: rejected ? "rejected" : "failed",
       });
+    }
+    if (audit && assignmentStarted && !rejected && !failed) {
+      clearChallenge = false;
     }
     response = adminError(error);
   }
-  response.cookies.set(ADMIN_ACTION_COOKIE, "", {
-    httpOnly: true,
-    sameSite: "strict",
-    path: "/api/admin/coach-assignment/apply",
-    maxAge: 0,
-  });
+  if (clearChallenge) {
+    response.cookies.set(ADMIN_ACTION_COOKIE, "", {
+      httpOnly: true,
+      sameSite: "strict",
+      path: "/api/admin/coach-assignment/apply",
+      maxAge: 0,
+    });
+  }
   return response;
 }

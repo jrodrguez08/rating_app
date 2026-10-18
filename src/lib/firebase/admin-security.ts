@@ -1,9 +1,4 @@
-import {
-  createHash,
-  createHmac,
-  randomBytes,
-  timingSafeEqual,
-} from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 import {
   FieldValue,
@@ -12,6 +7,11 @@ import {
 } from "firebase-admin/firestore";
 
 import { getServerFirestore } from "@/lib/firebase/server";
+import {
+  adminChallengeDocumentId,
+  hashAdminCoachAction,
+  type AdminCoachAction,
+} from "@/lib/server/admin-coach-action";
 import { verifyAdminPassphrase } from "@/lib/server/admin-passphrase";
 
 const PREVIEW_LIFETIME_MS = 5 * 60 * 1000;
@@ -20,17 +20,6 @@ const ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
 const LOCKOUT_MS = 15 * 60 * 1000;
 const VERIFICATION_LEASE_MS = 30 * 1000;
 const MAX_FAILURES = 5;
-
-export interface AdminCoachAction {
-  matchId: string;
-  trackedTeamId: string;
-  externalFixtureId: string;
-  coachId: string;
-  coachName: string;
-  externalProviderCoachId?: string;
-  verificationSource: string;
-  verificationReason: string;
-}
 
 export type AdminAuditAction =
   "coach_assignment_passphrase" | "coach_assignment_apply";
@@ -90,7 +79,7 @@ export class AdminSecurityStore {
 
     const token = randomBytes(32).toString("base64url");
     const reference = this.database.doc(
-      `adminActionChallenges/${tokenDocumentId(token)}`,
+      `adminActionChallenges/${adminChallengeDocumentId(token)}`,
     );
     const expiresAt = await this.database.runTransaction(
       async (transaction) => {
@@ -110,36 +99,6 @@ export class AdminSecurityStore {
       },
     );
     return { token, expiresAt: expiresAt.toDate().toISOString() };
-  }
-
-  async consumeChallenge(
-    operatorUid: string,
-    action: AdminCoachAction,
-    token: string | undefined,
-  ): Promise<void> {
-    if (!token || !/^[A-Za-z0-9_-]{40,64}$/.test(token)) {
-      throw new AdminSecurityError("invalid_challenge");
-    }
-    const reference = this.database.doc(
-      `adminActionChallenges/${tokenDocumentId(token)}`,
-    );
-    await this.database.runTransaction(async (transaction) => {
-      const snapshot = await transaction.get(reference);
-      const now = snapshot.readTime.toDate();
-      const data = snapshot.data();
-      if (
-        !snapshot.exists ||
-        data?.operatorUid !== operatorUid ||
-        data.matchId !== action.matchId ||
-        data.actionHash !== hashAdminCoachAction(action) ||
-        !(data.expiresAt instanceof Timestamp) ||
-        data.expiresAt.toMillis() <= now.getTime() ||
-        data.consumedAt !== undefined
-      ) {
-        throw new AdminSecurityError("invalid_challenge");
-      }
-      transaction.update(reference, { consumedAt: Timestamp.fromDate(now) });
-    });
   }
 
   async audit(values: {
@@ -282,27 +241,6 @@ export class AdminSecurityStore {
       );
     });
   }
-}
-
-export function hashAdminCoachAction(action: AdminCoachAction): string {
-  return createHash("sha256")
-    .update(
-      JSON.stringify({
-        matchId: action.matchId,
-        trackedTeamId: action.trackedTeamId,
-        externalFixtureId: action.externalFixtureId,
-        coachId: action.coachId,
-        coachName: action.coachName,
-        externalProviderCoachId: action.externalProviderCoachId ?? null,
-        verificationSource: action.verificationSource,
-        verificationReason: action.verificationReason,
-      }),
-    )
-    .digest("hex");
-}
-
-function tokenDocumentId(token: string): string {
-  return createHash("sha256").update(token).digest("hex");
 }
 
 function signPreview(payload: string): string {

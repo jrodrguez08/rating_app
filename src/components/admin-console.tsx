@@ -7,7 +7,7 @@ import type { Messages } from "@/i18n/messages";
 import { formatDate } from "@/i18n/format";
 import { getAdminBrowserAuth } from "@/lib/firebase/admin-browser";
 import type { AdminOverview } from "@/lib/firebase/admin-console";
-import type { AdminCoachAction } from "@/lib/firebase/admin-security";
+import type { AdminCoachAction } from "@/lib/server/admin-coach-action";
 
 type AdminMessages = Messages["admin"];
 

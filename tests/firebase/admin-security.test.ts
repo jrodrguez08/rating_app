@@ -1,14 +1,14 @@
-import { createHash, randomBytes, scryptSync } from "node:crypto";
+import { randomBytes, scryptSync } from "node:crypto";
 
 import { deleteApp, initializeApp } from "firebase-admin/app";
-import { getFirestore, Timestamp } from "firebase-admin/firestore";
+import { getFirestore } from "firebase-admin/firestore";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { AdminSecurityStore } from "@/lib/firebase/admin-security";
 import {
-  AdminSecurityError,
-  AdminSecurityStore,
+  adminChallengeDocumentId,
   type AdminCoachAction,
-} from "@/lib/firebase/admin-security";
+} from "@/lib/server/admin-coach-action";
 
 const projectId = process.env.GCLOUD_PROJECT ?? "demo-rating-app-local";
 const app = initializeApp({ projectId }, `admin-security-${Date.now()}`);
@@ -53,42 +53,18 @@ describe("admin action security", () => {
       previewToken: preview.token,
       passphrase,
     });
-    await expect(
-      store.consumeChallenge("other-owner", action, challenge.token),
-    ).rejects.toBeInstanceOf(AdminSecurityError);
-    await expect(
-      store.consumeChallenge(
-        "owner-security",
-        { ...action, matchId: "different-match" },
-        challenge.token,
-      ),
-    ).rejects.toBeInstanceOf(AdminSecurityError);
-    await expect(
-      store.consumeChallenge("owner-security", action, challenge.token),
-    ).resolves.toBeUndefined();
-    await expect(
-      store.consumeChallenge("owner-security", action, challenge.token),
-    ).rejects.toMatchObject({ code: "invalid_challenge" });
-  });
-
-  it("rejects an expired action challenge", async () => {
-    const action = coachAction("match-admin-expired");
-    const preview = await store.issuePreview("owner-expired", action);
-    const challenge = await store.authorizeAction({
-      operatorUid: "owner-expired",
-      action,
-      previewToken: preview.token,
-      passphrase,
+    expect(
+      (
+        await database
+          .doc(
+            `adminActionChallenges/${adminChallengeDocumentId(challenge.token)}`,
+          )
+          .get()
+      ).data(),
+    ).toMatchObject({
+      operatorUid: "owner-security",
+      matchId: action.matchId,
     });
-    const documentId = createHash("sha256")
-      .update(challenge.token)
-      .digest("hex");
-    await database.doc(`adminActionChallenges/${documentId}`).update({
-      expiresAt: Timestamp.fromMillis(0),
-    });
-    await expect(
-      store.consumeChallenge("owner-expired", action, challenge.token),
-    ).rejects.toMatchObject({ code: "invalid_challenge" });
   });
 
   it("locks repeated passphrase failures and persists audit evidence", async () => {

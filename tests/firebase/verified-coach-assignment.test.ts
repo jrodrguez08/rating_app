@@ -1,8 +1,18 @@
 import { deleteApp, initializeApp } from "firebase-admin/app";
-import { getFirestore } from "firebase-admin/firestore";
+import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { AdminVerifiedCoachService } from "@/lib/firebase/server";
+import {
+  AdminVerifiedCoachAssignmentCommitError,
+  AdminVerifiedCoachAssignmentRejectedError,
+  AdminVerifiedCoachService,
+  type VerifiedCoachAssignmentInput,
+} from "@/lib/firebase/server";
+import {
+  adminChallengeDocumentId,
+  adminCoachAssignmentAuditId,
+  hashAdminCoachAction,
+} from "@/lib/server/admin-coach-action";
 
 const projectId = process.env.GCLOUD_PROJECT ?? "demo-rating-app-local";
 const app = initializeApp({ projectId }, `verified-coach-${Date.now()}`);
@@ -27,7 +37,7 @@ describe("verified coach assignment persistence", () => {
       coachCreated: true,
       assignmentCreated: true,
     });
-    expect((await database.doc("coaches/verified-coach-1").get()).exists).toBe(
+    expect((await database.doc(`coaches/coach-${matchId}`).get()).exists).toBe(
       false,
     );
     expect(
@@ -55,7 +65,7 @@ describe("verified coach assignment persistence", () => {
     ).toMatchObject({
       trackedTeamId: "team-verified",
       externalFixtureId: "fixture-1",
-      coachId: "verified-coach-1",
+      coachId: `coach-${matchId}`,
       provenance: "operator_verified",
       verificationSource: "https://example.com/match-report",
     });
@@ -80,6 +90,204 @@ describe("verified coach assignment persistence", () => {
           .get()
       ).size,
     ).toBe(1);
+  });
+
+  it("atomically commits an authorized assignment, challenge, and success audit", async () => {
+    const matchId = "verified-coach-atomic";
+    const token = challengeToken("atomic");
+    await seedMatch(matchId);
+    const input = assignmentInput(matchId);
+    await seedChallenge(input, token);
+
+    await expect(service.assignAuthorized(input, token)).resolves.toMatchObject(
+      {
+        disposition: "committed",
+        plan: { matchId, coachCreated: true, assignmentCreated: true },
+      },
+    );
+
+    const challengeId = adminChallengeDocumentId(token);
+    const auditId = adminCoachAssignmentAuditId(challengeId);
+    expect(
+      (await database.doc(`adminActionChallenges/${challengeId}`).get()).data(),
+    ).toMatchObject({ committedAuditId: auditId });
+    expect(
+      (await database.doc(`adminAudit/${auditId}`).get()).data(),
+    ).toMatchObject({
+      operatorUid: input.operatorId,
+      action: "coach_assignment_apply",
+      matchId,
+      coachId: input.coachId,
+      outcome: "success",
+      coachCreated: true,
+      assignmentCreated: true,
+    });
+  });
+
+  it("rolls back assignment writes when the success audit cannot be created", async () => {
+    const matchId = "verified-coach-audit-failure";
+    const token = challengeToken("audit-failure");
+    await seedMatch(matchId);
+    const input = assignmentInput(matchId);
+    await seedChallenge(input, token);
+    const challengeId = adminChallengeDocumentId(token);
+    const auditId = adminCoachAssignmentAuditId(challengeId);
+    await database.doc(`adminAudit/${auditId}`).set({ injectedConflict: true });
+
+    await expect(service.assignAuthorized(input, token)).rejects.toBeInstanceOf(
+      AdminVerifiedCoachAssignmentCommitError,
+    );
+    expect((await database.doc(`coaches/${input.coachId}`).get()).exists).toBe(
+      false,
+    );
+    expect(
+      (
+        await database
+          .doc(`matches/${matchId}/verifiedCoachAssignments/head-coach`)
+          .get()
+      ).exists,
+    ).toBe(false);
+    expect(
+      (await database.doc(`adminActionChallenges/${challengeId}`).get()).data(),
+    ).not.toHaveProperty("consumedAt");
+  });
+
+  it("does not write a success audit when assignment validation fails", async () => {
+    const matchId = "verified-coach-assignment-failure";
+    const token = challengeToken("assignment-failure");
+    await seedMatch(matchId);
+    const input = assignmentInput(matchId);
+    await seedChallenge(input, token);
+    await database
+      .doc(`matches/${matchId}/coachAssignments/head-coach`)
+      .set({ coachId: "conflicting-coach", provenance: "provider" });
+
+    await expect(service.assignAuthorized(input, token)).rejects.toBeInstanceOf(
+      AdminVerifiedCoachAssignmentRejectedError,
+    );
+    const challengeId = adminChallengeDocumentId(token);
+    expect(
+      (
+        await database
+          .doc(`adminAudit/${adminCoachAssignmentAuditId(challengeId)}`)
+          .get()
+      ).exists,
+    ).toBe(false);
+    expect(
+      (await database.doc(`adminActionChallenges/${challengeId}`).get()).data(),
+    ).not.toHaveProperty("consumedAt");
+  });
+
+  it("returns the committed receipt for repeat and ambiguous-response retries", async () => {
+    const matchId = "verified-coach-retry";
+    const token = challengeToken("retry");
+    await seedMatch(matchId);
+    const input = assignmentInput(matchId);
+    await seedChallenge(input, token);
+
+    const committed = await service.assignAuthorized(input, token);
+    const retried = await service.assignAuthorized(input, token);
+
+    expect(retried).toEqual({
+      ...committed,
+      disposition: "idempotent_retry",
+    });
+    expect(
+      (
+        await database
+          .collection("adminAudit")
+          .where("matchId", "==", matchId)
+          .get()
+      ).size,
+    ).toBe(1);
+    expect(
+      (
+        await database
+          .doc(
+            `adminAudit/${adminCoachAssignmentAuditId(adminChallengeDocumentId(token))}`,
+          )
+          .get()
+      ).data(),
+    ).toMatchObject({
+      commitDisposition: "committed",
+      idempotentRetryCount: 1,
+    });
+  });
+
+  it("serializes concurrent requests using one challenge and one audit", async () => {
+    const matchId = "verified-coach-authorized-concurrent";
+    const token = challengeToken("authorized-concurrent");
+    await seedMatch(matchId);
+    const input = assignmentInput(matchId);
+    await seedChallenge(input, token);
+
+    const results = await Promise.all([
+      service.assignAuthorized(input, token),
+      service.assignAuthorized(input, token),
+    ]);
+
+    expect(results.map((result) => result.disposition).sort()).toEqual([
+      "committed",
+      "idempotent_retry",
+    ]);
+    expect(
+      (
+        await database
+          .collection("adminAudit")
+          .where("matchId", "==", matchId)
+          .get()
+      ).size,
+    ).toBe(1);
+    expect(
+      (
+        await database
+          .doc(
+            `adminAudit/${adminCoachAssignmentAuditId(adminChallengeDocumentId(token))}`,
+          )
+          .get()
+      ).data()?.idempotentRetryCount,
+    ).toBe(1);
+  });
+
+  it("rejects expired, wrong-owner, wrong-match, and replayed challenges", async () => {
+    const cases = [
+      { suffix: "expired", overrides: { expiresAt: Timestamp.fromMillis(0) } },
+      { suffix: "owner", overrides: { operatorUid: "other-owner" } },
+      { suffix: "match", overrides: { matchId: "other-match" } },
+    ];
+    for (const testCase of cases) {
+      const matchId = `verified-coach-challenge-${testCase.suffix}`;
+      const token = challengeToken(testCase.suffix);
+      await seedMatch(matchId);
+      const input = assignmentInput(matchId);
+      await seedChallenge(input, token, testCase.overrides);
+      await expect(
+        service.assignAuthorized(input, token),
+      ).rejects.toBeInstanceOf(AdminVerifiedCoachAssignmentRejectedError);
+      expect(
+        (
+          await database
+            .doc(`matches/${matchId}/verifiedCoachAssignments/head-coach`)
+            .get()
+        ).exists,
+      ).toBe(false);
+    }
+
+    const matchId = "verified-coach-replay-different-action";
+    const token = challengeToken("replay-different-action");
+    await seedMatch(matchId);
+    const input = assignmentInput(matchId);
+    await seedChallenge(input, token);
+    await service.assignAuthorized(input, token);
+    await expect(
+      service.assignAuthorized(
+        { ...input, coachId: "different-coach", coachName: "Different Coach" },
+        token,
+      ),
+    ).rejects.toBeInstanceOf(AdminVerifiedCoachAssignmentRejectedError);
+    expect((await database.doc("coaches/different-coach").get()).exists).toBe(
+      false,
+    );
   });
 
   it("rejects wrong bindings, malformed evidence, ballots, and finalized results", async () => {
@@ -118,17 +326,38 @@ describe("verified coach assignment persistence", () => {
   });
 });
 
-function assignmentInput(matchId: string) {
+function assignmentInput(matchId: string): VerifiedCoachAssignmentInput {
   return {
     matchId,
     trackedTeamId: "team-verified",
     externalFixtureId: "fixture-1",
-    coachId: "verified-coach-1",
+    coachId: `coach-${matchId}`,
     coachName: "Verified Coach",
     verificationSource: "https://example.com/match-report",
     verificationReason: "Independent fixture-specific match report.",
     operatorId: "operator@example.com",
   };
+}
+
+function challengeToken(seed: string): string {
+  return Buffer.from(seed.padEnd(32, "_").slice(0, 32)).toString("base64url");
+}
+
+async function seedChallenge(
+  input: VerifiedCoachAssignmentInput,
+  token: string,
+  overrides: Record<string, unknown> = {},
+) {
+  await database
+    .doc(`adminActionChallenges/${adminChallengeDocumentId(token)}`)
+    .set({
+      operatorUid: input.operatorId,
+      matchId: input.matchId,
+      actionHash: hashAdminCoachAction(input),
+      createdAt: Timestamp.now(),
+      expiresAt: Timestamp.fromMillis(Date.now() + 120_000),
+      ...overrides,
+    });
 }
 
 async function seedMatch(matchId: string) {

@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-import type { AdminCoachAction } from "@/lib/firebase/admin-security";
 import { getMessages } from "@/i18n/messages";
+import type { AdminCoachAction } from "@/lib/server/admin-coach-action";
 import {
   ADMIN_CSRF_COOKIE,
   ADMIN_SESSION_COOKIE,
