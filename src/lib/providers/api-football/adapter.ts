@@ -65,6 +65,18 @@ function finiteNumberOrUndefined(value: unknown): number | undefined {
     : undefined;
 }
 
+function nonEmptyStringOrUndefined(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() !== "" ? value : undefined;
+}
+
+function providerDateOrUndefined(value: unknown): string | undefined {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return undefined;
+  }
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return Number.isNaN(parsed.getTime()) ? undefined : value;
+}
+
 function integer(value: unknown, label: string, minimum = 0): number {
   const result = number(value, label);
   if (!Number.isInteger(result) || result < minimum) {
@@ -340,6 +352,7 @@ export class ApiFootballAdapter
     externalFixtureId: string,
     externalTeamId: string,
     baseline?: ProviderMatchContext,
+    fixtureKickoffAt?: string,
   ): Promise<ProviderMatchContext> {
     const [lineups, players, events] = await Promise.all([
       this.request("/fixtures/lineups", { fixture: externalFixtureId }),
@@ -353,6 +366,7 @@ export class ApiFootballAdapter
       lineups,
       externalFixtureId,
       externalTeamId,
+      fixtureKickoffAt,
     );
     const context = strongestMatchContext(observed, baseline);
     if (context === undefined) {
@@ -403,6 +417,7 @@ export class ApiFootballAdapter
   async getLineupContext(
     externalFixtureId: string,
     externalTeamId: string,
+    fixtureKickoffAt?: string,
   ): Promise<ProviderMatchContext | null> {
     const lineups = await this.request("/fixtures/lineups", {
       fixture: externalFixtureId,
@@ -412,6 +427,7 @@ export class ApiFootballAdapter
       lineups,
       externalFixtureId,
       externalTeamId,
+      fixtureKickoffAt,
     );
   }
 
@@ -685,6 +701,7 @@ export class ApiFootballAdapter
     lineups: unknown[],
     externalFixtureId: string,
     externalTeamId: string,
+    fixtureKickoffAt?: string,
   ): Promise<ProviderMatchContext | null> {
     if (lineups.length === 0) return null;
     const trackedLineups = lineups.filter((value) => {
@@ -740,30 +757,47 @@ export class ApiFootballAdapter
     const coach = record(lineup.coach, "lineup.coach");
     return {
       participants: [...participants.values()],
-      headCoach: await this.resolveLineupCoach(coach, externalTeamId),
+      headCoach: await this.resolveLineupCoach(
+        coach,
+        externalTeamId,
+        fixtureKickoffAt,
+      ),
     };
   }
 
   private async resolveLineupCoach(
     coach: Record<string, unknown>,
     externalTeamId: string,
+    fixtureKickoffAt?: string,
   ): Promise<ProviderHeadCoach> {
-    const name = string(coach.name, "lineup.coach.name");
     const lineupCoachId = finiteNumberOrUndefined(coach.id);
+    const lineupCoachName = nonEmptyStringOrUndefined(coach.name);
     const lineupPhotoUrl = optionalString(coach.photo, "lineup.coach.photo");
-    if (lineupCoachId !== undefined) {
+
+    if (lineupCoachId !== undefined && lineupCoachName !== undefined) {
       return {
         externalTeamId,
         externalCoachId: String(lineupCoachId),
-        name,
+        name: lineupCoachName,
         ...(lineupPhotoUrl === undefined ? {} : { photoUrl: lineupPhotoUrl }),
       };
+    }
+
+    const temporalFallback = lineupCoachName === undefined;
+    if (temporalFallback && fixtureKickoffAt === undefined) {
+      throw new ProviderError(
+        "coach-missing",
+        `Fixture kickoff is required to recover a missing coach identity for tracked Team ${externalTeamId}.`,
+      );
     }
 
     emitOperationalLog(this.log, "provider.coach_fallback", {
       teamId: externalTeamId,
       status: "attempted",
-      reason: "lineup-coach-id-unusable",
+      reason: temporalFallback
+        ? "lineup-coach-identity-unusable"
+        : "lineup-coach-id-unusable",
+      mode: temporalFallback ? "career-at-kickoff" : "exact-name",
     });
 
     let response: unknown[];
@@ -773,76 +807,58 @@ export class ApiFootballAdapter
       emitOperationalLog(this.log, "provider.coach_fallback", {
         teamId: externalTeamId,
         status: "provider-error",
+        mode: temporalFallback ? "career-at-kickoff" : "exact-name",
       });
       throw error;
     }
 
-    const exactMatches: Record<string, unknown>[] = [];
-    for (const value of response) {
-      if (!isRecord(value)) continue;
-      if (
-        typeof value.name !== "string" ||
-        normalize(value.name) !== normalize(name)
-      ) {
-        continue;
-      }
-      if (!isRecord(value.team)) {
-        emitOperationalLog(this.log, "provider.coach_fallback", {
-          teamId: externalTeamId,
-          status: "malformed",
-          reason: "matching-coach-team-missing",
-        });
-        return malformed("coachs matching record.team must be an object.");
-      }
-      const teamId = finiteNumberOrUndefined(value.team.id);
-      if (teamId === undefined) {
-        emitOperationalLog(this.log, "provider.coach_fallback", {
-          teamId: externalTeamId,
-          status: "malformed",
-          reason: "matching-coach-team-id-unusable",
-        });
-        return malformed(
-          "coachs matching record.team.id must be a finite number.",
-        );
-      }
-      if (String(teamId) === externalTeamId) {
-        exactMatches.push(value);
-      }
-    }
+    const matches = temporalFallback
+      ? this.temporalCoachMatches(response, externalTeamId, fixtureKickoffAt!)
+      : this.namedCoachMatches(response, externalTeamId, lineupCoachName);
 
-    if (exactMatches.length === 0) {
+    emitOperationalLog(this.log, "provider.coach_fallback", {
+      teamId: externalTeamId,
+      status: "candidates",
+      mode: temporalFallback ? "career-at-kickoff" : "exact-name",
+      candidateCount: matches.length,
+    });
+
+    if (matches.length === 0) {
       emitOperationalLog(this.log, "provider.coach_fallback", {
         teamId: externalTeamId,
         status: "no-match",
+        mode: temporalFallback ? "career-at-kickoff" : "exact-name",
       });
       throw new ProviderError(
         "coach-missing",
-        `No exact current coach match was found for tracked Team ${externalTeamId}.`,
+        `No unambiguous coach identity was found for tracked Team ${externalTeamId}.`,
       );
     }
-    if (exactMatches.length > 1) {
+    if (matches.length > 1) {
       emitOperationalLog(this.log, "provider.coach_fallback", {
         teamId: externalTeamId,
         status: "ambiguous",
-        matchCount: exactMatches.length,
+        mode: temporalFallback ? "career-at-kickoff" : "exact-name",
+        matchCount: matches.length,
       });
       throw new ProviderError(
         "ambiguous-coach",
-        `Multiple exact current coach matches were found for tracked Team ${externalTeamId}.`,
+        `Multiple coach identities matched tracked Team ${externalTeamId}.`,
       );
     }
 
-    const resolved = exactMatches[0];
+    const resolved = matches[0];
     const resolvedId = finiteNumberOrUndefined(resolved.id);
-    if (resolvedId === undefined) {
+    const resolvedName = nonEmptyStringOrUndefined(resolved.name);
+    if (resolvedId === undefined || resolvedName === undefined) {
       emitOperationalLog(this.log, "provider.coach_fallback", {
         teamId: externalTeamId,
         status: "malformed",
-        reason: "matching-coach-id-unusable",
+        mode: temporalFallback ? "career-at-kickoff" : "exact-name",
+        reason: "matching-coach-identity-unusable",
       });
-      return malformed("coachs matching record.id must be a finite number.");
+      return malformed("coachs matching record has an unusable identity.");
     }
-    const resolvedName = string(resolved.name, "coachs matching record.name");
     const resolvedPhotoUrl = optionalString(
       resolved.photo,
       "coachs matching record.photo",
@@ -850,6 +866,7 @@ export class ApiFootballAdapter
     emitOperationalLog(this.log, "provider.coach_fallback", {
       teamId: externalTeamId,
       status: "resolved",
+      mode: temporalFallback ? "career-at-kickoff" : "exact-name",
     });
     return {
       externalTeamId,
@@ -861,6 +878,130 @@ export class ApiFootballAdapter
           : { photoUrl: lineupPhotoUrl }
         : { photoUrl: resolvedPhotoUrl }),
     };
+  }
+
+  private namedCoachMatches(
+    response: unknown[],
+    externalTeamId: string,
+    lineupCoachName: string,
+  ): Record<string, unknown>[] {
+    const exactMatches: Record<string, unknown>[] = [];
+    for (const value of response) {
+      if (!isRecord(value)) continue;
+      const providerName = nonEmptyStringOrUndefined(value.name);
+      if (
+        providerName === undefined ||
+        normalize(providerName) !== normalize(lineupCoachName)
+      ) {
+        continue;
+      }
+      if (!isRecord(value.team)) {
+        emitOperationalLog(this.log, "provider.coach_fallback", {
+          teamId: externalTeamId,
+          status: "malformed",
+          mode: "exact-name",
+          reason: "matching-coach-team-missing",
+        });
+        return malformed("coachs matching record.team must be an object.");
+      }
+      const teamId = finiteNumberOrUndefined(value.team.id);
+      if (teamId === undefined) {
+        emitOperationalLog(this.log, "provider.coach_fallback", {
+          teamId: externalTeamId,
+          status: "malformed",
+          mode: "exact-name",
+          reason: "matching-coach-team-id-unusable",
+        });
+        return malformed(
+          "coachs matching record.team.id must be a finite number.",
+        );
+      }
+      if (String(teamId) === externalTeamId) {
+        exactMatches.push(value);
+      }
+    }
+    return exactMatches;
+  }
+
+  private temporalCoachMatches(
+    response: unknown[],
+    externalTeamId: string,
+    fixtureKickoffAt: string,
+  ): Record<string, unknown>[] {
+    const kickoff = new Date(fixtureKickoffAt);
+    if (Number.isNaN(kickoff.getTime())) {
+      malformed("fixture kickoff must be a valid timestamp.");
+    }
+    const fixtureDate = kickoff.toISOString().slice(0, 10);
+    const matches: Record<string, unknown>[] = [];
+    for (const value of response) {
+      if (!isRecord(value)) continue;
+      const providerId = finiteNumberOrUndefined(value.id);
+      const providerName = nonEmptyStringOrUndefined(value.name);
+      if (providerId === undefined || providerName === undefined) {
+        emitOperationalLog(this.log, "provider.coach_fallback", {
+          teamId: externalTeamId,
+          status: "malformed",
+          mode: "career-at-kickoff",
+          reason: "coach-identity-unusable",
+        });
+        return malformed("coachs record has an unusable identity.");
+      }
+
+      if (!Array.isArray(value.career)) {
+        emitOperationalLog(this.log, "provider.coach_fallback", {
+          teamId: externalTeamId,
+          status: "malformed",
+          mode: "career-at-kickoff",
+          reason: "career-missing",
+        });
+        return malformed("coachs record.career must be an array.");
+      }
+
+      let coversFixture = false;
+      for (const careerValue of value.career) {
+        if (!isRecord(careerValue) || !isRecord(careerValue.team)) {
+          continue;
+        }
+        const careerTeamId = finiteNumberOrUndefined(careerValue.team.id);
+        if (
+          careerTeamId === undefined ||
+          String(careerTeamId) !== externalTeamId
+        ) {
+          continue;
+        }
+
+        const start = providerDateOrUndefined(careerValue.start);
+        const end =
+          careerValue.end === null || careerValue.end === undefined
+            ? undefined
+            : providerDateOrUndefined(careerValue.end);
+        if (
+          start === undefined ||
+          (careerValue.end !== null &&
+            careerValue.end !== undefined &&
+            end === undefined)
+        ) {
+          emitOperationalLog(this.log, "provider.coach_fallback", {
+            teamId: externalTeamId,
+            status: "malformed",
+            mode: "career-at-kickoff",
+            reason: "career-date-unusable",
+          });
+          return malformed("coachs career dates must be valid provider dates.");
+        }
+
+        if (start <= fixtureDate && (end === undefined || fixtureDate <= end)) {
+          coversFixture = true;
+          break;
+        }
+      }
+
+      if (coversFixture) {
+        matches.push(value);
+      }
+    }
+    return matches;
   }
 
   private reconcilePlayerStatistics(
