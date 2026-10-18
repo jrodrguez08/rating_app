@@ -26,6 +26,7 @@ Top-level collections use generic IDs:
 
 ```text
 teams/{teamId}
+teams/{teamId}/playerMemberships/{playerId}
 competitions/{competitionId}
 seasons/{seasonId}
 players/{playerId}
@@ -35,6 +36,9 @@ matches/{matchId}
 matches/{matchId}/participants/{playerId}
 matches/{matchId}/coachAssignments/head-coach
 matches/{matchId}/verifiedCoachAssignments/head-coach
+matches/{matchId}/verifiedLineups/current
+matches/{matchId}/lineupDrafts/{ownerUid}
+matches/{matchId}/lineupReconciliations/provider
 matches/{matchId}/ballots/{voterId}
 matches/{matchId}/results/summary
 matches/{matchId}/resultRevisions/reopen-{sequence}
@@ -56,6 +60,12 @@ The implemented `teams/{teamId}` document contains `displayName`, `shortName`, `
 An explicit emulator-only script ensures the initial document exists. It requires a local emulator host and a `demo-*` project ID, creates only when absent, and only adds a missing `countryName` to a pre-milestone record. It never runs during application rendering or startup.
 
 A match stores tracked team, its stable provider Team ID, opponent, home/away snapshots, competition, season, kickoff, status, score, provider fixture ID, confirmed goal-event snapshots, optional live elapsed minute, and voting bounds. `Match.id` is always the physical `matches/{matchId}` document ID: persistence writes omit a duplicate payload ID, and snapshot hydration treats the document path as authoritative if a legacy payload contains a stale `id`. Archive, detail, result, ballot, lifecycle, and player-history paths therefore share one durable identity without requiring a data migration. The provider score remains canonical; malformed or incomplete goal incidents are ignored instead of inferred. A durable Player stores provider-mapped identity and current name/position metadata in `players/{playerId}`. A match participant at `matches/{matchId}/participants/{playerId}` explicitly stores internal and provider Team IDs alongside the historical name, number, position, squad role (`starter` or `substitute`), `participated`, and optional confirmed entry/exit minutes. Global Player records never contain match participation or permanent club membership. The tracked Team's head coach has durable identity in `coaches/{coachId}` and one match-specific `matches/{matchId}/coachAssignments/head-coach` document with the same explicit Team ownership; the fixed assignment path models the single rateable coaching role without modeling a full staff. Coach records distinguish `provider` and `operator_verified` identity provenance. Provider identity fields remain optional only for an operator-verified coach and must be a complete real provider pair when present. The server-only `verifiedCoachAssignments/head-coach` audit record binds one verified Coach to the internal Match, tracked Team, provider fixture, HTTPS evidence, reason, operator context, and verification timestamps. Ballot selection requires `participant.teamId == match.trackedTeamId && participant.participated == true`. For the current configuration this selects only confirmed Club Sport Herediano participants and its head coach; opponent players and coaches remain outside MVP rating scope. A future club changes the tracked Team data, not this logic.
+
+`teams/{teamId}/playerMemberships/{playerId}` is a server-owned search read model, not participation or eligibility evidence. Current squad sync and tracked-Team MatchParticipant persistence upsert canonical identity, normalized bounded name prefixes, available presentation metadata, provenance, and first/last observation timestamps. Membership survives transfers, while only explicit tracked-Team evidence can create it. Admin search performs one bounded prefix query, resolves reviewed `playerProviderAliases`, batch-loads canonical Players, de-duplicates by canonical ID, and returns at most 20 results. The required queries use Firestore's automatic single-field indexes; no composite index is added.
+
+`matches/{matchId}/lineupDrafts/{ownerUid}` stores the authenticated owner's non-authoritative preparation with Match/Team/provider-fixture binding, participant arrangement, a monotonic version, content hash, and trusted timestamps. Saves permit incomplete lineups, validate every canonical Player against current Team, historical membership, selected-match evidence, or the prior draft, and reject protected voting/result states. Compare-and-set versions reject stale edits; an exact lost-response retry returns the prior receipt. Draft persistence never writes MatchParticipants, VerifiedLineupSnapshot, lifecycle fields, ballots, or results. Verified apply deletes the owner's draft inside its existing atomic challenge/mutation/audit transaction.
+
+`matches/{matchId}/lineupReconciliations/provider` stores the latest durable provider comparison status and aggregate count. Compatible evidence records `matched`; a strict subset records `provider_partial`; provider lineup absence records `provider_missing`; contradictory identity, role, or participation records `conflict`. The receipt contains no raw provider payload. It reports reconciliation without weakening verified snapshot precedence.
 
 A completed ballot is one compact document containing `matchId`, `teamId`, `voterId`, a map of player IDs to integer ratings, one `{ coachId, rating }`, and a server timestamp. Its document ID is the verified Firebase UID inside the match's `ballots` subcollection. A trusted Next.js server endpoint verifies the Firebase ID token and derives that UID; the payload cannot select its owner. A Firestore transaction reloads the authoritative match, participants, head coach, and ballot, validates the active server-controlled window and exact eligible ID set, then creates only if absent. Direct client reads and every client write remain denied by rules. This deterministic path plus the transaction enforces `one voter + one match` without a per-score write explosion.
 

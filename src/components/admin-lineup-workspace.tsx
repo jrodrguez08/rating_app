@@ -39,7 +39,8 @@ export function RosterResult({
           {player.position
             ? messages.positions[player.position]
             : messages.metadataUnavailable}{" "}
-          · {messages.canonicalIdentity}
+          {player.shirtNumber === undefined ? "" : `· #${player.shirtNumber} `}·{" "}
+          {messages.canonicalIdentity}
         </span>
       </span>
       <span className="flex flex-wrap gap-2 sm:justify-end">
@@ -303,7 +304,9 @@ function detailProvenance(
 ): string {
   return participant.createInternalIdentity
     ? messages.internalIdentityEvidence
-    : participant.evidenceProvenance === "operator_verified"
-      ? messages.provenance.operator_verified
-      : messages.provenance.provider;
+    : participant.evidenceProvenance === "draft"
+      ? messages.savedDraftEvidence
+      : participant.evidenceProvenance === "operator_verified"
+        ? messages.provenance.operator_verified
+        : messages.provenance.provider;
 }

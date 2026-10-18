@@ -166,6 +166,10 @@ describe("admin lineup editor", () => {
     matchDetail.players = matchDetail.players.slice(0, 10);
     renderEditor(matchDetail);
 
+    const advanced = screen
+      .getByText(messages.advancedActions)
+      .closest("details");
+    expect(advanced).not.toHaveAttribute("open");
     await user.click(screen.getByText(messages.internalIdentity));
     await user.type(
       screen.getByLabelText(messages.internalPlayerId),
@@ -232,6 +236,101 @@ describe("admin lineup editor", () => {
     await waitFor(() =>
       expect(screen.getByText(messages.noPlayers)).toBeVisible(),
     );
+  });
+
+  it("saves an incomplete draft and reports the saved state", async () => {
+    const user = userEvent.setup();
+    const matchDetail = detail("not_ready");
+    matchDetail.participants = matchDetail.participants.slice(0, 5);
+    matchDetail.players = matchDetail.players.slice(0, 5);
+    let resolveDraft:
+      | ((value: {
+          ok: boolean;
+          json: () => Promise<{ version: number; disposition: string }>;
+        }) => void)
+      | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) =>
+        String(input).includes("lineup-draft")
+          ? new Promise((resolve) => {
+              resolveDraft = resolve;
+            })
+          : Promise.resolve({
+              ok: true,
+              json: async () => ({ players: [] }),
+            }),
+      ),
+    );
+    renderEditor(matchDetail);
+
+    await user.click(screen.getByRole("button", { name: messages.saveDraft }));
+    expect(screen.getByText(messages.draftStatuses.saving)).toBeVisible();
+    resolveDraft?.({
+      ok: true,
+      json: async () => ({ version: 1, disposition: "committed" }),
+    });
+
+    await waitFor(() =>
+      expect(screen.getByText(messages.draftStatuses.saved)).toBeVisible(),
+    );
+    expect(screen.getByText(messages.draftSaved)).toBeVisible();
+  });
+
+  it("recovers from a draft save error and keeps changes unsaved", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) =>
+        String(input).includes("lineup-draft")
+          ? { ok: false, json: async () => ({ error: "Versión obsoleta." }) }
+          : { ok: true, json: async () => ({ players: [] }) },
+      ),
+    );
+    renderEditor(detail("preparing_rating"));
+
+    await user.click(screen.getByRole("button", { name: messages.saveDraft }));
+
+    await waitFor(() =>
+      expect(screen.getByText("Versión obsoleta.")).toBeVisible(),
+    );
+    expect(screen.getByText(messages.draftStatuses.error)).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: messages.saveDraft }),
+    ).toBeEnabled();
+  });
+
+  it("restores a persisted draft before provider evidence", () => {
+    const matchDetail = detail("preparing_rating");
+    matchDetail.draft = {
+      matchId: matchDetail.match.id,
+      trackedTeamId: "club-sport-herediano",
+      externalFixtureId: matchDetail.match.externalFixtureId,
+      ownerId: "owner-uid",
+      version: 3,
+      contentHash: "hash",
+      participants: [
+        {
+          playerId: "player-12",
+          playerName: "Jugador 12",
+          createInternalIdentity: false,
+          squadRole: "starter",
+          participationStatus: "confirmed_starter",
+        },
+      ],
+      createdAt: "2026-10-18T19:00:00.000Z",
+      updatedAt: "2026-10-18T20:00:00.000Z",
+    };
+
+    renderEditor(matchDetail);
+
+    expect(screen.getByText("1/11")).toBeVisible();
+    expect(
+      screen.getByText((content) =>
+        content.includes(messages.savedDraftEvidence),
+      ),
+    ).toBeVisible();
+    expect(screen.getByText(messages.draftStatuses.saved)).toBeVisible();
   });
 });
 

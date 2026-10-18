@@ -61,6 +61,20 @@ describe("verified lineup preparation persistence", () => {
       (await database.collection("adminAudit").count().get()).data(),
     ).toEqual(before.data());
 
+    await database
+      .doc(`matches/${matchId}/lineupDrafts/${input.operatorId}`)
+      .set({
+        matchId,
+        trackedTeamId: input.trackedTeamId,
+        externalFixtureId: input.externalFixtureId,
+        ownerId: input.operatorId,
+        version: 1,
+        contentHash: "draft-hash",
+        participants: [],
+        createdAt: Timestamp.now(),
+        updatedAt: Timestamp.now(),
+      });
+
     const token = challengeToken(matchId);
     await seedChallenge(input, token);
     const result = await service.applyAuthorized(input, token);
@@ -98,6 +112,20 @@ describe("verified lineup preparation persistence", () => {
       provenance: "operator_verified",
       operatorId: input.operatorId,
     });
+    expect(
+      (
+        await database
+          .doc(`matches/${matchId}/lineupDrafts/${input.operatorId}`)
+          .get()
+      ).exists,
+    ).toBe(false);
+    expect(
+      (
+        await database
+          .collection(`teams/${input.trackedTeamId}/playerMemberships`)
+          .get()
+      ).size,
+    ).toBe(12);
   });
 
   it("records an entered substitute while unused and unconfirmed substitutes stay ineligible", async () => {

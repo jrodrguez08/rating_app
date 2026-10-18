@@ -414,7 +414,7 @@ export const esMessages = {
     canonicalRoster: "Plantel canónico",
     searchPlayers: "Buscar jugador canónico",
     searchPlayersHelp:
-      "Busque por nombre. Los resultados pertenecen al equipo configurado.",
+      "Jugadores actuales e históricos del equipo. Escriba para filtrar por nombre.",
     searchingPlayers: "Buscando jugadores…",
     playerSearchError: "No fue posible buscar jugadores en este momento.",
     noPlayers: "No hay jugadores disponibles con esa búsqueda.",
@@ -431,6 +431,7 @@ export const esMessages = {
     addStarter: "Agregar titular",
     addSubstitute: "Agregar suplente",
     internalIdentity: "Agregar identidad interna verificada",
+    advancedActions: "Acciones excepcionales",
     internalIdentityHelp:
       "Use esta opción solo cuando la identidad fue verificada de forma independiente y no existe un ID utilizable del proveedor.",
     internalIdentityConfirmation:
@@ -465,8 +466,30 @@ export const esMessages = {
     markNotEntered: "Marcar como no ingresó",
     markUnconfirmed: "Marcar sin confirmar",
     removeFromPreparation: "Quitar de la preparación",
-    restorePreload: "Restaurar datos precargados",
-    draftRestored: "Se restauró la evidencia precargada.",
+    restorePreload: "Restaurar preparación guardada",
+    draftRestored: "Se restauró la preparación guardada.",
+    draftTitle: "Preparación del partido",
+    draftHelp:
+      "Puede guardar una alineación incompleta. El borrador no crea elegibilidad ni abre la votación.",
+    saveDraft: "Guardar borrador",
+    savingDraft: "Guardando borrador…",
+    draftSaved: "El borrador quedó guardado.",
+    draftSaveError: "No fue posible guardar el borrador.",
+    draftStaleError:
+      "El borrador cambió en otra sesión. Recargue el partido antes de guardar de nuevo.",
+    draftStatuses: {
+      saved: "Guardado",
+      saving: "Guardando…",
+      unsaved: "Cambios sin guardar",
+      error: "Error al guardar",
+    },
+    savedDraftEvidence: "Borrador guardado",
+    confirmVerifiedLineup: "Confirmar alineación verificada",
+    verificationSummary: "Resumen para confirmación",
+    verificationAuthorityHelp:
+      "La confirmación crea evidencia autoritativa para este fixture. Requiere evidencia independiente, autorización y confirmación exacta.",
+    previewParticipants:
+      "{starters} titulares, {substitutes} suplentes y {entered} ingresos confirmados.",
     preloadSummary:
       "Evidencia precargada: {starters} titulares y {substitutes} suplentes.",
     preloadedEvidence: "Evidencia precargada",
@@ -510,6 +533,13 @@ export const esMessages = {
       "El partido ya tiene votos, resultados, revisiones o una ventana activa y no admite esta recuperación.",
     coachConflictError:
       "La asignación o identidad existente entra en conflicto con la propuesta.",
+    reconciliation: "Conciliación con el proveedor",
+    reconciliationStatuses: {
+      matched: "La evidencia del proveedor coincide",
+      provider_missing: "El proveedor todavía no publicó la alineación",
+      provider_partial: "La evidencia del proveedor está incompleta",
+      conflict: "Conflicto pendiente de revisión",
+    },
   },
   footer: {
     supporting: "Creado para aficionados. Listo para crecer club por club.",

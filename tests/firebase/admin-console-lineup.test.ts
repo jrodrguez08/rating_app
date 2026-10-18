@@ -4,6 +4,10 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { initialClub } from "@/config/club";
 import { playerProviderAliasId } from "@/domain/player-identity";
+import {
+  normalizePlayerSearch,
+  playerSearchPrefixes,
+} from "@/domain/player-search";
 import { AdminConsoleService } from "@/lib/firebase/admin-console";
 
 const projectId = process.env.GCLOUD_PROJECT ?? "demo-rating-app-local";
@@ -117,6 +121,11 @@ describe("admin console lineup reads", () => {
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now(),
       }),
+      database
+        .doc(
+          `teams/${initialClub.teamId}/playerMemberships/search-team-${suffix}`,
+        )
+        .set(membership(`search-team-${suffix}`, "Álvaro Canónico")),
     ]);
 
     const results = await service.searchPlayers("alvaro");
@@ -156,6 +165,9 @@ describe("admin console lineup reads", () => {
         updatedAt: now,
       }),
       database
+        .doc(`teams/${initialClub.teamId}/playerMemberships/${legacyId}`)
+        .set(membership(legacyId, "Nombre Histórico")),
+      database
         .doc(
           `playerProviderAliases/${playerProviderAliasId(
             "api-football",
@@ -178,7 +190,69 @@ describe("admin console lineup reads", () => {
       expect.objectContaining({ id: canonicalId, name: "Nombre Canónico" }),
     ]);
   });
+
+  it("finds historical and transferred Players beyond 150 records without opponent leakage", async () => {
+    const suffix = Date.now();
+    const targetId = `historical-target-${suffix}`;
+    const batch = database.batch();
+    for (let index = 0; index < 170; index += 1) {
+      const playerId = `historical-${suffix}-${index}`;
+      const displayName = `Histórico ${index}`;
+      batch.set(database.doc(`players/${playerId}`), {
+        displayName,
+        currentTeamId: index === 169 ? "transferred-team" : initialClub.teamId,
+        identityProvenance: "provider",
+        createdAt: Timestamp.now(),
+        updatedAt: Timestamp.now(),
+      });
+      batch.set(
+        database.doc(
+          `teams/${initialClub.teamId}/playerMemberships/${playerId}`,
+        ),
+        membership(playerId, displayName),
+      );
+    }
+    batch.set(database.doc(`players/${targetId}`), {
+      displayName: "Óscar Transferido Único",
+      currentTeamId: "transferred-team",
+      identityProvenance: "provider",
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    });
+    batch.set(
+      database.doc(`teams/${initialClub.teamId}/playerMemberships/${targetId}`),
+      membership(targetId, "Óscar Transferido Único"),
+    );
+    await batch.commit();
+
+    const results = await service.searchPlayers("oscar transf");
+
+    expect(results).toEqual([
+      expect.objectContaining({
+        id: targetId,
+        name: "Óscar Transferido Único",
+      }),
+    ]);
+    expect(results.length).toBeLessThanOrEqual(20);
+  });
 });
+
+function membership(playerId: string, displayName: string) {
+  const now = Timestamp.now();
+  return {
+    playerId,
+    teamId: initialClub.teamId,
+    displayName,
+    searchName: normalizePlayerSearch(displayName),
+    searchPrefixes: playerSearchPrefixes(displayName),
+    source: "match_participant",
+    sourceMatchId: "historical-fixture",
+    firstObservedAt: now,
+    lastObservedAt: now,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
 
 async function seedMatch(matchId: string) {
   const now = Timestamp.now();

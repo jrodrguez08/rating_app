@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { Match, Team } from "@/domain/models";
+import type { Match, PlayerProviderAlias, Team } from "@/domain/models";
 import type { FootballDataProvider, FootballSyncStore } from "@/domain/ports";
 import { ProviderError } from "@/lib/providers/api-football/errors";
 
@@ -384,6 +384,89 @@ describe("participant synchronization identities", () => {
     );
     expect(logs.join("\n")).toContain('"identityMode":"manual_only"');
     expect(logs.join("\n")).toContain('"recovery":"verified-lineup"');
+    expect(store.recordVerifiedLineupReconciliation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "provider_missing",
+        reason: "provider-lineup-unavailable",
+        providerParticipantCount: 0,
+      }),
+    );
+  });
+
+  it.each([
+    ["matched", 11],
+    ["provider_partial", 5],
+  ] as const)(
+    "records %s when provider evidence is compatible",
+    async (expectedStatus, participantCount) => {
+      const store = storeWith();
+      store.getVerifiedLineupSnapshot = vi
+        .fn()
+        .mockResolvedValue(verifiedLineup());
+      store.getVerifiedCoachAssignment = vi
+        .fn()
+        .mockResolvedValue(verifiedCoach());
+      store.resolvePlayerProviderAliases = vi.fn(async (aliases) =>
+        aliases.map((alias: PlayerProviderAlias, index: number) => ({
+          ...alias,
+          canonicalPlayerId: `verified-player-${index + 1}`,
+          canonicalExternalProviderPlayerId: alias.externalProviderPlayerId,
+        })),
+      );
+      store.replaceMatchParticipantContext = vi.fn().mockResolvedValue({
+        players: counts,
+        participants: counts,
+        coaches: counts,
+        coachAssignments: counts,
+      });
+      const provider = providerWith("unused");
+      provider.getMatchEvidence = vi.fn().mockResolvedValue({
+        participants: Array.from({ length: participantCount }, (_, index) => ({
+          externalTeamId: "815",
+          externalPlayerId: `provider-${index + 1}`,
+          name: `Verified Player ${index + 1}`,
+          squadRole: "starter" as const,
+          participated: true,
+        })),
+        coach: { status: "unavailable", reason: "ambiguous-coach" },
+      });
+
+      await syncMatchParticipants(match.id, provider, store);
+
+      expect(store.recordVerifiedLineupReconciliation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: expectedStatus,
+          providerParticipantCount: participantCount,
+        }),
+      );
+    },
+  );
+
+  it("records a conflict when atomic persistence rejects provider evidence", async () => {
+    const store = storeWith();
+    store.getVerifiedLineupSnapshot = vi
+      .fn()
+      .mockResolvedValue(verifiedLineup());
+    store.getVerifiedCoachAssignment = vi
+      .fn()
+      .mockResolvedValue(verifiedCoach());
+    store.replaceMatchParticipantContext = vi
+      .fn()
+      .mockRejectedValue(
+        new Error("Provider participation conflicts with the verified lineup."),
+      );
+    const provider = providerWith("provider-1", "Verified Player 1");
+    provider.getMatchEvidence = vi.fn().mockResolvedValue({
+      participants: participantEvidence("provider-1"),
+      coach: { status: "unavailable", reason: "ambiguous-coach" },
+    });
+
+    await expect(
+      syncMatchParticipants(match.id, provider, store),
+    ).rejects.toThrow(/conflicts with the verified lineup/i);
+    expect(store.recordVerifiedLineupReconciliation).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "conflict" }),
+    );
   });
 
   it("keeps provider lineup unavailability retryable without a verified coach", async () => {
@@ -406,6 +489,9 @@ describe("participant synchronization identities", () => {
       code: "coach-missing",
     });
     expect(store.replaceMatchParticipantContext).not.toHaveBeenCalled();
+    expect(store.recordVerifiedLineupReconciliation).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "provider_missing" }),
+    );
   });
 
   it("preserves mixed verified identities without synthesizing aliases during fallback", async () => {
@@ -622,5 +708,6 @@ function storeWith(): FootballSyncStore {
     upsertMatches: vi.fn(),
     upsertMatchParticipants: vi.fn(),
     getPersistedMatchContext: vi.fn(),
+    recordVerifiedLineupReconciliation: vi.fn().mockResolvedValue(undefined),
   };
 }

@@ -4,6 +4,7 @@ import type { NextRequest } from "next/server";
 import { getMessages } from "@/i18n/messages";
 import type { AdminCoachAction } from "@/lib/server/admin-coach-action";
 import type { AdminLifecycleAction } from "@/lib/server/admin-lifecycle-action";
+import type { AdminLineupDraftAction } from "@/lib/server/admin-lineup-draft-action";
 import type {
   AdminLineupAction,
   AdminLineupParticipantAction,
@@ -88,6 +89,35 @@ export function parseAdminLineupAction(value: unknown): AdminLineupAction {
     participants: value.participants.map(parseLineupParticipant),
     verificationSource: value.verificationSource as string,
     verificationReason: value.verificationReason as string,
+  };
+}
+
+export function parseAdminLineupDraftAction(
+  value: unknown,
+): AdminLineupDraftAction {
+  if (!isRecord(value) || !Array.isArray(value.participants)) {
+    throw new AdminAuthorizationError(403);
+  }
+  for (const key of [
+    "matchId",
+    "trackedTeamId",
+    "externalFixtureId",
+  ] as const) {
+    if (typeof value[key] !== "string") throw new AdminAuthorizationError(403);
+  }
+  if (!Number.isInteger(value.baseVersion) || Number(value.baseVersion) < 0) {
+    throw new AdminAuthorizationError(403);
+  }
+  return {
+    matchId: value.matchId as string,
+    trackedTeamId: value.trackedTeamId as string,
+    externalFixtureId: value.externalFixtureId as string,
+    baseVersion: Number(value.baseVersion),
+    participants: value.participants.map((participant) => {
+      const parsed = parseLineupParticipant(participant);
+      if (!parsed.playerName) throw new AdminAuthorizationError(403);
+      return { ...parsed, playerName: parsed.playerName };
+    }),
   };
 }
 
@@ -185,6 +215,9 @@ export function adminError(error: unknown): NextResponse {
     }
     if (value.includes("not permitted")) {
       return adminJson({ error: messages.matchStateError }, 409);
+    }
+    if (value.includes("stale lineup draft")) {
+      return adminJson({ error: messages.draftStaleError }, 409);
     }
     if (value.includes("rate limit")) {
       return adminJson({ error: messages.lifecycleRateLimitError }, 429);

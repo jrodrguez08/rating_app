@@ -9,7 +9,7 @@ export type LineupLane = "starters" | "available" | "entered" | "unconfirmed";
 
 export interface EditableParticipant extends AdminLineupParticipantAction {
   playerName: string;
-  evidenceProvenance: "provider" | "operator_verified";
+  evidenceProvenance: "provider" | "operator_verified" | "draft";
 }
 
 export interface LineupChange {
@@ -22,6 +22,12 @@ export interface LineupChange {
 export function buildInitialParticipants(
   detail: AdminMatchDetail,
 ): EditableParticipant[] {
+  if (detail.draft) {
+    return detail.draft.participants.map((participant) => ({
+      ...participant,
+      evidenceProvenance: "draft",
+    }));
+  }
   return detail.participants.map((participant) => ({
     playerId: participant.playerId,
     playerName: participant.playerName,

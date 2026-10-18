@@ -24,6 +24,11 @@ import {
   type PlayerCatalog,
   type PlayerIdentity,
 } from "@/application/player-history";
+import {
+  membershipFromParticipant,
+  membershipFromPlayer,
+  mergeTeamPlayerMembership,
+} from "@/application/team-player-membership";
 import { validateBallotRatings } from "@/domain/ballot-validation";
 import { preserveMonotonicMatchStatus } from "@/domain/match-status";
 import { aggregateMatchResult } from "@/domain/result-aggregation";
@@ -46,7 +51,9 @@ import type {
   Season,
   StandingsSnapshot,
   Team,
+  TeamPlayerMembership,
   VerifiedCoachAssignment,
+  VerifiedLineupReconciliation,
   VerifiedLineupSnapshot,
 } from "@/domain/models";
 import type {
@@ -1801,8 +1808,58 @@ export class AdminFootballSyncStore
   upsertMatches(values: Match[]) {
     return this.upsert("matches", values, true);
   }
-  upsertPlayers(values: Player[]) {
-    return this.upsert("players", values);
+  async upsertPlayers(values: Player[]): Promise<SyncWriteCounts> {
+    const unique = [
+      ...new Map(values.map((value) => [value.id, value])).values(),
+    ];
+    if (unique.length === 0) return { created: 0, updated: 0, unchanged: 0 };
+    return this.database.runTransaction(async (transaction) => {
+      const playerReferences = unique.map((player) =>
+        this.database.doc(`players/${player.id}`),
+      );
+      const memberships = unique
+        .map((player) => membershipFromPlayer(player, player.updatedAt))
+        .filter((value): value is TeamPlayerMembership => value !== null);
+      const membershipReferences = memberships.map((membership) =>
+        this.database.doc(
+          `teams/${membership.teamId}/playerMemberships/${membership.playerId}`,
+        ),
+      );
+      const [playerSnapshots, membershipSnapshots] = await Promise.all([
+        transaction.getAll(...playerReferences),
+        membershipReferences.length === 0
+          ? Promise.resolve([])
+          : transaction.getAll(...membershipReferences),
+      ]);
+      const candidates = unique.map((player, index) => {
+        const existing = playerSnapshots[index].exists
+          ? fromDocument<Player>(playerSnapshots[index])
+          : undefined;
+        return existing === undefined
+          ? player
+          : { ...existing, ...player, createdAt: existing.createdAt };
+      });
+      const counts = writeCounts(
+        playerSnapshots.map((snapshot) =>
+          snapshot.exists ? fromDocument<Player>(snapshot) : undefined,
+        ),
+        candidates,
+      );
+      candidates.forEach((player, index) => {
+        transaction.set(playerReferences[index], toDocument(player));
+      });
+      memberships.forEach((membership, index) => {
+        const snapshot = membershipSnapshots[index];
+        const existing = snapshot?.exists
+          ? fromDocument<TeamPlayerMembership>(snapshot)
+          : undefined;
+        transaction.set(
+          membershipReferences[index],
+          toDocument(mergeTeamPlayerMembership(existing, membership)),
+        );
+      });
+      return counts;
+    });
   }
   async resolvePlayerProviderAliases(
     values: PlayerProviderAlias[],
@@ -2004,6 +2061,13 @@ export class AdminFootballSyncStore
       ? fromDocument<VerifiedLineupSnapshot>(snapshot)
       : null;
   }
+  async recordVerifiedLineupReconciliation(
+    value: VerifiedLineupReconciliation,
+  ): Promise<void> {
+    await this.database
+      .doc(`matches/${value.matchId}/lineupReconciliations/provider`)
+      .set(toDocument(value));
+  }
   upsertCoaches(values: Coach[]) {
     return this.upsert("coaches", values);
   }
@@ -2046,6 +2110,19 @@ export class AdminFootballSyncStore
       const playerReferences = values.players.map((player) =>
         this.database.doc(`players/${player.id}`),
       );
+      const memberships = [
+        ...new Map(
+          values.participants.map((participant) => {
+            const membership = membershipFromParticipant(participant);
+            return [membership.playerId, membership] as const;
+          }),
+        ).values(),
+      ];
+      const membershipReferences = memberships.map((membership) =>
+        this.database.doc(
+          `teams/${membership.teamId}/playerMemberships/${membership.playerId}`,
+        ),
+      );
       const matchSnapshot = await transaction.get(matchReference);
       const resultSnapshot = await transaction.get(resultReference);
       const ballots = await transaction.get(ballotQuery);
@@ -2054,6 +2131,10 @@ export class AdminFootballSyncStore
         playerReferences.length === 0
           ? []
           : await transaction.getAll(...playerReferences);
+      const membershipSnapshots =
+        membershipReferences.length === 0
+          ? []
+          : await transaction.getAll(...membershipReferences);
       const coachSnapshot = await transaction.get(coachReference);
       const assignmentSnapshot = await transaction.get(assignmentReference);
       const verifiedSnapshot = await transaction.get(verifiedReference);
@@ -2137,6 +2218,16 @@ export class AdminFootballSyncStore
               ? player
               : { ...existing, ...player, createdAt: existing.createdAt },
           ),
+        );
+      });
+      memberships.forEach((membership, index) => {
+        const snapshot = membershipSnapshots[index];
+        const existing = snapshot.exists
+          ? fromDocument<TeamPlayerMembership>(snapshot)
+          : undefined;
+        transaction.set(
+          membershipReferences[index],
+          toDocument(mergeTeamPlayerMembership(existing, membership)),
         );
       });
 

@@ -5,6 +5,7 @@ import type {
   MatchParticipant,
   Player,
   VerifiedCoachAssignment,
+  VerifiedLineupReconciliation,
 } from "@/domain/models";
 import type {
   FootballDataProvider,
@@ -114,6 +115,7 @@ export async function syncMatchParticipants(
   }
   let evidence = null;
   let manualOnlyRecovery = false;
+  let reconciliationRecorded = false;
   if (phase === "final" && provider.getMatchEvidence !== undefined) {
     try {
       evidence = await provider.getMatchEvidence(
@@ -136,6 +138,16 @@ export async function syncMatchParticipants(
         recovery: "verified-lineup",
       });
       manualOnlyRecovery = true;
+      await recordVerifiedReconciliation(store, {
+        matchId: match.id,
+        trackedTeamId: team.id,
+        externalFixtureId: match.externalProviderFixtureId,
+        status: "provider_missing",
+        reason: "provider-lineup-unavailable",
+        observedAt: now.toISOString(),
+        providerParticipantCount: 0,
+      });
+      reconciliationRecorded = true;
     }
   }
   let context;
@@ -359,6 +371,15 @@ export async function syncMatchParticipants(
         status: "conflict",
         reason: "provider-conflict",
       });
+      await recordVerifiedReconciliation(store, {
+        matchId: match.id,
+        trackedTeamId: team.id,
+        externalFixtureId: match.externalProviderFixtureId,
+        status: "conflict",
+        reason: "provider-conflict",
+        observedAt: timestamp,
+        providerParticipantCount: participants.length,
+      });
     }
     throw error;
   }
@@ -381,6 +402,30 @@ export async function syncMatchParticipants(
         (participant) => participant.participated,
       ).length,
     });
+    const providerIdentityCount = new Set(
+      participants.map((participant) => participant.playerId),
+    ).size;
+    const status: VerifiedLineupReconciliation["status"] = manualOnlyRecovery
+      ? "provider_missing"
+      : providerIdentityCount < verifiedLineup.participants.length
+        ? "provider_partial"
+        : "matched";
+    if (!reconciliationRecorded) {
+      await recordVerifiedReconciliation(store, {
+        matchId: match.id,
+        trackedTeamId: team.id,
+        externalFixtureId: match.externalProviderFixtureId,
+        status,
+        reason:
+          status === "matched"
+            ? "provider-evidence-compatible"
+            : status === "provider_partial"
+              ? "provider-evidence-incomplete"
+              : "provider-lineup-unavailable",
+        observedAt: timestamp,
+        providerParticipantCount: participants.length,
+      });
+    }
   }
   emitOperationalLog(log, "participants.reconciliation", {
     matchId: match.id,
@@ -412,6 +457,13 @@ export async function syncMatchParticipants(
     coach: { id: coach.id, name: coach.displayName },
     apiRequests: provider.requestCount,
   };
+}
+
+async function recordVerifiedReconciliation(
+  store: FootballSyncStore,
+  value: VerifiedLineupReconciliation,
+): Promise<void> {
+  await store.recordVerifiedLineupReconciliation?.(value);
 }
 
 function validateVerifiedLineup({
