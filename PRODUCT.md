@@ -20,6 +20,8 @@ Not implemented now: cloud Team administration, identity-provider linking, seaso
 
 The single configured operator has a production-only recovery command for an exceptional missed window. Reopening preserves the original window and every ballot, archives the previously published immutable result as an audit revision, hides aggregates, and establishes a bounded effective window. The operator can close an active original or reopened window early; that trusted transaction stops ballot acceptance and publishes a newly aggregated current result. These controls are not available in supporter UI and are not general match administration.
 
+The same separately authorized operator can register a fixture-specific verified head coach when API-Football supplies valid tracked-Team participant evidence but cannot resolve that fixture's coach unambiguously. The durable assignment records its evidence, reason, operator context, Team and fixture binding, and distinct operator provenance. It never fabricates a provider ID or carries the coach into another match. The normal lifecycle still validates participant eligibility and opens voting only after the participant collection and coach assignment are written together and readiness succeeds.
+
 The public application is available on its current Vercel production URL. Guarded production configuration, bootstrap boundaries, and the runbook continue to control Firebase pilot operations.
 
 On a published match result, a supporter can compare their own submitted player and head-coach ratings with community averages in a compact "Mi voto vs la afición" section. It shows the signed difference (own rating minus average) to one decimal in the existing results order. A supporter without a ballot sees a neutral empty state. This comparison does not score or rank supporters and is unavailable before trusted close and result publication.
@@ -42,6 +44,7 @@ The public app identity is consistent across browser tabs, bookmarks, mobile sho
 - Player eligibility requires both tracked-Team ownership and confirmed match participation (`teamId == trackedTeamId && participated == true`), not squad membership, the bench, the opponent, or the current roster. Only the tracked Team's head coach is rateable.
 - The tracked team may be home or away.
 - Provider final status is insufficient by itself: a normal voting window starts only after valid tracked-Team participant and head-coach readiness, lasts two hours from readiness, and is never extended by retries. A separately authorized, audited operator recovery may establish a new effective window without changing the original timestamps.
+- Provider and operator coach identities retain explicit provenance. A match-specific operator assignment may recover only an ambiguous provider coach, must match the tracked Team and provider fixture, and cannot be silently replaced by later provider synchronization.
 - Aggregates are unavailable to voters during an active window.
 - Final results are generated once by trusted server code from immutable, fully validated ballots. Zero ballots yields an explicit no-votes result; one ballot is sufficient; exact top-average ties remain co-MVPs; the coach is excluded from MVP.
 - Provider data is imported through a boundary and remains replaceable.

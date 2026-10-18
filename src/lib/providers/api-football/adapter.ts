@@ -5,7 +5,9 @@ import type {
   ProviderStandingsRow,
   ProviderHeadCoach,
   ProviderMatchContext,
+  ProviderMatchEvidence,
   ProviderMatchParticipant,
+  ProviderParticipantContext,
   ProviderSquadPlayer,
   ProviderCompetitionSeason,
   ProviderFixture,
@@ -151,24 +153,18 @@ function normalize(value: string): string {
     .trim();
 }
 
-function cloneMatchContext(
-  context: ProviderMatchContext | undefined,
-): ProviderMatchContext | undefined {
-  return context === undefined
-    ? undefined
-    : {
-        participants: context.participants.map((participant) => ({
-          ...participant,
-        })),
-        headCoach: { ...context.headCoach },
-      };
-}
-
-function strongestMatchContext(
-  observed: ProviderMatchContext | null,
-  baseline: ProviderMatchContext | undefined,
-): ProviderMatchContext | undefined {
-  const persisted = cloneMatchContext(baseline);
+function strongestParticipantContext(
+  observed: ProviderParticipantContext | null,
+  baseline: ProviderParticipantContext | undefined,
+): ProviderParticipantContext | undefined {
+  const persisted =
+    baseline === undefined
+      ? undefined
+      : {
+          participants: baseline.participants.map((participant) => ({
+            ...participant,
+          })),
+        };
   if (observed === null) return persisted;
   if (
     persisted !== undefined &&
@@ -357,6 +353,36 @@ export class ApiFootballAdapter
     baseline?: ProviderMatchContext,
     fixtureKickoffAt?: string,
   ): Promise<ProviderMatchContext> {
+    const evidence = await this.getMatchEvidence(
+      externalFixtureId,
+      externalTeamId,
+      baseline,
+      fixtureKickoffAt,
+    );
+    if (evidence.coach.status === "unavailable") {
+      if (baseline !== undefined) {
+        return {
+          participants: evidence.participants,
+          headCoach: { ...baseline.headCoach },
+        };
+      }
+      throw new ProviderError(
+        evidence.coach.reason,
+        `No unambiguous coach identity was found for tracked Team ${externalTeamId}.`,
+      );
+    }
+    return {
+      participants: evidence.participants,
+      headCoach: evidence.coach.value,
+    };
+  }
+
+  async getMatchEvidence(
+    externalFixtureId: string,
+    externalTeamId: string,
+    baseline?: ProviderParticipantContext,
+    fixtureKickoffAt?: string,
+  ): Promise<ProviderMatchEvidence> {
     const [lineups, players, events] = await Promise.all([
       this.request("/fixtures/lineups", { fixture: externalFixtureId }),
       this.request("/fixtures/players", { fixture: externalFixtureId }),
@@ -365,23 +391,19 @@ export class ApiFootballAdapter
     this.logLineupSummary(lineups, externalTeamId);
     this.logPlayerStatisticsSummary(players, externalTeamId);
     this.logEventSummary(events, externalTeamId);
-    const observed = await this.parseLineupContext(
+    const parsed = this.parseLineupEvidence(
       lineups,
       externalFixtureId,
       externalTeamId,
-      fixtureKickoffAt,
     );
-    const context = strongestMatchContext(observed, baseline);
+    const context = strongestParticipantContext(
+      parsed === null ? null : { participants: parsed.participants },
+      baseline,
+    );
     if (context === undefined) {
       throw new ProviderError(
         "lineup-unavailable",
         `No usable lineup has been observed for fixture ${externalFixtureId}; retry after provider cache propagation.`,
-      );
-    }
-    if (context.headCoach.externalTeamId !== externalTeamId) {
-      throw new ProviderError(
-        "tracked-team-missing",
-        `Persisted context does not belong to tracked Team ${externalTeamId}.`,
       );
     }
     const participants = new Map(
@@ -411,9 +433,38 @@ export class ApiFootballAdapter
       participationConfirmationsAdded:
         substitutionReconciliation.confirmationsAdded,
     });
+    let coach: ProviderMatchEvidence["coach"];
+    if (parsed?.coach === null || parsed === null) {
+      coach = { status: "unavailable", reason: "coach-missing" };
+    } else {
+      try {
+        coach = {
+          status: "resolved",
+          value: await this.resolveLineupCoach(
+            parsed.coach,
+            externalTeamId,
+            fixtureKickoffAt,
+          ),
+        };
+      } catch (error) {
+        if (
+          error instanceof ProviderError &&
+          (error.code === "coach-missing" || error.code === "ambiguous-coach")
+        ) {
+          coach = { status: "unavailable", reason: error.code };
+          emitOperationalLog(this.log, "provider.coach_identity", {
+            teamId: externalTeamId,
+            status: "unavailable",
+            reason: error.code,
+          });
+        } else {
+          throw error;
+        }
+      }
+    }
     return {
       participants: [...participants.values()],
-      headCoach: context.headCoach,
+      coach,
     };
   }
 
@@ -716,6 +767,36 @@ export class ApiFootballAdapter
     externalTeamId: string,
     fixtureKickoffAt?: string,
   ): Promise<ProviderMatchContext | null> {
+    const evidence = this.parseLineupEvidence(
+      lineups,
+      externalFixtureId,
+      externalTeamId,
+    );
+    if (evidence === null) return null;
+    if (evidence.coach === null) {
+      throw new ProviderError(
+        "coach-missing",
+        `Head coach is not published for tracked Team ${externalTeamId}.`,
+      );
+    }
+    return {
+      participants: evidence.participants,
+      headCoach: await this.resolveLineupCoach(
+        evidence.coach,
+        externalTeamId,
+        fixtureKickoffAt,
+      ),
+    };
+  }
+
+  private parseLineupEvidence(
+    lineups: unknown[],
+    externalFixtureId: string,
+    externalTeamId: string,
+  ): {
+    participants: ProviderMatchParticipant[];
+    coach: Record<string, unknown> | null;
+  } | null {
     if (lineups.length === 0) return null;
     const trackedLineups = lineups.filter((value) => {
       const lineup = record(value, "lineup");
@@ -729,9 +810,8 @@ export class ApiFootballAdapter
       );
     }
     if (trackedLineups.length > 1) {
-      throw new ProviderError(
-        "ambiguous-coach",
-        `Fixture ${externalFixtureId} contains multiple lineups for tracked Team ${externalTeamId}.`,
+      return malformed(
+        `fixture ${externalFixtureId} contains multiple tracked-Team lineups.`,
       );
     }
     const lineup = record(trackedLineups[0], "tracked lineup");
@@ -761,20 +841,12 @@ export class ApiFootballAdapter
         `Tracked Team lineup for fixture ${externalFixtureId} is incomplete (${starterCount} starters, ${substituteCount} substitutes).`,
       );
     }
-    if (lineup.coach === null || lineup.coach === undefined) {
-      throw new ProviderError(
-        "coach-missing",
-        `Head coach is not published for tracked Team ${externalTeamId}.`,
-      );
-    }
-    const coach = record(lineup.coach, "lineup.coach");
     return {
       participants: [...participants.values()],
-      headCoach: await this.resolveLineupCoach(
-        coach,
-        externalTeamId,
-        fixtureKickoffAt,
-      ),
+      coach:
+        lineup.coach === null || lineup.coach === undefined
+          ? null
+          : record(lineup.coach, "lineup.coach"),
     };
   }
 

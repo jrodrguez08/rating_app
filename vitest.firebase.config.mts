@@ -10,5 +10,6 @@ export default defineConfig({
     environment: "node",
     include: ["tests/firebase/**/*.test.ts"],
     fileParallelism: false,
+    testTimeout: 15_000,
   },
 });

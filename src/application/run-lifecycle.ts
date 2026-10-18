@@ -43,6 +43,7 @@ export async function runConfiguredLifecycle(
         store,
         currentTime,
         phase,
+        log,
       );
     },
     log,

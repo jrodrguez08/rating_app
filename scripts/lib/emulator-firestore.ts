@@ -13,6 +13,7 @@ import type {
   Season,
   StandingsSnapshot,
   Team,
+  VerifiedCoachAssignment,
 } from "@/domain/models";
 import type {
   FootballSyncStore,
@@ -538,6 +539,64 @@ export class EmulatorFootballSyncStore
     };
   }
 
+  async getPersistedParticipantContext(
+    matchId: string,
+    teamId: string,
+    provider: string,
+  ) {
+    const participants = (await this.list(
+      `matches/${encodeURIComponent(matchId)}/participants`,
+    )) as unknown as MatchParticipant[];
+    const tracked = participants.filter(
+      (participant) =>
+        participant.teamId === teamId &&
+        participant.externalProvider === provider,
+    );
+    if (tracked.length === 0) return null;
+    return {
+      participants: tracked.map((participant) => ({
+        externalTeamId: participant.externalProviderTeamId,
+        externalPlayerId: participant.externalProviderPlayerId,
+        name: participant.playerName,
+        ...(participant.shirtNumber === undefined
+          ? {}
+          : { shirtNumber: participant.shirtNumber }),
+        ...(participant.position === undefined
+          ? {}
+          : { position: participant.position as Player["position"] }),
+        squadRole: participant.squadRole,
+        participated: participant.participated,
+        ...(participant.enteredAtMinute === undefined
+          ? {}
+          : { enteredAtMinute: participant.enteredAtMinute }),
+        ...(participant.exitedAtMinute === undefined
+          ? {}
+          : { exitedAtMinute: participant.exitedAtMinute }),
+        ...(participant.captain === undefined
+          ? {}
+          : { captain: participant.captain }),
+      })),
+    };
+  }
+
+  async getVerifiedCoachAssignment(matchId: string) {
+    const assignment = await this.get(
+      `matches/${encodeURIComponent(matchId)}/verifiedCoachAssignments`,
+      "head-coach",
+    );
+    if (assignment === null) return null;
+    const coachId = assignment.coachId;
+    if (typeof coachId !== "string") {
+      throw new Error("Verified coach identity is invalid.");
+    }
+    const coach = await this.get("coaches", coachId);
+    if (coach === null) throw new Error("Verified coach identity is missing.");
+    return {
+      assignment: assignment as unknown as VerifiedCoachAssignment,
+      coach: coach as unknown as Coach,
+    };
+  }
+
   upsertCoaches(coaches: Coach[]): Promise<SyncWriteCounts> {
     return this.upsert("coaches", coaches);
   }
@@ -550,6 +609,25 @@ export class EmulatorFootballSyncStore
       `matches/${encodeURIComponent(matchId)}/coachAssignments`,
       [{ ...assignment, id: "head-coach" }],
     );
+  }
+
+  async replaceMatchParticipantContext(
+    matchId: string,
+    values: {
+      players: Player[];
+      participants: MatchParticipant[];
+      coach: Coach;
+      assignment: CoachAssignment;
+    },
+  ) {
+    const [players, participants, coaches, coachAssignments] =
+      await Promise.all([
+        this.upsertPlayers(values.players),
+        this.replaceMatchParticipants(matchId, values.participants),
+        this.upsertCoaches([values.coach]),
+        this.upsertCoachAssignment(matchId, values.assignment),
+      ]);
+    return { players, participants, coaches, coachAssignments };
   }
 
   private async upsert(

@@ -4,13 +4,20 @@ import type {
   CoachAssignment,
   MatchParticipant,
   Player,
+  VerifiedCoachAssignment,
 } from "@/domain/models";
 import type {
   FootballDataProvider,
   FootballSyncStore,
+  ProviderHeadCoach,
   SyncWriteCounts,
 } from "@/domain/ports";
 import { providerEntityId } from "@/domain/player-identity";
+import {
+  emitOperationalLog,
+  type OperationalLogger,
+} from "@/lib/operational-log";
+import { ProviderError } from "@/lib/providers/api-football/errors";
 
 export { providerEntityId } from "@/domain/player-identity";
 
@@ -29,12 +36,20 @@ export interface MatchParticipantSyncSummary {
   apiRequests: number;
 }
 
+interface ResolvedSyncCoach {
+  externalTeamId: string;
+  externalCoachId?: string;
+  name: string;
+  photoUrl?: string;
+}
+
 export async function syncMatchParticipants(
   matchId: string,
   provider: FootballDataProvider,
   store: FootballSyncStore,
   now = new Date(),
   phase: "lineup" | "final" = "final",
+  log: OperationalLogger = () => undefined,
 ): Promise<MatchParticipantSyncSummary> {
   const match = await store.getMatch(matchId);
   const team = await store.getTeam(match.trackedTeamId);
@@ -48,24 +63,98 @@ export async function syncMatchParticipants(
     );
   }
 
-  const baseline =
+  const persistedContext =
     match.lineupSnapshotAt === undefined &&
     match.participantSyncedAt === undefined
       ? null
       : await store.getPersistedMatchContext(match.id, team.id, provider.name);
-  const context =
-    phase === "lineup"
-      ? await provider.getLineupContext(
-          match.externalProviderFixtureId,
-          externalTeamId,
-          match.kickoffAt,
+  const baseline =
+    persistedContext === null &&
+    store.getPersistedParticipantContext !== undefined &&
+    (match.lineupSnapshotAt !== undefined ||
+      match.participantSyncedAt !== undefined)
+      ? await store.getPersistedParticipantContext(
+          match.id,
+          team.id,
+          provider.name,
         )
-      : await provider.getMatchContext(
-          match.externalProviderFixtureId,
-          externalTeamId,
-          baseline ?? undefined,
-          match.kickoffAt,
-        );
+      : persistedContext;
+  let verified: Awaited<
+    ReturnType<NonNullable<FootballSyncStore["getVerifiedCoachAssignment"]>>
+  > = null;
+  if (phase === "final" && store.getVerifiedCoachAssignment !== undefined) {
+    try {
+      verified = await store.getVerifiedCoachAssignment(match.id);
+    } catch (error) {
+      emitOperationalLog(log, "coach.manual_assignment", {
+        matchId: match.id,
+        status: "rejected",
+        reason: "assignment-load-failed",
+      });
+      throw error;
+    }
+  }
+  const evidence =
+    phase === "lineup"
+      ? null
+      : provider.getMatchEvidence === undefined
+        ? null
+        : await provider.getMatchEvidence(
+            match.externalProviderFixtureId,
+            externalTeamId,
+            baseline ?? undefined,
+            match.kickoffAt,
+          );
+  let context;
+  if (phase === "lineup") {
+    context = await provider.getLineupContext(
+      match.externalProviderFixtureId,
+      externalTeamId,
+      match.kickoffAt,
+    );
+  } else if (evidence !== null) {
+    const coachEvidence =
+      evidence.coach.status === "unavailable" &&
+      verified === null &&
+      persistedContext !== null
+        ? { status: "resolved" as const, value: persistedContext.headCoach }
+        : evidence.coach;
+    context = {
+      participants: evidence.participants,
+      headCoach: resolveCoach({
+        match,
+        providerName: provider.name,
+        externalTeamId,
+        evidence: coachEvidence,
+        verified,
+        log,
+      }),
+    };
+  } else {
+    const providerContext = await provider.getMatchContext(
+      match.externalProviderFixtureId,
+      externalTeamId,
+      persistedContext ?? undefined,
+      match.kickoffAt,
+    );
+    context =
+      verified === null
+        ? providerContext
+        : {
+            participants: providerContext.participants,
+            headCoach: resolveCoach({
+              match,
+              providerName: provider.name,
+              externalTeamId,
+              evidence: {
+                status: "resolved",
+                value: providerContext.headCoach,
+              },
+              verified,
+              log,
+            }),
+          };
+  }
   if (context === null) {
     throw new Error(
       `No usable lineup has been observed for fixture ${match.externalProviderFixtureId}; retry after provider cache propagation.`,
@@ -140,22 +229,26 @@ export async function syncMatchParticipants(
       updatedAt: timestamp,
     }),
   );
-  const coachId = providerEntityId(
-    "coach",
-    provider.name,
-    context.headCoach.externalCoachId,
-  );
-  const coach: Coach = {
-    id: coachId,
-    displayName: context.headCoach.name,
-    externalProvider: provider.name,
-    externalProviderId: context.headCoach.externalCoachId,
-    ...(context.headCoach.photoUrl === undefined
-      ? {}
-      : { photoUrl: context.headCoach.photoUrl }),
-    createdAt: timestamp,
-    updatedAt: timestamp,
-  };
+  const coach: Coach =
+    verified !== null
+      ? { ...verified.coach, updatedAt: timestamp }
+      : {
+          id: providerEntityId(
+            "coach",
+            provider.name,
+            requiredProviderCoachId(context.headCoach),
+          ),
+          displayName: context.headCoach.name,
+          identityProvenance: "provider",
+          externalProvider: provider.name,
+          externalProviderId: requiredProviderCoachId(context.headCoach),
+          ...(context.headCoach.photoUrl === undefined
+            ? {}
+            : { photoUrl: context.headCoach.photoUrl }),
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        };
+  const coachId = coach.id;
   const assignment: CoachAssignment = {
     matchId: match.id,
     coachId,
@@ -163,20 +256,38 @@ export async function syncMatchParticipants(
     externalProviderTeamId: externalTeamId,
     role: "head-coach",
     coachName: coach.displayName,
+    provenance: verified !== null ? "operator_verified" : "provider",
     createdAt: timestamp,
     updatedAt: timestamp,
   };
 
-  const playerCounts = await store.upsertPlayers(players);
-  const participantCounts = await store.replaceMatchParticipants(
-    match.id,
-    participants,
-  );
-  const coachCounts = await store.upsertCoaches([coach]);
-  const assignmentCounts = await store.upsertCoachAssignment(
-    match.id,
-    assignment,
-  );
+  const counts =
+    store.replaceMatchParticipantContext === undefined
+      ? {
+          players: await store.upsertPlayers(players),
+          participants: await store.replaceMatchParticipants(
+            match.id,
+            participants,
+          ),
+          coaches: await store.upsertCoaches([coach]),
+          coachAssignments: await store.upsertCoachAssignment(
+            match.id,
+            assignment,
+          ),
+        }
+      : await store.replaceMatchParticipantContext(match.id, {
+          players,
+          participants,
+          coach,
+          assignment,
+        });
+  emitOperationalLog(log, "participants.reconciliation", {
+    matchId: match.id,
+    status: "completed",
+    participantCount: participants.length,
+    participated: participants.filter((value) => value.participated).length,
+    coachProvenance: assignment.provenance ?? "provider",
+  });
 
   return {
     matchId: match.id,
@@ -187,11 +298,106 @@ export async function syncMatchParticipants(
     unusedSubstitutes: participants.filter(
       (value) => !value.starter && !value.participated,
     ).length,
-    players: playerCounts,
-    participants: participantCounts,
-    coaches: coachCounts,
-    coachAssignments: assignmentCounts,
+    players: counts.players,
+    participants: counts.participants,
+    coaches: counts.coaches,
+    coachAssignments: counts.coachAssignments,
     coach: { id: coach.id, name: coach.displayName },
     apiRequests: provider.requestCount,
   };
+}
+
+function resolveCoach({
+  match,
+  providerName,
+  externalTeamId,
+  evidence,
+  verified,
+  log,
+}: {
+  match: Awaited<ReturnType<FootballSyncStore["getMatch"]>>;
+  providerName: string;
+  externalTeamId: string;
+  evidence:
+    | { status: "resolved"; value: ProviderHeadCoach }
+    | { status: "unavailable"; reason: "coach-missing" | "ambiguous-coach" };
+  verified: { assignment: VerifiedCoachAssignment; coach: Coach } | null;
+  log: OperationalLogger;
+}): ResolvedSyncCoach {
+  if (verified !== null) {
+    const { assignment, coach } = verified;
+    const validBinding =
+      assignment.matchId === match.id &&
+      assignment.trackedTeamId === match.trackedTeamId &&
+      assignment.externalProvider === providerName &&
+      assignment.externalFixtureId === match.externalProviderFixtureId &&
+      assignment.coachId === coach.id &&
+      assignment.provenance === "operator_verified" &&
+      coach.displayName.trim() !== "";
+    if (!validBinding) {
+      emitOperationalLog(log, "coach.manual_assignment", {
+        matchId: match.id,
+        status: "rejected",
+        reason: "binding-invalid",
+      });
+      throw new Error("Verified coach assignment does not match the fixture.");
+    }
+    if (evidence.status === "resolved") {
+      const sameProviderIdentity =
+        coach.externalProvider === providerName &&
+        coach.externalProviderId === evidence.value.externalCoachId;
+      if (!sameProviderIdentity) {
+        emitOperationalLog(log, "coach.manual_assignment", {
+          matchId: match.id,
+          status: "conflict",
+          reason: "provider-identity-differs",
+        });
+        throw new Error(
+          "Provider coach identity conflicts with the verified assignment.",
+        );
+      }
+    } else if (evidence.reason !== "ambiguous-coach") {
+      emitOperationalLog(log, "coach.manual_assignment", {
+        matchId: match.id,
+        status: "rejected",
+        reason: evidence.reason,
+      });
+      throw new ProviderError(
+        evidence.reason,
+        "Provider coach identity is unavailable for a non-recoverable reason.",
+      );
+    }
+    emitOperationalLog(log, "coach.manual_assignment", {
+      matchId: match.id,
+      status: "accepted",
+      reason:
+        evidence.status === "resolved"
+          ? "provider-identity-confirmed"
+          : "ambiguous-coach-recovered",
+    });
+    return {
+      externalTeamId,
+      name: coach.displayName,
+      ...(coach.photoUrl === undefined ? {} : { photoUrl: coach.photoUrl }),
+    };
+  }
+  if (evidence.status === "unavailable") {
+    emitOperationalLog(log, "coach.manual_assignment", {
+      matchId: match.id,
+      status: "missing",
+      reason: evidence.reason,
+    });
+    throw new ProviderError(
+      evidence.reason,
+      `No verified coach assignment can recover ${evidence.reason}.`,
+    );
+  }
+  return evidence.value;
+}
+
+function requiredProviderCoachId(coach: ResolvedSyncCoach): string {
+  if (coach.externalCoachId === undefined) {
+    throw new Error("Provider coach identity is missing its provider ID.");
+  }
+  return coach.externalCoachId;
 }
