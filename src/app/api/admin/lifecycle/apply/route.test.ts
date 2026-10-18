@@ -6,6 +6,9 @@ import { AdminAuthorizationError } from "@/lib/server/admin-auth";
 
 const mocks = vi.hoisted(() => ({
   applyAuthorized: vi.fn(),
+  claimExecution: vi.fn(),
+  recordExecutionFailure: vi.fn(),
+  recordExecutionOutcome: vi.fn(),
   requireAdminRequest: vi.fn(),
   runConfiguredLifecycle: vi.fn(),
 }));
@@ -20,6 +23,9 @@ vi.mock("@/lib/firebase/admin-lifecycle", () => {
     AdminLifecycleRejectedError,
     AdminLifecycleService: class {
       applyAuthorized = mocks.applyAuthorized;
+      claimExecution = mocks.claimExecution;
+      recordExecutionFailure = mocks.recordExecutionFailure;
+      recordExecutionOutcome = mocks.recordExecutionOutcome;
     },
   };
 });
@@ -56,6 +62,9 @@ const action = {
 
 beforeEach(() => {
   mocks.applyAuthorized.mockReset();
+  mocks.claimExecution.mockReset();
+  mocks.recordExecutionFailure.mockReset();
+  mocks.recordExecutionOutcome.mockReset();
   mocks.requireAdminRequest.mockReset();
   mocks.runConfiguredLifecycle.mockReset();
   mocks.requireAdminRequest.mockResolvedValue({ uid: "owner-uid" });
@@ -65,14 +74,22 @@ beforeEach(() => {
     providerRequests: 4,
     reason: "sensitive provider detail",
     logs: [],
+    executionStatus: "completed",
   });
+  mocks.claimExecution.mockResolvedValue({
+    execute: true,
+    requestAttemptId: "request-attempt",
+    receipt: receipt("running"),
+  });
+  mocks.recordExecutionOutcome.mockResolvedValue(receipt("completed", false));
+  mocks.recordExecutionFailure.mockResolvedValue(receipt("failed"));
 });
 
 describe("admin lifecycle apply route", () => {
   it("runs the canonical lifecycle once for a committed owner request", async () => {
     mocks.applyAuthorized.mockResolvedValue({
-      auditId: "lifecycle-audit",
       disposition: "committed",
+      receipt: receipt("requested"),
     });
 
     const response = await POST(applyRequest());
@@ -86,25 +103,51 @@ describe("admin lifecycle apply route", () => {
       "provider-key",
       undefined,
       expect.anything(),
-      { trigger: "operator" },
+      { trigger: "operator", attemptId: "request-attempt" },
     );
-    expect(body.lifecycle).toEqual({
-      action: "preparing_rating",
-      matchId: action.matchId,
-      providerRequests: 4,
+    expect(body.receipt).toMatchObject({
+      auditId: "lifecycle-audit",
+      status: "completed",
     });
   });
 
   it("returns an idempotent receipt without invoking the lifecycle twice", async () => {
     mocks.applyAuthorized.mockResolvedValue({
-      auditId: "lifecycle-audit",
       disposition: "idempotent_retry",
+      receipt: receipt("running"),
+    });
+    mocks.claimExecution.mockResolvedValue({
+      execute: false,
+      receipt: receipt("running"),
     });
 
     const response = await POST(applyRequest());
 
     expect(response.status).toBe(200);
     expect(mocks.runConfiguredLifecycle).not.toHaveBeenCalled();
+  });
+
+  it("records a retryable durable failure after authorization commits", async () => {
+    mocks.applyAuthorized.mockResolvedValue({
+      disposition: "committed",
+      receipt: receipt("requested"),
+    });
+    mocks.runConfiguredLifecycle.mockRejectedValue(
+      new Error("provider timeout"),
+    );
+
+    const response = await POST(applyRequest());
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      disposition: "committed",
+      receipt: { status: "failed", retryable: true },
+    });
+    expect(mocks.recordExecutionFailure).toHaveBeenCalledWith(
+      { ...action, operatorId: "owner-uid" },
+      "b".repeat(43),
+      "request-attempt",
+    );
   });
 
   it("rejects unauthenticated and inexact requests before provider work", async () => {
@@ -134,4 +177,18 @@ function applyRequest(confirmation = `request-lifecycle:${action.matchId}`) {
     },
     body: JSON.stringify({ action, confirmation }),
   });
+}
+
+function receipt(status: string, retryable = true) {
+  return {
+    auditId: "lifecycle-audit",
+    status,
+    retryable,
+    statusCheckAvailable: retryable,
+    requestAttempts: 1,
+    providerExecutions: status === "completed" ? 1 : 0,
+    createdAt: "2026-10-18T12:00:00.000Z",
+    expiresAt: "2026-10-18T12:10:00.000Z",
+    updatedAt: "2026-10-18T12:00:01.000Z",
+  };
 }

@@ -1,5 +1,5 @@
 import { deleteApp, initializeApp } from "firebase-admin/app";
-import { getFirestore } from "firebase-admin/firestore";
+import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { AdminFootballSyncStore } from "@/lib/firebase/server";
@@ -7,7 +7,6 @@ import { AdminFootballSyncStore } from "@/lib/firebase/server";
 const projectId = process.env.GCLOUD_PROJECT ?? "demo-rating-app-local";
 const app = initializeApp({ projectId }, `lifecycle-execution-${Date.now()}`);
 const database = getFirestore(app);
-const store = new AdminFootballSyncStore(database);
 
 beforeAll(() => {
   if (!process.env.FIRESTORE_EMULATOR_HOST) {
@@ -20,14 +19,24 @@ afterAll(() => deleteApp(app));
 describe("lifecycle execution coordination", () => {
   it("grants one concurrent lease and records sanitized timing metrics", async () => {
     const teamId = `team-lifecycle-lease-${Date.now()}`;
+    const firstStore = new AdminFootballSyncStore(database);
+    const secondStore = new AdminFootballSyncStore(database);
     const claims = await Promise.all([
-      store.claimLifecycleExecution(teamId, "attempt-a", "scheduled"),
-      store.claimLifecycleExecution(teamId, "attempt-b", "operator"),
+      firstStore.claimLifecycleExecution(teamId, "attempt-a", "scheduled"),
+      secondStore.claimLifecycleExecution(teamId, "attempt-b", "operator"),
     ]);
-    expect(claims.filter(Boolean)).toHaveLength(1);
-    const winner = claims[0] ? "attempt-a" : "attempt-b";
+    expect(claims.filter((claim) => claim.status === "claimed")).toHaveLength(
+      1,
+    );
+    expect(claims.filter((claim) => claim.status === "busy")).toHaveLength(1);
+    const firstWon = claims[0].status === "claimed";
+    const winner = firstWon ? "attempt-a" : "attempt-b";
+    const winnerStore = firstWon ? firstStore : secondStore;
 
-    await store.completeLifecycleExecution(teamId, winner, {
+    expect(
+      await winnerStore.markLifecycleExecutionTarget(teamId, "match-lease"),
+    ).toBe(true);
+    await winnerStore.completeLifecycleExecution(teamId, winner, {
       action: "rating_ready",
       matchId: "match-lease",
       providerRequests: 3,
@@ -38,6 +47,7 @@ describe("lifecycle execution coordination", () => {
     ).data();
     expect(metadata).toMatchObject({
       lastLifecycleAction: "rating_ready",
+      lastLifecycleAttemptId: winner,
       lastLifecycleMatchId: "match-lease",
       lastLifecycleProviderRequests: 3,
     });
@@ -45,5 +55,35 @@ describe("lifecycle execution coordination", () => {
     expect(metadata?.lastLifecycleCompletedAt).toBeDefined();
     expect(metadata).not.toHaveProperty("lifecycleAttemptId");
     expect(metadata).not.toHaveProperty("lifecycleLeaseUntil");
+  });
+
+  it("lets a stale lease be replaced without letting the old execution renew or release it", async () => {
+    const teamId = `team-lifecycle-stale-${Date.now()}`;
+    const oldStore = new AdminFootballSyncStore(database);
+    const newStore = new AdminFootballSyncStore(database);
+    await expect(
+      oldStore.claimLifecycleExecution(teamId, "old-attempt", "scheduled"),
+    ).resolves.toMatchObject({ status: "claimed" });
+    await database.doc(`footballSyncMetadata/${teamId}`).update({
+      lifecycleLeaseUntil: Timestamp.fromMillis(Date.now() - 1_000),
+    });
+
+    await expect(
+      newStore.claimLifecycleExecution(teamId, "new-attempt", "operator"),
+    ).resolves.toMatchObject({ status: "claimed" });
+    await expect(
+      oldStore.renewLifecycleExecution(teamId, "old-attempt"),
+    ).resolves.toBe(false);
+    await oldStore.completeLifecycleExecution(teamId, "old-attempt", {
+      action: "idle",
+      providerRequests: 0,
+    });
+
+    const metadata = (
+      await database.doc(`footballSyncMetadata/${teamId}`).get()
+    ).data();
+    expect(metadata?.lifecycleAttemptId).toBe("new-attempt");
+    expect(metadata?.lifecycleLeaseUntil).toBeDefined();
+    expect(metadata).not.toHaveProperty("lastLifecycleAttemptId");
   });
 });

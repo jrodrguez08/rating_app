@@ -315,6 +315,18 @@ export const esMessages = {
       "La solicitud está vinculada a este equipo y fixture. Requiere la frase de autorización y la confirmación exacta antes de ejecutar el ciclo normal.",
     lifecycleRequestAccepted: "La solicitud del ciclo fue aceptada.",
     lifecycleResult: "Resultado del ciclo",
+    checkLifecycleStatus: "Consultar estado",
+    retryLifecycle: "Reintentar ejecución",
+    lifecycleStatuses: {
+      requested: "Solicitud registrada y pendiente de ejecución.",
+      running: "La ejecución está en curso. Consulte el estado nuevamente.",
+      skipped_busy:
+        "Otra ejecución del ciclo está en curso. Puede consultar el estado o reintentar cuando esté disponible.",
+      completed: "La ejecución terminó.",
+      failed:
+        "La ejecución no pudo confirmarse. Puede consultar el estado o reintentar dentro del plazo autorizado.",
+      voting_open: "La ventana de votación está abierta y confirmada.",
+    },
     lifecycleActions: {
       idle: "Sin cambios",
       discovered: "Partidos actualizados",

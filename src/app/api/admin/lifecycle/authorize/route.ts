@@ -55,8 +55,8 @@ export async function POST(request: NextRequest) {
       httpOnly: true,
       sameSite: "strict",
       secure: readAdminIdentityConfig().secureCookies,
-      path: "/api/admin/lifecycle/apply",
-      maxAge: 120,
+      path: "/api/admin/lifecycle",
+      maxAge: 600,
     });
     return response;
   } catch (error) {

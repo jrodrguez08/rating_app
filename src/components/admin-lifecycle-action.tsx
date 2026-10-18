@@ -9,6 +9,15 @@ import type { AdminLifecycleAction } from "@/lib/server/admin-lifecycle-action";
 
 type AdminMessages = Messages["admin"];
 
+interface LifecycleReceipt {
+  auditId: string;
+  status: keyof AdminMessages["lifecycleStatuses"];
+  retryable: boolean;
+  statusCheckAvailable: boolean;
+  retryAfter?: string;
+  lifecycleAction?: string;
+}
+
 export function AdminLifecycleActionPanel({
   match,
   messages,
@@ -25,6 +34,7 @@ export function AdminLifecycleActionPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [outcome, setOutcome] = useState("");
+  const [receipt, setReceipt] = useState<LifecycleReceipt | null>(null);
   const action: AdminLifecycleAction = {
     matchId: match.id,
     trackedTeamId: teamId,
@@ -70,6 +80,8 @@ export function AdminLifecycleActionPanel({
       setPreviewToken(String(result.previewToken));
       setAuthorized(false);
       setConfirmation("");
+      setReceipt(null);
+      setOutcome("");
     } catch (caught) {
       setError(
         caught instanceof Error ? caught.message : messages.genericError,
@@ -106,22 +118,43 @@ export function AdminLifecycleActionPanel({
         action,
         confirmation,
       });
-      const lifecycle = result.lifecycle as Record<string, unknown> | undefined;
-      setOutcome(
-        `${messages.lifecycleRequestAccepted} ${messages.audit}: ${String(result.auditId)}${
-          lifecycle && typeof lifecycle.action === "string"
-            ? ` · ${messages.lifecycleResult}: ${displayLifecycleAction(lifecycle.action, messages)}`
-            : ""
-        }`,
-      );
-      setAuthorized(false);
-      setPreview(null);
+      acceptReceipt(result.receipt);
     } catch (caught) {
       setError(
         caught instanceof Error ? caught.message : messages.genericError,
       );
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function checkStatus() {
+    setBusy(true);
+    try {
+      const result = await post("/api/admin/lifecycle/status", action);
+      acceptReceipt(result.receipt);
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : messages.genericError,
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function acceptReceipt(value: unknown) {
+    if (!isLifecycleReceipt(value)) throw new Error(messages.genericError);
+    setReceipt(value);
+    setOutcome(
+      `${messages.lifecycleRequestAccepted} ${messages.audit}: ${value.auditId} · ${messages.lifecycleResult}: ${messages.lifecycleStatuses[value.status]}${
+        value.lifecycleAction
+          ? ` ${displayLifecycleAction(value.lifecycleAction, messages)}.`
+          : ""
+      }`,
+    );
+    if (!value.retryable) {
+      setAuthorized(false);
+      setPreview(null);
     }
   }
 
@@ -254,14 +287,31 @@ export function AdminLifecycleActionPanel({
                   onChange={(event) => setConfirmation(event.target.value)}
                 />
               </label>
-              <button
-                className="button-primary min-h-11 px-4"
-                type="button"
-                disabled={busy}
-                onClick={apply}
-              >
-                {messages.requestLifecycle}
-              </button>
+              {!receipt ||
+              (receipt.retryable &&
+                (receipt.status === "failed" ||
+                  receipt.status === "skipped_busy")) ? (
+                <button
+                  className="button-primary min-h-11 px-4"
+                  type="button"
+                  disabled={busy}
+                  onClick={apply}
+                >
+                  {receipt
+                    ? messages.retryLifecycle
+                    : messages.requestLifecycle}
+                </button>
+              ) : null}
+              {receipt?.statusCheckAvailable ? (
+                <button
+                  className="button-secondary min-h-11 px-4"
+                  type="button"
+                  disabled={busy}
+                  onClick={checkStatus}
+                >
+                  {messages.checkLifecycleStatus}
+                </button>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -272,7 +322,14 @@ export function AdminLifecycleActionPanel({
         </p>
       ) : null}
       {outcome ? (
-        <p className="border-success text-success" role="status">
+        <p
+          className={
+            receipt?.status === "completed" || receipt?.status === "voting_open"
+              ? "border-success text-success"
+              : "text-warning"
+          }
+          role="status"
+        >
           {outcome}
         </p>
       ) : null}
@@ -316,4 +373,26 @@ function displayLifecycleAction(action: string, messages: AdminMessages) {
         action as keyof typeof messages.lifecycleActions
       ]
     : messages.lifecycleActions.retryable_error;
+}
+
+function isLifecycleReceipt(value: unknown): value is LifecycleReceipt {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.auditId === "string" &&
+    typeof candidate.retryable === "boolean" &&
+    typeof candidate.statusCheckAvailable === "boolean" &&
+    [
+      "requested",
+      "running",
+      "skipped_busy",
+      "completed",
+      "failed",
+      "voting_open",
+    ].includes(String(candidate.status)) &&
+    (candidate.retryAfter === undefined ||
+      typeof candidate.retryAfter === "string") &&
+    (candidate.lifecycleAction === undefined ||
+      typeof candidate.lifecycleAction === "string")
+  );
 }

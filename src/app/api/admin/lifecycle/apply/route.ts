@@ -3,8 +3,8 @@ import type { NextRequest } from "next/server";
 import { runConfiguredLifecycle } from "@/application/run-lifecycle";
 import { initialClub } from "@/config/club";
 import {
-  AdminLifecycleRejectedError,
   AdminLifecycleService,
+  type AdminLifecycleInput,
 } from "@/lib/firebase/admin-lifecycle";
 import {
   AdminFootballSyncStore,
@@ -25,15 +25,22 @@ import {
 import { requireLifecycleRuntimeConfig } from "@/lib/server/environment";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
-  let response;
-  let clearChallenge = true;
+  const service = new AdminLifecycleService();
+  const challengeToken = request.cookies.get(
+    ADMIN_LIFECYCLE_ACTION_COOKIE,
+  )?.value;
+  let input: AdminLifecycleInput | undefined;
+  let requestAttemptId: string | undefined;
+  let disposition: "committed" | "idempotent_retry" | undefined;
   try {
     const identity = await requireAdminRequest(request, true);
     const body: unknown = await request.json();
-    if (typeof body !== "object" || body === null)
+    if (typeof body !== "object" || body === null) {
       throw new Error("Invalid request.");
+    }
     const action = parseAdminLifecycleAction(
       "action" in body ? body.action : undefined,
     );
@@ -43,49 +50,68 @@ export async function POST(request: NextRequest) {
         "Lifecycle confirmation does not match the selected match.",
       );
     }
-    const apiKey = requireLifecycleRuntimeConfig().apiFootballKey;
-    const notificationConfig = readResendNotificationConfig();
-    const commit = await new AdminLifecycleService().applyAuthorized(
-      { ...action, operatorId: identity.uid },
-      request.cookies.get(ADMIN_LIFECYCLE_ACTION_COOKIE)?.value,
-    );
-    if (commit.disposition === "idempotent_retry") {
-      response = adminJson({ accepted: true, ...commit });
-    } else {
-      const result = await runConfiguredLifecycle(
-        initialClub.teamId,
-        new AdminFootballSyncStore(),
-        apiKey,
-        undefined,
-        {
-          store: new AdminVotingWindowNotificationStore(),
-          notifier:
-            notificationConfig === null
-              ? null
-              : new ResendVotingWindowNotifier(notificationConfig),
-          siteUrl: readNotificationSiteUrl(),
-        },
-        { trigger: "operator" },
-      );
-      response = adminJson({
-        accepted: true,
-        ...commit,
-        lifecycle: {
-          action: result.action,
-          ...(result.matchId ? { matchId: result.matchId } : {}),
-          providerRequests: result.providerRequests,
-        },
-      });
+    if (action.trackedTeamId !== initialClub.teamId) {
+      throw new Error("Invalid team.");
     }
+    const apiKey = requireLifecycleRuntimeConfig().apiFootballKey;
+    input = { ...action, operatorId: identity.uid };
+    const commit = await service.applyAuthorized(input, challengeToken);
+    disposition = commit.disposition;
+    const claim = await service.claimExecution(input, challengeToken);
+    if (!claim.execute) {
+      return receiptResponse(commit.disposition, claim.receipt);
+    }
+    requestAttemptId = claim.requestAttemptId;
+    const notificationConfig = readResendNotificationConfig();
+    const result = await runConfiguredLifecycle(
+      initialClub.teamId,
+      new AdminFootballSyncStore(),
+      apiKey,
+      undefined,
+      {
+        store: new AdminVotingWindowNotificationStore(),
+        notifier:
+          notificationConfig === null
+            ? null
+            : new ResendVotingWindowNotifier(notificationConfig),
+        siteUrl: readNotificationSiteUrl(),
+      },
+      { trigger: "operator", attemptId: requestAttemptId },
+    );
+    const receipt = await service.recordExecutionOutcome(
+      input,
+      challengeToken,
+      requestAttemptId,
+      result,
+    );
+    return receiptResponse(commit.disposition, receipt);
   } catch (error) {
-    if (!(error instanceof AdminLifecycleRejectedError)) clearChallenge = false;
-    response = adminError(error);
+    if (input && requestAttemptId) {
+      try {
+        const receipt = await service.recordExecutionFailure(
+          input,
+          challengeToken,
+          requestAttemptId,
+        );
+        return receiptResponse(disposition ?? "idempotent_retry", receipt);
+      } catch {
+        // Preserve the original error if durable recovery cannot be recorded.
+      }
+    }
+    return adminError(error);
   }
-  if (clearChallenge) {
+}
+
+function receiptResponse(
+  disposition: "committed" | "idempotent_retry",
+  receipt: Awaited<ReturnType<AdminLifecycleService["inspectAuthorized"]>>,
+) {
+  const response = adminJson({ accepted: true, disposition, receipt });
+  if (!receipt.statusCheckAvailable) {
     response.cookies.set(ADMIN_LIFECYCLE_ACTION_COOKIE, "", {
       httpOnly: true,
       sameSite: "strict",
-      path: "/api/admin/lifecycle/apply",
+      path: "/api/admin/lifecycle",
       maxAge: 0,
     });
   }

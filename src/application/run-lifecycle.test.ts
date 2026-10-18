@@ -91,7 +91,11 @@ describe("configured match lifecycle notifications", () => {
 
   it("skips provider work while another lifecycle execution owns the lease", async () => {
     const store = {
-      claimLifecycleExecution: vi.fn().mockResolvedValue(false),
+      claimLifecycleExecution: vi.fn().mockResolvedValue({
+        status: "busy",
+        attemptId: "active-attempt",
+        leaseUntil: "2026-10-13T02:05:00.000Z",
+      }),
       completeLifecycleExecution: vi.fn(),
     } as unknown as MatchLifecycleStore;
 
@@ -106,6 +110,7 @@ describe("configured match lifecycle notifications", () => {
 
     expect(result).toMatchObject({
       action: "idle",
+      executionStatus: "skipped_busy",
       providerRequests: 0,
       reason: expect.stringContaining("already in progress"),
     });
@@ -120,7 +125,10 @@ describe("configured match lifecycle notifications", () => {
       providerRequests: 1,
     });
     const store = {
-      claimLifecycleExecution: vi.fn().mockResolvedValue(true),
+      claimLifecycleExecution: vi.fn().mockResolvedValue({
+        status: "claimed",
+        leaseUntil: "2026-10-13T02:05:00.000Z",
+      }),
       completeLifecycleExecution: vi.fn().mockResolvedValue(undefined),
     } as unknown as MatchLifecycleStore;
 

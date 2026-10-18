@@ -8,6 +8,7 @@ import {
   type VotingWindowNotifier,
 } from "@/application/voting-window-notification";
 import type {
+  LifecycleExecutionClaim,
   MatchLifecycleStore,
   VotingWindowNotificationStore,
 } from "@/domain/ports";
@@ -23,28 +24,39 @@ export async function runConfiguredLifecycle(
     notifier: VotingWindowNotifier | null;
     siteUrl?: URL;
   },
-  options: { trigger?: "scheduled" | "operator" } = {},
+  options: {
+    trigger?: "scheduled" | "operator";
+    attemptId?: string;
+  } = {},
 ) {
   const logs: string[] = [];
   const log = (message: string) => {
     logs.push(message);
     console.info(message);
   };
-  const attemptId = randomUUID();
+  const attemptId = options.attemptId ?? randomUUID();
   const trigger = options.trigger ?? "scheduled";
-  if (
-    store.claimLifecycleExecution &&
-    !(await store.claimLifecycleExecution(teamId, attemptId, trigger))
-  ) {
+  const claim: LifecycleExecutionClaim = store.claimLifecycleExecution
+    ? await store.claimLifecycleExecution(teamId, attemptId, trigger)
+    : { status: "claimed", leaseUntil: new Date(0).toISOString() };
+  if (claim.status === "busy") {
     log("lifecycle.execution outcome=skipped reason=execution-in-progress");
     return {
       action: "idle" as const,
+      executionStatus: "skipped_busy" as const,
       providerRequests: 0,
       reason: "A lifecycle execution is already in progress.",
+      activeExecution: claim,
+      matchId: claim.matchId,
+      notification: undefined,
       logs,
     };
   }
-  const provider = new ApiFootballAdapter(apiKey, fetch, log);
+  const provider = new ApiFootballAdapter(
+    apiKey,
+    lifecycleFetch(store, teamId, attemptId),
+    log,
+  );
   let result;
   try {
     result = await runMatchLifecycle({
@@ -88,9 +100,34 @@ export async function runConfiguredLifecycle(
         });
   return {
     ...result,
+    executionStatus:
+      result.action === "retryable_error"
+        ? ("failed" as const)
+        : ("completed" as const),
+    executionAttemptId: attemptId,
     ...(notificationOutcome === undefined
       ? {}
       : { notification: notificationOutcome }),
     logs,
+  };
+}
+
+function lifecycleFetch(
+  store: MatchLifecycleStore,
+  teamId: string,
+  attemptId: string,
+): typeof fetch {
+  return async (input, init) => {
+    if (
+      store.renewLifecycleExecution &&
+      !(await store.renewLifecycleExecution(teamId, attemptId))
+    ) {
+      throw new Error("Lifecycle execution lease was lost.");
+    }
+    const timeout = AbortSignal.timeout(10_000);
+    const signal = init?.signal
+      ? AbortSignal.any([init.signal, timeout])
+      : timeout;
+    return fetch(input, { ...init, signal });
   };
 }

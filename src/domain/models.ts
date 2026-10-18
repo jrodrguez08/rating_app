@@ -137,10 +137,12 @@ export interface FootballSyncMetadata {
   teamId: EntityId;
   lastFixtureDiscoveryAt?: string;
   lifecycleAttemptId?: string;
+  lifecycleMatchId?: string;
   lifecycleLeaseUntil?: string;
   lastLifecycleTrigger?: "scheduled" | "operator";
   lastLifecycleStartedAt?: string;
   lastLifecycleCompletedAt?: string;
+  lastLifecycleAttemptId?: string;
   lastLifecycleAction?: string;
   lastLifecycleMatchId?: string;
   lastLifecycleProviderRequests?: number;

@@ -308,6 +308,18 @@ export const enMessages = {
       "The request is bound to this Team and fixture. It requires the authorization passphrase and exact confirmation before the normal lifecycle runs.",
     lifecycleRequestAccepted: "The lifecycle request was accepted.",
     lifecycleResult: "Lifecycle result",
+    checkLifecycleStatus: "Check status",
+    retryLifecycle: "Retry execution",
+    lifecycleStatuses: {
+      requested: "The request is recorded and waiting to run.",
+      running: "The execution is running. Check the status again.",
+      skipped_busy:
+        "Another lifecycle execution is running. You can check the status or retry when available.",
+      completed: "The execution completed.",
+      failed:
+        "The execution could not be confirmed. You can check the status or retry within the authorized period.",
+      voting_open: "The voting window is open and confirmed.",
+    },
     lifecycleActions: {
       idle: "No changes",
       discovered: "Matches updated",

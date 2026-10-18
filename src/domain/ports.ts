@@ -191,7 +191,12 @@ export interface MatchLifecycleStore extends FootballSyncStore {
     teamId: string,
     attemptId: string,
     trigger: "scheduled" | "operator",
+  ): Promise<LifecycleExecutionClaim>;
+  markLifecycleExecutionTarget?(
+    teamId: string,
+    matchId: string,
   ): Promise<boolean>;
+  renewLifecycleExecution?(teamId: string, attemptId: string): Promise<boolean>;
   completeLifecycleExecution?(
     teamId: string,
     attemptId: string,
@@ -202,6 +207,17 @@ export interface MatchLifecycleStore extends FootballSyncStore {
     },
   ): Promise<void>;
 }
+
+export type LifecycleExecutionClaim =
+  | { status: "claimed"; leaseUntil: string }
+  | {
+      status: "busy";
+      attemptId: string;
+      trigger?: "scheduled" | "operator";
+      matchId?: string;
+      startedAt?: string;
+      leaseUntil: string;
+    };
 
 export interface VotingWindowNotificationContext {
   matchId: string;

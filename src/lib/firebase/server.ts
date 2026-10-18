@@ -51,6 +51,7 @@ import type {
 } from "@/domain/models";
 import type {
   FootballSyncStore,
+  LifecycleExecutionClaim,
   MatchLifecycleStore,
   ProviderMatchContext,
   StandingsSyncStore,
@@ -1432,6 +1433,8 @@ export class AdminVotingWindowNotificationStore implements VotingWindowNotificat
 export class AdminFootballSyncStore
   implements FootballSyncStore, MatchLifecycleStore, StandingsSyncStore
 {
+  private lifecycleAttemptId: string | undefined;
+
   constructor(private readonly database = getServerFirestore()) {}
 
   async getTeam(teamId: string): Promise<Team> {
@@ -1583,7 +1586,7 @@ export class AdminFootballSyncStore
     teamId: string,
     attemptId: string,
     trigger: "scheduled" | "operator",
-  ): Promise<boolean> {
+  ): Promise<LifecycleExecutionClaim> {
     const reference = this.database.doc(`footballSyncMetadata/${teamId}`);
     return this.database.runTransaction(async (transaction) => {
       const snapshot = await transaction.get(reference);
@@ -1593,20 +1596,87 @@ export class AdminFootballSyncStore
         leaseUntil instanceof Timestamp &&
         leaseUntil.toMillis() > now.getTime()
       ) {
-        return false;
+        const data = snapshot.data();
+        return {
+          status: "busy" as const,
+          attemptId:
+            typeof data?.lifecycleAttemptId === "string"
+              ? data.lifecycleAttemptId
+              : "unknown",
+          ...(data?.lastLifecycleTrigger === "scheduled" ||
+          data?.lastLifecycleTrigger === "operator"
+            ? { trigger: data.lastLifecycleTrigger }
+            : {}),
+          ...(typeof data?.lifecycleMatchId === "string"
+            ? { matchId: data.lifecycleMatchId }
+            : {}),
+          ...(data?.lastLifecycleStartedAt instanceof Timestamp
+            ? { startedAt: data.lastLifecycleStartedAt.toDate().toISOString() }
+            : {}),
+          leaseUntil: leaseUntil.toDate().toISOString(),
+        };
       }
+      const newLeaseUntil = Timestamp.fromMillis(now.getTime() + 5 * 60_000);
       transaction.set(
         reference,
         {
           teamId,
           lifecycleAttemptId: attemptId,
-          lifecycleLeaseUntil: Timestamp.fromMillis(now.getTime() + 5 * 60_000),
+          lifecycleMatchId: FieldValue.delete(),
+          lifecycleLeaseUntil: newLeaseUntil,
           lastLifecycleTrigger: trigger,
           lastLifecycleStartedAt: Timestamp.fromDate(now),
           updatedAt: Timestamp.fromDate(now),
         },
         { merge: true },
       );
+      this.lifecycleAttemptId = attemptId;
+      return {
+        status: "claimed" as const,
+        leaseUntil: newLeaseUntil.toDate().toISOString(),
+      };
+    });
+  }
+  async markLifecycleExecutionTarget(
+    teamId: string,
+    matchId: string,
+  ): Promise<boolean> {
+    const attemptId = this.lifecycleAttemptId;
+    if (!attemptId) return true;
+    const reference = this.database.doc(`footballSyncMetadata/${teamId}`);
+    return this.database.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(reference);
+      const leaseUntil = snapshot.data()?.lifecycleLeaseUntil;
+      if (
+        snapshot.data()?.lifecycleAttemptId !== attemptId ||
+        !(leaseUntil instanceof Timestamp) ||
+        leaseUntil.toMillis() <= snapshot.readTime.toMillis()
+      ) {
+        return false;
+      }
+      transaction.update(reference, { lifecycleMatchId: matchId });
+      return true;
+    });
+  }
+  async renewLifecycleExecution(
+    teamId: string,
+    attemptId: string,
+  ): Promise<boolean> {
+    const reference = this.database.doc(`footballSyncMetadata/${teamId}`);
+    return this.database.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(reference);
+      const leaseUntil = snapshot.data()?.lifecycleLeaseUntil;
+      if (
+        snapshot.data()?.lifecycleAttemptId !== attemptId ||
+        !(leaseUntil instanceof Timestamp) ||
+        leaseUntil.toMillis() <= snapshot.readTime.toMillis()
+      ) {
+        return false;
+      }
+      const now = snapshot.readTime.toDate();
+      transaction.update(reference, {
+        lifecycleLeaseUntil: Timestamp.fromMillis(now.getTime() + 5 * 60_000),
+      });
       return true;
     });
   }
@@ -1624,9 +1694,11 @@ export class AdminFootballSyncStore
         reference,
         {
           lifecycleAttemptId: FieldValue.delete(),
+          lifecycleMatchId: FieldValue.delete(),
           lifecycleLeaseUntil: FieldValue.delete(),
           lastLifecycleCompletedAt: Timestamp.fromDate(now),
           lastLifecycleAction: result.action,
+          lastLifecycleAttemptId: attemptId,
           ...(result.matchId ? { lastLifecycleMatchId: result.matchId } : {}),
           lastLifecycleProviderRequests: result.providerRequests,
           updatedAt: Timestamp.fromDate(now),
