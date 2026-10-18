@@ -58,11 +58,13 @@ export async function syncMatchParticipants(
       ? await provider.getLineupContext(
           match.externalProviderFixtureId,
           externalTeamId,
+          match.kickoffAt,
         )
       : await provider.getMatchContext(
           match.externalProviderFixtureId,
           externalTeamId,
           baseline ?? undefined,
+          match.kickoffAt,
         );
   if (context === null) {
     throw new Error(
