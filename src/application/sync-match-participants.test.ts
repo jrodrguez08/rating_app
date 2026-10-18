@@ -50,6 +50,20 @@ describe("participant synchronization identities", () => {
     },
   );
 
+  it("passes the persisted fixture kickoff into provider context resolution", async () => {
+    const store = storeWith();
+    const provider = providerWith("known-player");
+
+    await syncMatchParticipants(match.id, provider, store);
+
+    expect(provider.getMatchContext).toHaveBeenCalledWith(
+      match.externalProviderFixtureId,
+      team.externalProviderId,
+      undefined,
+      match.kickoffAt,
+    );
+  });
+
   it("does not merge unknown players that share a name and shirt", async () => {
     const firstStore = storeWith();
     const secondStore = storeWith();
