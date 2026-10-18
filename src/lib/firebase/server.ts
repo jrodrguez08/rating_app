@@ -47,6 +47,7 @@ import type {
   StandingsSnapshot,
   Team,
   VerifiedCoachAssignment,
+  VerifiedLineupSnapshot,
 } from "@/domain/models";
 import type {
   FootballSyncStore,
@@ -199,13 +200,19 @@ export class AdminResultService {
       .get();
     const aliasIds = [
       ...new Set(
-        participantSnapshot.docs.map((snapshot) => {
-          const participant = fromDocument<MatchParticipant>(snapshot);
-          return playerProviderAliasId(
-            participant.externalProvider,
-            participant.externalProviderPlayerId,
-          );
-        }),
+        participantSnapshot.docs
+          .map((snapshot) => fromDocument<MatchParticipant>(snapshot))
+          .filter(
+            (participant) =>
+              participant.externalProvider !== undefined &&
+              participant.externalProviderPlayerId !== undefined,
+          )
+          .map((participant) =>
+            playerProviderAliasId(
+              participant.externalProvider!,
+              participant.externalProviderPlayerId!,
+            ),
+          ),
       ),
     ];
     const aliasSnapshots =
@@ -337,12 +344,18 @@ export class AdminPlayerHistoryService {
     }));
     const aliasIds = [
       ...new Set(
-        participants.map((participant) =>
-          playerProviderAliasId(
-            participant.externalProvider,
-            participant.externalProviderPlayerId,
+        participants
+          .filter(
+            (participant) =>
+              participant.externalProvider !== undefined &&
+              participant.externalProviderPlayerId !== undefined,
+          )
+          .map((participant) =>
+            playerProviderAliasId(
+              participant.externalProvider!,
+              participant.externalProviderPlayerId!,
+            ),
           ),
-        ),
       ),
     ];
     const aliasSnapshots =
@@ -411,6 +424,12 @@ export class AdminPlayerHistoryService {
     const playerSnapshot = await this.database.doc(`players/${playerId}`).get();
     if (!playerSnapshot.exists) return playerId;
     const player = fromDocument<Player>(playerSnapshot);
+    if (
+      player.externalProvider === undefined ||
+      player.externalProviderId === undefined
+    ) {
+      return playerId;
+    }
     const aliasSnapshot = await this.database
       .doc(
         `playerProviderAliases/${playerProviderAliasId(
@@ -1747,13 +1766,14 @@ export class AdminFootballSyncStore
       .filter(
         (participant) =>
           participant.teamId === teamId &&
-          participant.externalProvider === provider,
+          participant.externalProvider === provider &&
+          participant.externalProviderPlayerId !== undefined,
       );
     if (participants.length === 0) return null;
     return {
       participants: participants.map((participant) => ({
         externalTeamId: participant.externalProviderTeamId,
-        externalPlayerId: participant.externalProviderPlayerId,
+        externalPlayerId: participant.externalProviderPlayerId!,
         name: participant.playerName,
         ...(participant.shirtNumber === undefined
           ? {}
@@ -1794,13 +1814,14 @@ export class AdminFootballSyncStore
       .filter(
         (participant) =>
           participant.teamId === teamId &&
-          participant.externalProvider === provider,
+          participant.externalProvider === provider &&
+          participant.externalProviderPlayerId !== undefined,
       );
     if (participants.length === 0) return null;
     return {
       participants: participants.map((participant) => ({
         externalTeamId: participant.externalProviderTeamId,
-        externalPlayerId: participant.externalProviderPlayerId,
+        externalPlayerId: participant.externalProviderPlayerId!,
         name: participant.playerName,
         ...(participant.shirtNumber === undefined
           ? {}
@@ -1838,6 +1859,16 @@ export class AdminFootballSyncStore
       coach: fromDocument<Coach>(coachSnapshot),
     };
   }
+  async getVerifiedLineupSnapshot(
+    matchId: string,
+  ): Promise<VerifiedLineupSnapshot | null> {
+    const snapshot = await this.database
+      .doc(`matches/${matchId}/verifiedLineups/current`)
+      .get();
+    return snapshot.exists
+      ? fromDocument<VerifiedLineupSnapshot>(snapshot)
+      : null;
+  }
   upsertCoaches(values: Coach[]) {
     return this.upsert("coaches", values);
   }
@@ -1874,6 +1905,9 @@ export class AdminFootballSyncStore
       const verifiedReference = this.database.doc(
         `matches/${matchId}/verifiedCoachAssignments/head-coach`,
       );
+      const verifiedLineupReference = this.database.doc(
+        `matches/${matchId}/verifiedLineups/current`,
+      );
       const playerReferences = values.players.map((player) =>
         this.database.doc(`players/${player.id}`),
       );
@@ -1881,10 +1915,16 @@ export class AdminFootballSyncStore
       const resultSnapshot = await transaction.get(resultReference);
       const ballots = await transaction.get(ballotQuery);
       const participantSnapshot = await transaction.get(participantCollection);
-      const playerSnapshots = await transaction.getAll(...playerReferences);
+      const playerSnapshots =
+        playerReferences.length === 0
+          ? []
+          : await transaction.getAll(...playerReferences);
       const coachSnapshot = await transaction.get(coachReference);
       const assignmentSnapshot = await transaction.get(assignmentReference);
       const verifiedSnapshot = await transaction.get(verifiedReference);
+      const verifiedLineupSnapshot = await transaction.get(
+        verifiedLineupReference,
+      );
       if (!matchSnapshot.exists) throw new Error("Match was not found.");
       const match = fromDocument<Match>(matchSnapshot);
       if (
@@ -1971,9 +2011,17 @@ export class AdminFootballSyncStore
           fromDocument<MatchParticipant>(document),
         ]),
       );
+      const participantValues = verifiedLineupSnapshot.exists
+        ? preserveVerifiedParticipants(
+            fromDocument<VerifiedLineupSnapshot>(verifiedLineupSnapshot),
+            existingParticipants,
+            values.participants,
+            match,
+          )
+        : values.participants;
       const participantCounts = { created: 0, updated: 0, unchanged: 0 };
       const incomingIds = new Set<string>();
-      for (const participant of values.participants) {
+      for (const participant of participantValues) {
         incomingIds.add(participant.playerId);
         const existing = existingParticipants.get(participant.playerId);
         const candidate =
@@ -2350,6 +2398,74 @@ function assertMatchingPlayerProviderAlias(
       `Player provider alias ${proposed.id} conflicts with its persisted canonical identity.`,
     );
   }
+}
+
+function preserveVerifiedParticipants(
+  verified: VerifiedLineupSnapshot,
+  existing: ReadonlyMap<string, MatchParticipant>,
+  providerParticipants: readonly MatchParticipant[],
+  match: Match,
+): MatchParticipant[] {
+  if (
+    verified.matchId !== match.id ||
+    verified.trackedTeamId !== match.trackedTeamId ||
+    verified.externalProvider !== match.externalProvider ||
+    verified.externalFixtureId !== match.externalProviderFixtureId ||
+    verified.provenance !== "operator_verified"
+  ) {
+    throw new Error("Verified lineup binding conflicts with sync.");
+  }
+  const verifiedById = new Map(
+    verified.participants.map((participant) => [
+      participant.playerId,
+      participant,
+    ]),
+  );
+  if (verifiedById.size !== verified.participants.length) {
+    throw new Error("Verified lineup contains duplicate identities.");
+  }
+  for (const providerParticipant of providerParticipants) {
+    const manual = verifiedById.get(providerParticipant.playerId);
+    if (manual === undefined) {
+      throw new Error(
+        "Provider participant identity conflicts with the verified lineup.",
+      );
+    }
+    if (
+      providerParticipant.squadRole !== manual.squadRole ||
+      (providerParticipant.participated && !manual.participated)
+    ) {
+      throw new Error(
+        "Provider participation conflicts with the verified lineup.",
+      );
+    }
+  }
+  return verified.participants.map((manual) => {
+    const participant = existing.get(manual.playerId);
+    if (
+      participant === undefined ||
+      participant.matchId !== match.id ||
+      participant.teamId !== match.trackedTeamId ||
+      participant.playerName !== manual.playerName ||
+      participant.squadRole !== manual.squadRole ||
+      participant.participated !== manual.participated ||
+      participant.participationStatus !== manual.participationStatus ||
+      participant.participationProvenance !== "operator_verified" ||
+      participant.verificationSource !== manual.verificationSource ||
+      participant.verificationReason !== manual.verificationReason ||
+      participant.verifiedBy !== manual.verifiedBy ||
+      participant.verifiedAt !== isoTimestamp(manual.verifiedAt)
+    ) {
+      throw new Error(
+        "Persisted participant conflicts with the verified lineup.",
+      );
+    }
+    return participant;
+  });
+}
+
+function isoTimestamp(value: unknown): unknown {
+  return value instanceof Timestamp ? value.toDate().toISOString() : value;
 }
 
 function mergePlayerIdentities(

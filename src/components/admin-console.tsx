@@ -2,11 +2,15 @@
 
 import { useMemo, useState, type FormEvent } from "react";
 import { signInWithEmailAndPassword, signOut } from "firebase/auth";
+import Link from "next/link";
 
 import type { Messages } from "@/i18n/messages";
 import { formatDate } from "@/i18n/format";
 import { getAdminBrowserAuth } from "@/lib/firebase/admin-browser";
-import type { AdminOverview } from "@/lib/firebase/admin-console";
+import type {
+  AdminMatchOperation,
+  AdminOverview,
+} from "@/lib/firebase/admin-console";
 import type { AdminCoachAction } from "@/lib/server/admin-coach-action";
 
 type AdminMessages = Messages["admin"];
@@ -88,7 +92,8 @@ export function AdminConsole({
   messages: AdminMessages;
   teamId: string;
 }) {
-  const [matchId, setMatchId] = useState(overview.matches[0]?.id ?? "");
+  const coachMatches = overview.attentionMatches;
+  const [matchId, setMatchId] = useState(coachMatches[0]?.id ?? "");
   const [coachId, setCoachId] = useState("");
   const [coachName, setCoachName] = useState("");
   const [providerCoachId, setProviderCoachId] = useState("");
@@ -100,7 +105,7 @@ export function AdminConsole({
   const [confirmation, setConfirmation] = useState("");
   const [error, setError] = useState("");
   const [outcome, setOutcome] = useState("");
-  const selectedMatch = overview.matches.find((match) => match.id === matchId);
+  const selectedMatch = coachMatches.find((match) => match.id === matchId);
   const action = useMemo<AdminCoachAction | null>(() => {
     if (!selectedMatch) return null;
     return {
@@ -238,11 +243,27 @@ export function AdminConsole({
           {messages.signOut}
         </button>
       </div>
-      {overview.matches.length === 0 ? (
+      <AdminMatchSection
+        title={messages.upcomingLive}
+        matches={overview.upcomingLiveMatches}
+        messages={messages}
+      />
+      <AdminMatchSection
+        title={messages.requiresAttention}
+        matches={overview.attentionMatches}
+        messages={messages}
+      />
+      <AdminMatchSection
+        title={messages.votingCompleted}
+        matches={overview.votingCompletedMatches}
+        messages={messages}
+        readOnly
+      />
+      {coachMatches.length === 0 ? (
         <p className="card p-6">{messages.noMatches}</p>
       ) : (
         <form className="card grid gap-5 p-5" onSubmit={createPreview}>
-          <h2 className="score-font text-xl">{messages.blockedMatches}</h2>
+          <h2 className="score-font text-xl">{messages.coachRecovery}</h2>
           <label className="grid gap-2">
             <span>{messages.match}</span>
             <select
@@ -253,7 +274,7 @@ export function AdminConsole({
                 setPreview(null);
               }}
             >
-              {overview.matches.map((match) => (
+              {coachMatches.map((match) => (
                 <option key={match.id} value={match.id}>
                   {match.homeTeamName} {messages.versus} {match.awayTeamName} ·{" "}
                   {match.id}
@@ -432,5 +453,65 @@ export function AdminConsole({
         </p>
       ) : null}
     </div>
+  );
+}
+
+function AdminMatchSection({
+  title,
+  matches,
+  messages,
+  readOnly = false,
+}: {
+  title: string;
+  matches: AdminMatchOperation[];
+  messages: AdminMessages;
+  readOnly?: boolean;
+}) {
+  return (
+    <section className="card grid gap-4 p-5">
+      <h2 className="score-font text-xl">{title}</h2>
+      {matches.length === 0 ? (
+        <p className="text-muted text-sm">{messages.sectionEmpty}</p>
+      ) : (
+        <ul className="grid gap-3">
+          {matches.map((match) => (
+            <li className="game-inset grid gap-2 p-4" key={match.id}>
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <strong>
+                  {match.homeTeamName} {messages.versus} {match.awayTeamName}
+                </strong>
+                <span className="status-badge">
+                  {messages.statuses[match.status]}
+                </span>
+              </div>
+              <span className="text-muted text-sm">
+                {formatDate(match.kickoffAt, "es", {
+                  dateStyle: "medium",
+                  timeStyle: "short",
+                })}
+              </span>
+              <span className="text-sm">
+                {messages.fixture}: {match.externalFixtureId}
+              </span>
+              <span className="text-sm">
+                {messages.preparation}: {match.rateableParticipantCount}/11 ·{" "}
+                {match.assignment ? messages.coachReady : messages.coachPending}
+              </span>
+              {match.diagnostic ? (
+                <span className="text-warning text-sm">
+                  {messages.diagnostics[match.diagnostic]}
+                </span>
+              ) : null}
+              <Link
+                className="button-secondary inline-flex min-h-11 items-center justify-center px-4"
+                href={`/admin/matches/${encodeURIComponent(match.id)}`}
+              >
+                {readOnly ? messages.inspect : messages.prepareMatch}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }

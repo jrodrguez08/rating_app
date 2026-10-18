@@ -134,6 +134,7 @@ describe("Team persistence and rules", () => {
     "matches/example/participants",
     "matches/example/coachAssignments",
     "matches/example/verifiedCoachAssignments",
+    "matches/example/verifiedLineups",
     "adminActionChallenges",
     "adminSecurity",
     "adminAudit",

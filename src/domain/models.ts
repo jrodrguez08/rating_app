@@ -145,8 +145,10 @@ export type PlayerPosition =
 export interface Player {
   id: EntityId;
   displayName: string;
-  externalProvider: string;
-  externalProviderId: string;
+  identityProvenance?: "provider" | "operator_verified";
+  currentTeamId?: EntityId;
+  externalProvider?: string;
+  externalProviderId?: string;
   position?: PlayerPosition;
   photoUrl?: string;
   createdAt: string;
@@ -162,22 +164,64 @@ export interface PlayerProviderAlias {
   updatedAt: string;
 }
 export type SquadRole = "starter" | "substitute";
+export type ParticipationStatus =
+  | "confirmed_starter"
+  | "confirmed_substitute"
+  | "unused_substitute"
+  | "unconfirmed";
 export interface MatchParticipant {
   matchId: EntityId;
   playerId: EntityId;
   teamId: EntityId;
-  externalProvider: string;
+  externalProvider?: string;
   externalProviderTeamId: string;
-  externalProviderPlayerId: string;
+  externalProviderPlayerId?: string;
   playerName: string;
   shirtNumber?: number;
   position?: string;
   squadRole: SquadRole;
   starter: boolean;
   participated: boolean;
+  participationStatus?: ParticipationStatus;
+  identityProvenance?: "provider" | "operator_verified";
+  participationProvenance?: "provider" | "operator_verified";
+  verificationSource?: string;
+  verificationReason?: string;
+  verifiedBy?: string;
+  verifiedAt?: string;
   enteredAtMinute?: number;
   exitedAtMinute?: number;
   captain?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface VerifiedLineupParticipant {
+  playerId: EntityId;
+  playerName: string;
+  squadRole: SquadRole;
+  participationStatus: ParticipationStatus;
+  participated: boolean;
+  identityProvenance: "provider" | "operator_verified";
+  externalProviderPlayerId?: string;
+  shirtNumber?: number;
+  position?: PlayerPosition;
+  enteredAtMinute?: number;
+  verificationSource: string;
+  verificationReason: string;
+  verifiedBy: string;
+  verifiedAt: string;
+}
+export interface VerifiedLineupSnapshot {
+  matchId: EntityId;
+  trackedTeamId: EntityId;
+  externalProvider: string;
+  externalFixtureId: string;
+  participants: VerifiedLineupParticipant[];
+  operatorId: string;
+  verificationSource: string;
+  verificationReason: string;
+  provenance: "operator_verified";
+  verifiedAt: string;
   createdAt: string;
   updatedAt: string;
 }

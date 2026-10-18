@@ -12,6 +12,10 @@ import {
   hashAdminCoachAction,
   type AdminCoachAction,
 } from "@/lib/server/admin-coach-action";
+import {
+  hashAdminLineupAction,
+  type AdminLineupAction,
+} from "@/lib/server/admin-lineup-action";
 import { verifyAdminPassphrase } from "@/lib/server/admin-passphrase";
 
 const PREVIEW_LIFETIME_MS = 5 * 60 * 1000;
@@ -22,7 +26,12 @@ const VERIFICATION_LEASE_MS = 30 * 1000;
 const MAX_FAILURES = 5;
 
 export type AdminAuditAction =
-  "coach_assignment_passphrase" | "coach_assignment_apply";
+  | "coach_assignment_passphrase"
+  | "coach_assignment_apply"
+  | "lineup_preparation_passphrase"
+  | "lineup_preparation_apply";
+
+type AdminSensitiveAction = AdminCoachAction | AdminLineupAction;
 
 export class AdminSecurityError extends Error {
   constructor(
@@ -42,14 +51,14 @@ export class AdminSecurityStore {
 
   async issuePreview(
     operatorUid: string,
-    action: AdminCoachAction,
+    action: AdminSensitiveAction,
   ): Promise<{ token: string; expiresAt: string }> {
     const expiresAt = new Date(Date.now() + PREVIEW_LIFETIME_MS).toISOString();
     const payload = Buffer.from(
       JSON.stringify({
         operatorUid,
         matchId: action.matchId,
-        actionHash: hashAdminCoachAction(action),
+        actionHash: hashAdminSensitiveAction(action),
         expiresAt,
       }),
     ).toString("base64url");
@@ -59,7 +68,7 @@ export class AdminSecurityStore {
 
   async authorizeAction(values: {
     operatorUid: string;
-    action: AdminCoachAction;
+    action: AdminSensitiveAction;
     previewToken: string;
     passphrase: string;
   }): Promise<{ token: string; expiresAt: string }> {
@@ -91,7 +100,7 @@ export class AdminSecurityStore {
         transaction.create(reference, {
           operatorUid: values.operatorUid,
           matchId: values.action.matchId,
-          actionHash: hashAdminCoachAction(values.action),
+          actionHash: hashAdminSensitiveAction(values.action),
           createdAt: Timestamp.fromDate(now),
           expiresAt: expiration,
         });
@@ -129,7 +138,7 @@ export class AdminSecurityStore {
 
   private async requirePreview(
     operatorUid: string,
-    action: AdminCoachAction,
+    action: AdminSensitiveAction,
     token: string,
   ): Promise<void> {
     if (token.length > 2_048) throw new AdminSecurityError("stale_preview");
@@ -158,7 +167,7 @@ export class AdminSecurityStore {
       !("matchId" in data) ||
       data.matchId !== action.matchId ||
       !("actionHash" in data) ||
-      data.actionHash !== hashAdminCoachAction(action) ||
+      data.actionHash !== hashAdminSensitiveAction(action) ||
       !Number.isFinite(expiresAt) ||
       expiresAt <= Date.now() ||
       expiresAt > Date.now() + PREVIEW_LIFETIME_MS
@@ -241,6 +250,12 @@ export class AdminSecurityStore {
       );
     });
   }
+}
+
+function hashAdminSensitiveAction(action: AdminSensitiveAction): string {
+  return "participants" in action
+    ? hashAdminLineupAction(action)
+    : hashAdminCoachAction(action);
 }
 
 function signPreview(payload: string): string {

@@ -10,6 +10,7 @@ import type {
   FootballDataProvider,
   FootballSyncStore,
   ProviderHeadCoach,
+  ProviderParticipantContext,
   SyncWriteCounts,
 } from "@/domain/ports";
 import { providerEntityId } from "@/domain/player-identity";
@@ -79,6 +80,25 @@ export async function syncMatchParticipants(
           provider.name,
         )
       : persistedContext;
+  const verifiedLineup =
+    phase === "final" && store.getVerifiedLineupSnapshot !== undefined
+      ? await store.getVerifiedLineupSnapshot(match.id)
+      : null;
+  const verifiedBaseline = verifiedLineupProviderBaseline({
+    match,
+    teamId: team.id,
+    providerName: provider.name,
+    externalTeamId,
+    verifiedLineup,
+  });
+  if (
+    verifiedLineup !== null &&
+    store.replaceMatchParticipantContext === undefined
+  ) {
+    throw new Error(
+      "Verified lineup reconciliation requires atomic context persistence.",
+    );
+  }
   let verified: Awaited<
     ReturnType<NonNullable<FootballSyncStore["getVerifiedCoachAssignment"]>>
   > = null;
@@ -102,7 +122,7 @@ export async function syncMatchParticipants(
         : await provider.getMatchEvidence(
             match.externalProviderFixtureId,
             externalTeamId,
-            baseline ?? undefined,
+            verifiedBaseline ?? baseline ?? undefined,
             match.kickoffAt,
           );
   let context;
@@ -164,7 +184,7 @@ export async function syncMatchParticipants(
   const trackedParticipants = context.participants.filter(
     (participant) => participant.externalTeamId === externalTeamId,
   );
-  if (trackedParticipants.length === 0) {
+  if (trackedParticipants.length === 0 && verifiedLineup === null) {
     throw new Error(
       `Provider returned no participants for tracked Team ${externalTeamId}.`,
     );
@@ -189,6 +209,7 @@ export async function syncMatchParticipants(
   const players: Player[] = trackedParticipants.map((participant) => ({
     id: canonicalIds.get(participant.externalPlayerId)!.canonicalPlayerId,
     displayName: participant.name,
+    identityProvenance: "provider",
     externalProvider: provider.name,
     externalProviderId: canonicalIds.get(participant.externalPlayerId)!
       .canonicalExternalProviderPlayerId,
@@ -216,6 +237,14 @@ export async function syncMatchParticipants(
       squadRole: participant.squadRole,
       starter: participant.squadRole === "starter",
       participated: participant.participated,
+      participationStatus:
+        participant.squadRole === "starter"
+          ? "confirmed_starter"
+          : participant.participated
+            ? "confirmed_substitute"
+            : "unused_substitute",
+      identityProvenance: "provider",
+      participationProvenance: "provider",
       ...(participant.enteredAtMinute === undefined
         ? {}
         : { enteredAtMinute: participant.enteredAtMinute }),
@@ -281,22 +310,29 @@ export async function syncMatchParticipants(
           coach,
           assignment,
         });
+  const summaryParticipants = verifiedLineup?.participants ?? participants;
   emitOperationalLog(log, "participants.reconciliation", {
     matchId: match.id,
     status: "completed",
-    participantCount: participants.length,
-    participated: participants.filter((value) => value.participated).length,
+    participantCount: summaryParticipants.length,
+    participated: summaryParticipants.filter((value) => value.participated)
+      .length,
     coachProvenance: assignment.provenance ?? "provider",
   });
 
   return {
     matchId: match.id,
     externalFixtureId: match.externalProviderFixtureId,
-    starters: participants.filter((value) => value.starter).length,
-    substitutes: participants.filter((value) => !value.starter).length,
-    participated: participants.filter((value) => value.participated).length,
-    unusedSubstitutes: participants.filter(
-      (value) => !value.starter && !value.participated,
+    starters: summaryParticipants.filter(
+      (value) => value.squadRole === "starter",
+    ).length,
+    substitutes: summaryParticipants.filter(
+      (value) => value.squadRole === "substitute",
+    ).length,
+    participated: summaryParticipants.filter((value) => value.participated)
+      .length,
+    unusedSubstitutes: summaryParticipants.filter(
+      (value) => value.squadRole === "substitute" && !value.participated,
     ).length,
     players: counts.players,
     participants: counts.participants,
@@ -304,6 +340,57 @@ export async function syncMatchParticipants(
     coachAssignments: counts.coachAssignments,
     coach: { id: coach.id, name: coach.displayName },
     apiRequests: provider.requestCount,
+  };
+}
+
+function verifiedLineupProviderBaseline({
+  match,
+  teamId,
+  providerName,
+  externalTeamId,
+  verifiedLineup,
+}: {
+  match: Awaited<ReturnType<FootballSyncStore["getMatch"]>>;
+  teamId: string;
+  providerName: string;
+  externalTeamId: string;
+  verifiedLineup: Awaited<
+    ReturnType<NonNullable<FootballSyncStore["getVerifiedLineupSnapshot"]>>
+  >;
+}): ProviderParticipantContext | null {
+  if (verifiedLineup === null) return null;
+  if (
+    verifiedLineup.matchId !== match.id ||
+    verifiedLineup.trackedTeamId !== teamId ||
+    verifiedLineup.externalProvider !== providerName ||
+    verifiedLineup.externalFixtureId !== match.externalProviderFixtureId ||
+    verifiedLineup.provenance !== "operator_verified"
+  ) {
+    throw new Error("Verified lineup does not match the fixture.");
+  }
+  return {
+    participants: verifiedLineup.participants.flatMap((participant) =>
+      participant.externalProviderPlayerId === undefined
+        ? []
+        : [
+            {
+              externalTeamId,
+              externalPlayerId: participant.externalProviderPlayerId,
+              name: participant.playerName,
+              ...(participant.shirtNumber === undefined
+                ? {}
+                : { shirtNumber: participant.shirtNumber }),
+              ...(participant.position === undefined
+                ? {}
+                : { position: participant.position }),
+              squadRole: participant.squadRole,
+              participated: participant.participated,
+              ...(participant.enteredAtMinute === undefined
+                ? {}
+                : { enteredAtMinute: participant.enteredAtMinute }),
+            },
+          ],
+    ),
   };
 }
 

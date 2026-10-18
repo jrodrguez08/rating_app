@@ -293,6 +293,100 @@ describe("participant synchronization identities", () => {
     ).rejects.toThrow(/conflicts with the verified assignment/i);
     expect(store.upsertPlayers).not.toHaveBeenCalled();
   });
+
+  it("uses a verified lineup as the baseline when provider participants are delayed", async () => {
+    const store = storeWith();
+    const verifiedAt = "2026-09-07T13:00:00.000Z";
+    const verifiedParticipants = Array.from({ length: 12 }, (_, index) => ({
+      playerId: `verified-player-${index + 1}`,
+      playerName: `Verified Player ${index + 1}`,
+      squadRole: index < 11 ? ("starter" as const) : ("substitute" as const),
+      participationStatus:
+        index < 11
+          ? ("confirmed_starter" as const)
+          : ("unused_substitute" as const),
+      participated: index < 11,
+      identityProvenance:
+        index === 11 ? ("operator_verified" as const) : ("provider" as const),
+      ...(index === 11
+        ? {}
+        : { externalProviderPlayerId: `provider-player-${index + 1}` }),
+      verificationSource: "https://example.com/match-report",
+      verificationReason: "Independent match report confirmation.",
+      verifiedBy: "owner",
+      verifiedAt,
+    }));
+    store.getVerifiedLineupSnapshot = vi.fn().mockResolvedValue({
+      matchId: match.id,
+      trackedTeamId: team.id,
+      externalProvider: "api-football",
+      externalFixtureId: match.externalProviderFixtureId,
+      participants: verifiedParticipants,
+      operatorId: "owner",
+      verificationSource: "https://example.com/match-report",
+      verificationReason: "Independent match report confirmation.",
+      provenance: "operator_verified",
+      verifiedAt,
+      createdAt: verifiedAt,
+      updatedAt: verifiedAt,
+    });
+    store.getVerifiedCoachAssignment = vi.fn().mockResolvedValue({
+      assignment: {
+        matchId: match.id,
+        trackedTeamId: team.id,
+        externalProvider: "api-football",
+        externalFixtureId: match.externalProviderFixtureId,
+        coachId: "coach-verified",
+        verificationSource: "https://example.com/match-report",
+        verificationReason: "Independent match report confirmation.",
+        operatorId: "owner",
+        provenance: "operator_verified",
+        verifiedAt,
+        createdAt: verifiedAt,
+        updatedAt: verifiedAt,
+      },
+      coach: {
+        id: "coach-verified",
+        displayName: "Verified Coach",
+        identityProvenance: "operator_verified",
+        createdAt: verifiedAt,
+        updatedAt: verifiedAt,
+      },
+    });
+    store.replaceMatchParticipantContext = vi.fn().mockResolvedValue({
+      players: counts,
+      participants: counts,
+      coaches: counts,
+      coachAssignments: counts,
+    });
+    const provider = providerWith("unused");
+    provider.getMatchEvidence = vi.fn(async (_fixture, _team, baseline) => ({
+      participants: baseline?.participants ?? [],
+      coach: {
+        status: "unavailable" as const,
+        reason: "ambiguous-coach" as const,
+      },
+    }));
+
+    const result = await syncMatchParticipants(match.id, provider, store);
+
+    expect(provider.getMatchEvidence).toHaveBeenCalledWith(
+      match.externalProviderFixtureId,
+      team.externalProviderId,
+      expect.objectContaining({ participants: expect.any(Array) }),
+      match.kickoffAt,
+    );
+    const baseline = vi.mocked(provider.getMatchEvidence).mock.calls[0][2];
+    expect(baseline?.participants).toHaveLength(11);
+    expect(result).toMatchObject({
+      starters: 11,
+      substitutes: 1,
+      participated: 11,
+      unusedSubstitutes: 1,
+      coach: { id: "coach-verified", name: "Verified Coach" },
+    });
+    expect(store.replaceMatchParticipantContext).toHaveBeenCalledOnce();
+  });
 });
 
 const team: Team = {

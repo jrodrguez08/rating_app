@@ -4,6 +4,7 @@ import { getServerAuth } from "@/lib/firebase/server";
 import {
   ADMIN_ACTION_COOKIE,
   ADMIN_CSRF_COOKIE,
+  ADMIN_LINEUP_ACTION_COOKIE,
   ADMIN_SESSION_COOKIE,
 } from "@/lib/server/admin-auth";
 import {
@@ -23,6 +24,12 @@ export async function POST(request: NextRequest) {
       httpOnly: true,
       sameSite: "strict",
       path: "/api/admin/coach-assignment/apply",
+      maxAge: 0,
+    });
+    response.cookies.set(ADMIN_LINEUP_ACTION_COOKIE, "", {
+      httpOnly: true,
+      sameSite: "strict",
+      path: "/api/admin/lineup/apply",
       maxAge: 0,
     });
     return response;

@@ -27,18 +27,22 @@ describe("admin console", () => {
         messages={messages}
         teamId="club-sport-herediano"
         overview={{
-          matches: [
+          upcomingLiveMatches: [],
+          attentionMatches: [
             {
               id: "match-1",
               externalFixtureId: "fixture-1",
               kickoffAt: "2026-10-18T20:00:00.000Z",
               homeTeamName: "Equipo local",
               awayTeamName: "Equipo visitante",
+              status: "finished",
+              ratingState: "preparing_rating",
               diagnostic: "ambiguous_coach",
               participantCount: 22,
               rateableParticipantCount: 11,
             },
           ],
+          votingCompletedMatches: [],
           coaches: [
             {
               id: "coach-1",
@@ -50,8 +54,8 @@ describe("admin console", () => {
       />,
     );
     expect(
-      screen.getByText(/Identidad del director ambigua/),
-    ).toBeInTheDocument();
+      screen.getAllByText(/Identidad del director ambigua/),
+    ).not.toHaveLength(0);
     expect(screen.getByLabelText(messages.manualCoachId)).toHaveValue("");
     expect(
       screen.getByRole("button", { name: messages.preview }),
