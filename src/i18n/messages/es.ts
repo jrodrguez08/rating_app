@@ -264,6 +264,8 @@ export const esMessages = {
     email: "Correo electrónico",
     password: "Contraseña",
     signIn: "Ingresar",
+    signingIn: "Iniciando sesión…",
+    signingInStatus: "Autenticando y preparando la consola administrativa.",
     signOut: "Cerrar sesión",
     unavailable: "La consola administrativa no está configurada.",
     noMatches: "No hay partidos bloqueados que requieran intervención.",
@@ -311,6 +313,13 @@ export const esMessages = {
     readinessHelp:
       "El final confirmado indica cuándo el ciclo observó FT; no representa el minuto exacto del pitazo final. La acción vuelve a consultar el proveedor y deja que el ciclo normal valide FT, participantes y director técnico.",
     requestLifecycle: "Verificar preparación y solicitar sincronización",
+    lifecycleUnavailableScheduled:
+      "Disponible cuando el partido esté en vivo o finalizado.",
+    lifecycleUnavailableVoting:
+      "La votación ya está abierta para este partido.",
+    lifecycleUnavailableFinalized: "El partido ya tiene resultados publicados.",
+    lifecycleUnavailableState:
+      "La acción no está disponible para el estado actual del partido.",
     lifecyclePreview:
       "La solicitud está vinculada a este equipo y fixture. Requiere la frase de autorización y la confirmación exacta antes de ejecutar el ciclo normal.",
     lifecycleRequestAccepted: "La solicitud del ciclo fue aceptada.",
@@ -384,6 +393,9 @@ export const esMessages = {
     reason: "Motivo de verificación",
     preview: "Generar vista previa",
     previewTitle: "Plan de cambios",
+    currentVsProposed: "Estado actual y propuesta",
+    noDraftChanges: "La propuesta conserva la evidencia precargada.",
+    notSelected: "No seleccionado",
     passphrase: "Frase de autorización",
     authorize: "Autorizar operación",
     confirmation: "Confirmación exacta",
@@ -399,18 +411,69 @@ export const esMessages = {
     historicalReadOnly:
       "Este partido es de solo lectura porque la votación ya comenzó o los resultados fueron publicados.",
     playerSelection: "Selección de jugadores",
+    canonicalRoster: "Plantel canónico",
     searchPlayers: "Buscar jugador canónico",
+    searchPlayersHelp:
+      "Busque por nombre. Los resultados pertenecen al equipo configurado.",
+    searchingPlayers: "Buscando jugadores…",
+    playerSearchError: "No fue posible buscar jugadores en este momento.",
     noPlayers: "No hay jugadores disponibles con esa búsqueda.",
+    canonicalIdentity: "Identidad canónica existente",
+    internalCanonicalIdentity: "Identidad interna verificada",
+    metadataUnavailable: "Datos no disponibles",
+    playerAvatar: "Identificación de {player}",
+    positions: {
+      goalkeeper: "Portero",
+      defender: "Defensa",
+      midfielder: "Mediocampista",
+      attacker: "Delantero",
+    },
     addStarter: "Agregar titular",
     addSubstitute: "Agregar suplente",
     internalIdentity: "Agregar identidad interna verificada",
     internalIdentityHelp:
       "Use esta opción solo cuando la identidad fue verificada de forma independiente y no existe un ID utilizable del proveedor.",
+    internalIdentityConfirmation:
+      "Confirmo que verifiqué esta identidad para el equipo y fixture seleccionados.",
     internalPlayerId: "ID interno estable",
     playerName: "Nombre del jugador",
     starters: "Titulares confirmados",
     substitutes: "Suplentes",
+    availableSubstitutes: "Suplentes disponibles / No ingresaron",
+    enteredSubstitutes: "Ingresaron al campo",
+    unconfirmedParticipation: "Participación sin confirmar",
+    startersHelp:
+      "Se requieren exactamente 11 titulares verificados antes de aplicar.",
+    availableSubstitutesHelp:
+      "Estar en el banquillo no confirma participación y no vuelve elegible al jugador.",
+    enteredSubstitutesHelp:
+      "Solo jugadores con participación verificada serán elegibles para calificar.",
+    unconfirmedParticipationHelp:
+      "Mantenga aquí a quienes todavía no tienen evidencia suficiente de participación.",
     groupEmpty: "Todavía no hay jugadores en este grupo.",
+    move: "Mover",
+    dragPlayer: "Mover a {player}",
+    dragInstructions:
+      "Presione espacio para tomar al jugador, use las flechas para moverlo y presione espacio para soltarlo. También puede usar los botones de acción.",
+    dragStarted: "Se tomó a {player}.",
+    dragOver: "{player} está sobre {group}.",
+    dragCancelled: "El movimiento fue cancelado.",
+    playerMoved: "{player} se movió a {group}.",
+    playerRemoved: "{player} fue quitado de la preparación.",
+    moveToSubstitutes: "Mover a suplentes",
+    markEntered: "Marcar ingreso",
+    markNotEntered: "Marcar como no ingresó",
+    markUnconfirmed: "Marcar sin confirmar",
+    removeFromPreparation: "Quitar de la preparación",
+    restorePreload: "Restaurar datos precargados",
+    draftRestored: "Se restauró la evidencia precargada.",
+    preloadSummary:
+      "Evidencia precargada: {starters} titulares y {substitutes} suplentes.",
+    preloadedEvidence: "Evidencia precargada",
+    internalIdentityEvidence: "Identidad interna verificada",
+    starterLimitError: "No puede haber más de 11 titulares.",
+    exactStartersRequired:
+      "Hay {count}/11 titulares. Complete exactamente 11 para generar la vista previa.",
     remove: "Quitar",
     role: "Rol en la convocatoria",
     starter: "Titular confirmado",

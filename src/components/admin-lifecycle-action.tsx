@@ -43,6 +43,7 @@ export function AdminLifecycleActionPanel({
   const eligible =
     ["live", "finished"].includes(match.status) &&
     ["not_ready", "preparing_rating"].includes(match.ratingState);
+  const unavailableReason = lifecycleUnavailableReason(match, messages);
 
   async function post(path: string, body: unknown) {
     setError("");
@@ -249,14 +250,21 @@ export function AdminLifecycleActionPanel({
         />
       </dl>
       <p className="text-muted text-sm">{messages.readinessHelp}</p>
-      {eligible && !preview ? (
-        <button
-          className="button-primary min-h-11 px-4"
-          disabled={busy}
-          onClick={createPreview}
-        >
-          {busy ? messages.loading : messages.requestLifecycle}
-        </button>
+      {!preview ? (
+        <div className="grid gap-2">
+          <button
+            className="button-primary min-h-11 px-4"
+            disabled={busy || !eligible}
+            onClick={createPreview}
+          >
+            {busy ? messages.loading : messages.requestLifecycle}
+          </button>
+          {!eligible ? (
+            <p className="text-muted text-sm" role="status">
+              {unavailableReason}
+            </p>
+          ) : null}
+        </div>
       ) : null}
       {preview ? (
         <div className="grid gap-4">
@@ -335,6 +343,19 @@ export function AdminLifecycleActionPanel({
       ) : null}
     </section>
   );
+}
+
+function lifecycleUnavailableReason(
+  match: AdminMatchOperation,
+  messages: AdminMessages,
+): string {
+  if (match.ratingState === "rating_ready")
+    return messages.lifecycleUnavailableVoting;
+  if (match.ratingState === "rating_closed")
+    return messages.lifecycleUnavailableFinalized;
+  if (match.status === "scheduled")
+    return messages.lifecycleUnavailableScheduled;
+  return messages.lifecycleUnavailableState;
 }
 
 function ReadinessItem({ label, value }: { label: string; value: string }) {
