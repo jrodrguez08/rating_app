@@ -7,9 +7,11 @@ import type {
   Match,
   MatchParticipant,
   Player,
+  PlayerProviderAlias,
   VerifiedCoachAssignment,
   VerifiedLineupSnapshot,
 } from "@/domain/models";
+import { playerProviderAliasId } from "@/domain/player-identity";
 import { getServerFirestore } from "@/lib/firebase/server";
 
 export interface AdminMatchOperation {
@@ -70,25 +72,28 @@ export interface AdminPlayerOption {
   id: string;
   name: string;
   position?: Player["position"];
+  photoUrl?: string;
   identityProvenance: "provider" | "operator_verified";
 }
 
+export type AdminParticipantEvidence = Pick<
+  MatchParticipant,
+  | "playerId"
+  | "playerName"
+  | "squadRole"
+  | "participated"
+  | "participationStatus"
+  | "shirtNumber"
+  | "position"
+  | "enteredAtMinute"
+  | "identityProvenance"
+  | "participationProvenance"
+  | "verificationSource"
+>;
+
 export interface AdminMatchDetail {
   match: AdminMatchOperation;
-  participants: Array<
-    Pick<
-      MatchParticipant,
-      | "playerId"
-      | "playerName"
-      | "squadRole"
-      | "participated"
-      | "participationStatus"
-      | "shirtNumber"
-      | "position"
-      | "enteredAtMinute"
-      | "identityProvenance"
-    >
-  >;
+  participants: AdminParticipantEvidence[];
   players: AdminPlayerOption[];
 }
 
@@ -150,37 +155,62 @@ export class AdminConsoleService {
     if (!matchSnapshot.exists) return null;
     const match = fromSnapshot<Match>(matchSnapshot);
     if (match.trackedTeamId !== initialClub.teamId) return null;
-    const [participantSnapshot, playerSnapshot, metadataSnapshot] =
+    const [participantSnapshot, verifiedSnapshot, metadataSnapshot] =
       await Promise.all([
         this.database.collection(`matches/${matchId}/participants`).get(),
-        this.database
-          .collection("players")
-          .where("currentTeamId", "==", initialClub.teamId)
-          .limit(150)
-          .get(),
+        this.database.doc(`matches/${matchId}/verifiedLineups/current`).get(),
         this.database.doc(`footballSyncMetadata/${initialClub.teamId}`).get(),
       ]);
-    const participants = participantSnapshot.docs.map((snapshot) =>
+    const persistedParticipants = participantSnapshot.docs.map((snapshot) =>
       fromSnapshot<MatchParticipant>(snapshot),
     );
-    const players = new Map(
-      playerSnapshot.docs.map((snapshot) => {
+    const verified = verifiedSnapshot.exists
+      ? fromSnapshot<VerifiedLineupSnapshot>(verifiedSnapshot)
+      : undefined;
+    if (
+      verified &&
+      (verified.matchId !== match.id ||
+        verified.trackedTeamId !== match.trackedTeamId ||
+        verified.externalFixtureId !== match.externalProviderFixtureId)
+    ) {
+      throw new Error("Verified lineup binding is invalid.");
+    }
+    const participants: AdminParticipantEvidence[] = verified
+      ? verified.participants.map((participant) => ({
+          playerId: participant.playerId,
+          playerName: participant.playerName,
+          ...(participant.shirtNumber === undefined
+            ? {}
+            : { shirtNumber: participant.shirtNumber }),
+          ...(participant.position === undefined
+            ? {}
+            : { position: participant.position }),
+          squadRole: participant.squadRole,
+          participated: participant.participated,
+          participationStatus: participant.participationStatus,
+          identityProvenance: participant.identityProvenance,
+          participationProvenance: "operator_verified",
+          verificationSource: participant.verificationSource,
+          ...(participant.enteredAtMinute === undefined
+            ? {}
+            : { enteredAtMinute: participant.enteredAtMinute }),
+        }))
+      : persistedParticipants.filter(
+          (participant) => participant.teamId === match.trackedTeamId,
+        );
+    const playerSnapshots =
+      participants.length === 0
+        ? []
+        : await this.database.getAll(
+            ...participants.map(({ playerId }) =>
+              this.database.doc(`players/${playerId}`),
+            ),
+          );
+    const players = new Map<string, Player>();
+    for (const snapshot of playerSnapshots) {
+      if (snapshot.exists) {
         const player = fromSnapshot<Player>(snapshot);
-        return [player.id, player] as const;
-      }),
-    );
-    const missingIds = participants
-      .map(({ playerId }) => playerId)
-      .filter((playerId) => !players.has(playerId));
-    if (missingIds.length > 0) {
-      const missing = await this.database.getAll(
-        ...missingIds.map((id) => this.database.doc(`players/${id}`)),
-      );
-      for (const snapshot of missing) {
-        if (snapshot.exists) {
-          const player = fromSnapshot<Player>(snapshot);
-          players.set(player.id, player);
-        }
+        players.set(player.id, player);
       }
     }
     const describedMatch = await this.describeMatch(match);
@@ -236,18 +266,114 @@ export class AdminConsoleService {
         ...(participant.identityProvenance
           ? { identityProvenance: participant.identityProvenance }
           : {}),
+        ...(participant.participationProvenance
+          ? { participationProvenance: participant.participationProvenance }
+          : {}),
+        ...(participant.verificationSource
+          ? { verificationSource: participant.verificationSource }
+          : {}),
       })),
       players: [...players.values()]
         .map((player) => ({
           id: player.id,
           name: player.displayName,
           ...(player.position ? { position: player.position } : {}),
+          ...(player.photoUrl ? { photoUrl: player.photoUrl } : {}),
           identityProvenance:
             player.identityProvenance ??
             (player.externalProviderId ? "provider" : "operator_verified"),
         }))
         .sort((left, right) => left.name.localeCompare(right.name, "es")),
     };
+  }
+
+  async searchPlayers(query: string): Promise<AdminPlayerOption[]> {
+    const normalizedQuery = normalizeSearch(query).slice(0, 80);
+    const snapshot = await this.database
+      .collection("players")
+      .where("currentTeamId", "==", initialClub.teamId)
+      .limit(150)
+      .get();
+    const observedPlayers = snapshot.docs.map((document) =>
+      fromSnapshot<Player>(document),
+    );
+    const providerPlayers = observedPlayers.filter(
+      (player) => player.externalProvider && player.externalProviderId,
+    );
+    const aliasSnapshots =
+      providerPlayers.length === 0
+        ? []
+        : await this.database.getAll(
+            ...providerPlayers.map((player) =>
+              this.database.doc(
+                `playerProviderAliases/${playerProviderAliasId(
+                  player.externalProvider!,
+                  player.externalProviderId!,
+                )}`,
+              ),
+            ),
+          );
+    const aliases = new Map<string, PlayerProviderAlias>();
+    aliasSnapshots.forEach((aliasSnapshot, index) => {
+      if (aliasSnapshot.exists) {
+        aliases.set(
+          providerPlayers[index].id,
+          fromSnapshot<PlayerProviderAlias>(aliasSnapshot),
+        );
+      }
+    });
+    const canonicalIds = new Set(
+      aliases.values().map(({ canonicalPlayerId }) => canonicalPlayerId),
+    );
+    const players = new Map(
+      observedPlayers.map((player) => [player.id, player] as const),
+    );
+    const missingCanonicalIds = [...canonicalIds].filter(
+      (playerId) => !players.has(playerId),
+    );
+    if (missingCanonicalIds.length > 0) {
+      const canonicalSnapshots = await this.database.getAll(
+        ...missingCanonicalIds.map((playerId) =>
+          this.database.doc(`players/${playerId}`),
+        ),
+      );
+      for (const canonicalSnapshot of canonicalSnapshots) {
+        if (canonicalSnapshot.exists) {
+          const player = fromSnapshot<Player>(canonicalSnapshot);
+          players.set(player.id, player);
+        }
+      }
+    }
+    const resolved = new Map<string, Player>();
+    for (const observed of observedPlayers) {
+      const canonicalId =
+        aliases.get(observed.id)?.canonicalPlayerId ?? observed.id;
+      const canonical = players.get(canonicalId);
+      if (
+        !canonical ||
+        canonical.currentTeamId !== initialClub.teamId ||
+        (normalizedQuery.length > 0 &&
+          !normalizeSearch(observed.displayName).includes(normalizedQuery) &&
+          !normalizeSearch(canonical.displayName).includes(normalizedQuery))
+      ) {
+        continue;
+      }
+      resolved.set(canonical.id, canonical);
+    }
+    return [...resolved.values()]
+      .sort((left, right) =>
+        left.displayName.localeCompare(right.displayName, "es"),
+      )
+      .slice(0, 20)
+      .map((player) => ({
+        id: player.id,
+        name: player.displayName,
+        ...(player.position ? { position: player.position } : {}),
+        ...(player.photoUrl ? { photoUrl: player.photoUrl } : {}),
+        identityProvenance:
+          player.identityProvenance ??
+          (player.externalProviderId ? "provider" : "operator_verified"),
+      }));
   }
 
   private async describeMatch(match: Match): Promise<AdminMatchOperation> {
@@ -366,6 +492,14 @@ export class AdminConsoleService {
         : {}),
     };
   }
+}
+
+function normalizeSearch(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("es")
+    .trim();
 }
 
 function fromSnapshot<T>(snapshot: {

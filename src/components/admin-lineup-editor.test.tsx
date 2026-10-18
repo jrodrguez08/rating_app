@@ -1,6 +1,6 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getMessages } from "@/i18n/messages";
 import type { AdminMatchDetail } from "@/lib/firebase/admin-console";
@@ -10,84 +10,266 @@ import { AdminLineupEditor } from "./admin-lineup-editor";
 const messages = getMessages("es").admin;
 
 describe("admin lineup editor", () => {
-  it("renders Spanish preparation controls with explicit participant states", async () => {
-    const user = userEvent.setup();
-    render(
-      <AdminLineupEditor
-        detail={detail("preparing_rating")}
-        messages={messages}
-        teamId="club-sport-herediano"
-      />,
-    );
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("preloads provider starters, bench, entrants, and unknown participation", () => {
+    renderEditor(detail("preparing_rating"));
 
     expect(
-      screen.getByRole("heading", { name: /Titulares confirmados \(11\/11\)/ }),
-    ).toBeInTheDocument();
+      screen.getByRole("heading", { name: messages.starters }),
+    ).toBeVisible();
+    expect(screen.getByText("11/11")).toBeVisible();
     expect(
-      screen.getByRole("heading", { name: /Suplentes \(1\)/ }),
-    ).toBeInTheDocument();
-    expect(screen.getByLabelText(messages.searchPlayers)).toBeVisible();
-    expect(screen.getByText(messages.lifecycleOwnsVoting)).toBeVisible();
+      screen.getByRole("heading", { name: messages.availableSubstitutes }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("heading", { name: messages.enteredSubstitutes }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("heading", { name: messages.unconfirmedParticipation }),
+    ).toBeVisible();
+    expect(screen.getAllByText(/Proveedor/).length).toBeGreaterThan(0);
+    expect(
+      screen.getByRole("button", { name: "Mover a Jugador 12" }),
+    ).toHaveAttribute("aria-roledescription", "draggable");
     expect(
       screen.getByRole("button", { name: messages.preview }),
     ).toBeEnabled();
+  });
 
-    await user.selectOptions(
-      screen.getByLabelText(messages.participation),
-      "confirmed_substitute",
+  it("marks a substitute as entered through a keyboard-accessible click action", async () => {
+    const user = userEvent.setup();
+    renderEditor(detail("preparing_rating"));
+    const player = screen.getByText("Jugador 12").closest("li");
+    expect(player).not.toBeNull();
+    const markEntered = within(player!).getByRole("button", {
+      name: messages.markEntered,
+    });
+
+    markEntered.focus();
+    await user.keyboard("{Enter}");
+
+    const movedPlayer = screen.getByText("Jugador 12").closest("li");
+    expect(
+      within(movedPlayer!).getByLabelText(messages.entryMinute),
+    ).toBeVisible();
+    expect(
+      screen.getByText(
+        messages.playerMoved
+          .replace("{player}", "Jugador 12")
+          .replace("{group}", messages.enteredSubstitutes),
+      ),
+    ).toBeVisible();
+  });
+
+  it("restores the preloaded evidence after a local draft change", async () => {
+    const user = userEvent.setup();
+    renderEditor(detail("preparing_rating"));
+    const player = screen.getByText("Jugador 12").closest("li");
+    await user.click(
+      within(player!).getByRole("button", { name: messages.markEntered }),
     );
-    expect(screen.getByLabelText(messages.entryMinute)).toHaveAttribute(
-      "type",
-      "number",
+    await user.click(
+      screen.getByRole("button", { name: messages.restorePreload }),
     );
+
+    const restoredPlayer = screen.getByText("Jugador 12").closest("li");
+    expect(
+      within(restoredPlayer!).queryByLabelText(messages.entryMinute),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(messages.draftRestored)).toBeVisible();
+  });
+
+  it("searches the owner-only canonical roster and adds one result", async () => {
+    const user = userEvent.setup();
+    const matchDetail = detail("preparing_rating");
+    matchDetail.participants = matchDetail.participants.slice(0, 10);
+    matchDetail.players = matchDetail.players.slice(0, 10);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          players: [
+            {
+              id: "canonical-new",
+              name: "Jugador Canónico",
+              position: "midfielder",
+              identityProvenance: "provider",
+            },
+          ],
+        }),
+      }),
+    );
+    renderEditor(matchDetail);
+
+    await user.type(screen.getByLabelText(messages.searchPlayers), "Canónico");
+    const result = await screen.findByText("Jugador Canónico");
+    const row = result.closest("li");
+    await user.click(
+      within(row!).getByRole("button", { name: messages.addStarter }),
+    );
+
+    expect(screen.getByText("11/11")).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: messages.preview }),
+    ).toBeEnabled();
+  });
+
+  it("falls back to canonical roster search when no lineup was persisted", async () => {
+    const user = userEvent.setup();
+    const matchDetail = detail("not_ready");
+    matchDetail.participants = [];
+    matchDetail.players = [];
+    delete matchDetail.match.lineupSnapshotAt;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          players: [
+            {
+              id: "canonical-fallback",
+              name: "Jugador Disponible",
+              identityProvenance: "provider",
+            },
+          ],
+        }),
+      }),
+    );
+    renderEditor(matchDetail);
+
+    expect(screen.getByText("0/11")).toBeVisible();
+    await user.type(
+      screen.getByLabelText(messages.searchPlayers),
+      "Disponible",
+    );
+    const result = await screen.findByText("Jugador Disponible");
+    await user.click(
+      within(result.closest("li")!).getByRole("button", {
+        name: messages.addStarter,
+      }),
+    );
+
+    expect(screen.getByText("1/11")).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: messages.preview }),
+    ).toBeDisabled();
+  });
+
+  it("keeps internal identity creation secondary and explicitly verified", async () => {
+    const user = userEvent.setup();
+    const matchDetail = detail("preparing_rating");
+    matchDetail.participants = matchDetail.participants.slice(0, 10);
+    matchDetail.players = matchDetail.players.slice(0, 10);
+    renderEditor(matchDetail);
+
+    await user.click(screen.getByText(messages.internalIdentity));
+    await user.type(
+      screen.getByLabelText(messages.internalPlayerId),
+      "internal-player",
+    );
+    await user.type(
+      screen.getByLabelText(messages.playerName),
+      "Jugador Verificado",
+    );
+    const addStarter = screen.getAllByRole("button", {
+      name: messages.addStarter,
+    })[0];
+    expect(addStarter).toBeDisabled();
+    await user.click(
+      screen.getByLabelText(messages.internalIdentityConfirmation),
+    );
+    expect(addStarter).toBeEnabled();
+    await user.click(addStarter);
+    expect(screen.getByText("11/11")).toBeVisible();
+  });
+
+  it("prevents a twelfth starter and keeps substitute participation explicit", async () => {
+    const user = userEvent.setup();
+    renderEditor(detail("preparing_rating"));
+    const player = screen.getByText("Jugador 12").closest("li");
+    expect(
+      within(player!).getByRole("button", { name: messages.addStarter }),
+    ).toBeDisabled();
+    expect(
+      within(player!).getByRole("button", { name: messages.markEntered }),
+    ).toBeEnabled();
+    await user.click(
+      within(player!).getByRole("button", { name: messages.markEntered }),
+    );
+    expect(screen.getByText("11/11")).toBeVisible();
   });
 
   it("keeps voting and completed matches read-only", () => {
-    render(
-      <AdminLineupEditor
-        detail={detail("rating_ready")}
-        messages={messages}
-        teamId="club-sport-herediano"
-      />,
-    );
+    renderEditor(detail("rating_ready"));
     expect(screen.getByText(messages.historicalReadOnly)).toBeVisible();
     expect(
       screen.queryByRole("button", { name: messages.preview }),
     ).not.toBeInTheDocument();
   });
 
-  it("allows preview with eleven verified starters and no substitutes", () => {
-    const matchDetail = detail("preparing_rating");
-    matchDetail.participants = matchDetail.participants.slice(0, 11);
-    matchDetail.players = matchDetail.players.slice(0, 11);
-    render(
-      <AdminLineupEditor
-        detail={matchDetail}
-        messages={messages}
-        teamId="club-sport-herediano"
-      />,
+  it("shows loading and empty roster search states", async () => {
+    const user = userEvent.setup();
+    let resolveSearch: ((value: unknown) => void) | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockReturnValue(
+        new Promise((resolve) => {
+          resolveSearch = resolve;
+        }),
+      ),
     );
+    renderEditor(detail("preparing_rating"));
+    await user.type(screen.getByLabelText(messages.searchPlayers), "Ausente");
 
-    expect(
-      screen.getByRole("button", { name: messages.preview }),
-    ).toBeEnabled();
+    await waitFor(() =>
+      expect(screen.getByText(messages.searchingPlayers)).toBeVisible(),
+    );
+    resolveSearch?.({ ok: true, json: async () => ({ players: [] }) });
+    await waitFor(() =>
+      expect(screen.getByText(messages.noPlayers)).toBeVisible(),
+    );
   });
 });
+
+function renderEditor(matchDetail: AdminMatchDetail) {
+  return render(
+    <AdminLineupEditor
+      detail={matchDetail}
+      messages={messages}
+      teamId="club-sport-herediano"
+    />,
+  );
+}
 
 function detail(
   ratingState: AdminMatchDetail["match"]["ratingState"],
 ): AdminMatchDetail {
-  const participants = Array.from({ length: 12 }, (_, index) => ({
-    playerId: `player-${index + 1}`,
-    playerName: `Jugador ${index + 1}`,
-    squadRole: index < 11 ? ("starter" as const) : ("substitute" as const),
-    participated: index < 11,
-    participationStatus:
-      index < 11
-        ? ("confirmed_starter" as const)
-        : ("unused_substitute" as const),
-    identityProvenance: "provider" as const,
-  }));
+  const participants: AdminMatchDetail["participants"] = Array.from(
+    { length: 14 },
+    (_, index) => ({
+      playerId: `player-${index + 1}`,
+      playerName: `Jugador ${index + 1}`,
+      squadRole: index < 11 ? "starter" : "substitute",
+      participated: index < 11 || index === 12,
+      participationStatus:
+        index < 11
+          ? "confirmed_starter"
+          : index === 12
+            ? "confirmed_substitute"
+            : index === 13
+              ? "unconfirmed"
+              : "unused_substitute",
+      identityProvenance: "provider",
+      participationProvenance: "provider",
+      ...(index === 12 ? { enteredAtMinute: 62 } : {}),
+      shirtNumber: index + 1,
+      position: index === 0 ? "goalkeeper" : "midfielder",
+    }),
+  );
   return {
     match: {
       id: "match-1",
@@ -97,18 +279,21 @@ function detail(
       awayTeamName: "Visitante",
       status: "finished",
       ratingState,
-      participantCount: 12,
-      rateableParticipantCount: 11,
+      lineupSnapshotAt: "2026-10-18T19:00:00.000Z",
+      participantCount: participants.length,
+      rateableParticipantCount: 12,
       confirmedStarterCount: 11,
-      confirmedSubstituteCount: 0,
-      unconfirmedOrUnusedCount: 1,
+      confirmedSubstituteCount: 1,
+      unconfirmedOrUnusedCount: 2,
       headCoachReady: true,
-      lineupProvenance: "operator_verified",
+      lineupProvenance: "provider",
     },
     participants,
     players: participants.map((participant) => ({
       id: participant.playerId,
       name: participant.playerName,
+      position:
+        participant.position === "goalkeeper" ? "goalkeeper" : "midfielder",
       identityProvenance: "provider",
     })),
   };

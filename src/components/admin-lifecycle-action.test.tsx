@@ -46,4 +46,74 @@ describe("admin lifecycle readiness", () => {
       screen.getByRole("button", { name: messages.requestLifecycle }),
     ).toBeEnabled();
   });
+
+  it.each([
+    ["scheduled", "not_ready", messages.lifecycleUnavailableScheduled],
+    ["finished", "rating_ready", messages.lifecycleUnavailableVoting],
+    ["finished", "rating_closed", messages.lifecycleUnavailableFinalized],
+    ["postponed", "not_ready", messages.lifecycleUnavailableState],
+  ] as const)(
+    "keeps the lifecycle action visible and disabled for %s/%s",
+    (status, ratingState, explanation) => {
+      render(
+        <AdminLifecycleActionPanel
+          teamId="tracked-team"
+          messages={messages}
+          match={{
+            id: `match-${status}-${ratingState}`,
+            externalFixtureId: "fixture-ineligible",
+            kickoffAt: "2026-10-18T18:00:00.000Z",
+            homeTeamName: "Local",
+            awayTeamName: "Visitante",
+            status,
+            ratingState,
+            participantCount: 0,
+            rateableParticipantCount: 0,
+            confirmedStarterCount: 0,
+            confirmedSubstituteCount: 0,
+            unconfirmedOrUnusedCount: 0,
+            headCoachReady: false,
+            lineupProvenance: "unavailable",
+          }}
+        />,
+      );
+
+      expect(
+        screen.getByRole("button", { name: messages.requestLifecycle }),
+      ).toBeDisabled();
+      expect(screen.getByText(explanation)).toBeVisible();
+    },
+  );
+
+  it.each(["live", "finished"] as const)(
+    "enables the lifecycle action for an eligible %s match",
+    (status) => {
+      render(
+        <AdminLifecycleActionPanel
+          teamId="tracked-team"
+          messages={messages}
+          match={{
+            id: `match-${status}`,
+            externalFixtureId: "fixture-eligible",
+            kickoffAt: "2026-10-18T18:00:00.000Z",
+            homeTeamName: "Local",
+            awayTeamName: "Visitante",
+            status,
+            ratingState: "preparing_rating",
+            participantCount: 11,
+            rateableParticipantCount: 11,
+            confirmedStarterCount: 11,
+            confirmedSubstituteCount: 0,
+            unconfirmedOrUnusedCount: 0,
+            headCoachReady: true,
+            lineupProvenance: "provider",
+          }}
+        />,
+      );
+
+      expect(
+        screen.getByRole("button", { name: messages.requestLifecycle }),
+      ).toBeEnabled();
+    },
+  );
 });

@@ -1,22 +1,44 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type Announcements,
+  type DragEndEvent,
+} from "@dnd-kit/core";
 import Link from "next/link";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 
-import type { ParticipationStatus, PlayerPosition } from "@/domain/models";
 import type { Messages } from "@/i18n/messages";
-import type { AdminMatchDetail } from "@/lib/firebase/admin-console";
 import type {
-  AdminLineupAction,
-  AdminLineupParticipantAction,
-} from "@/lib/server/admin-lineup-action";
+  AdminMatchDetail,
+  AdminPlayerOption,
+} from "@/lib/firebase/admin-console";
+import type { AdminLineupAction } from "@/lib/server/admin-lineup-action";
+
+import {
+  buildInitialParticipants,
+  countLane,
+  describeChanges,
+  isLane,
+  isPlayerSearchResponse,
+  laneFor,
+  mergePlayers,
+  participantForLane,
+  type EditableParticipant,
+  type LineupChange,
+  type LineupLane,
+} from "./admin-lineup-draft";
+import {
+  LineupGroup,
+  lineupLaneTitle,
+  RosterResult,
+} from "./admin-lineup-workspace";
 
 type AdminMessages = Messages["admin"];
-
-interface EditableParticipant extends AdminLineupParticipantAction {
-  playerName: string;
-}
-
 export function AdminLineupEditor({
   detail,
   messages,
@@ -26,35 +48,19 @@ export function AdminLineupEditor({
   messages: AdminMessages;
   teamId: string;
 }) {
-  const [participants, setParticipants] = useState<EditableParticipant[]>(() =>
-    detail.participants.map((participant) => ({
-      playerId: participant.playerId,
-      playerName: participant.playerName,
-      createInternalIdentity:
-        participant.identityProvenance === "operator_verified" &&
-        !detail.players.some((player) => player.id === participant.playerId),
-      squadRole: participant.squadRole,
-      participationStatus:
-        participant.participationStatus ??
-        (participant.squadRole === "starter"
-          ? "confirmed_starter"
-          : participant.participated
-            ? "confirmed_substitute"
-            : "unused_substitute"),
-      ...(participant.shirtNumber === undefined
-        ? {}
-        : { shirtNumber: participant.shirtNumber }),
-      ...(isPlayerPosition(participant.position)
-        ? { position: participant.position }
-        : {}),
-      ...(participant.enteredAtMinute === undefined
-        ? {}
-        : { enteredAtMinute: participant.enteredAtMinute }),
-    })),
+  const initialParticipants = useMemo(
+    () => buildInitialParticipants(detail),
+    [detail],
   );
+  const [participants, setParticipants] = useState(initialParticipants);
+  const [knownPlayers, setKnownPlayers] = useState(detail.players);
   const [search, setSearch] = useState("");
+  const [searchResults, setSearchResults] = useState<AdminPlayerOption[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchComplete, setSearchComplete] = useState(false);
   const [internalId, setInternalId] = useState("");
   const [internalName, setInternalName] = useState("");
+  const [internalVerified, setInternalVerified] = useState(false);
   const [evidence, setEvidence] = useState(
     detail.match.verifiedLineup?.verificationSource ?? "",
   );
@@ -68,25 +74,38 @@ export function AdminLineupEditor({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [outcome, setOutcome] = useState("");
-  const selectedIds = useMemo(
-    () => new Set(participants.map(({ playerId }) => playerId)),
-    [participants],
+  const [interactionStatus, setInteractionStatus] = useState(
+    messages.preloadSummary
+      .replace("{starters}", String(countLane(initialParticipants, "starters")))
+      .replace(
+        "{substitutes}",
+        String(
+          initialParticipants.length -
+            countLane(initialParticipants, "starters"),
+        ),
+      ),
   );
-  const availablePlayers = detail.players.filter(
-    (player) =>
-      !selectedIds.has(player.id) &&
-      player.name
-        .toLocaleLowerCase("es")
-        .includes(search.toLocaleLowerCase("es")),
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor),
   );
   const editable = ["not_ready", "preparing_rating"].includes(
     detail.match.ratingState,
   );
-  const starters = participants.filter(
-    (participant) => participant.squadRole === "starter",
+  const selectedIds = useMemo(
+    () => new Set(participants.map(({ playerId }) => playerId)),
+    [participants],
   );
-  const substitutes = participants.filter(
-    (participant) => participant.squadRole === "substitute",
+  const metadata = useMemo(
+    () => new Map(knownPlayers.map((player) => [player.id, player])),
+    [knownPlayers],
+  );
+  const starters = participants.filter(
+    (participant) => laneFor(participant) === "starters",
+  );
+  const changes = useMemo(
+    () => describeChanges(initialParticipants, participants),
+    [initialParticipants, participants],
   );
   const action: AdminLineupAction = {
     matchId: detail.match.id,
@@ -96,6 +115,67 @@ export function AdminLineupEditor({
     verificationSource: evidence,
     verificationReason: reason,
   };
+
+  useEffect(() => {
+    const query = search.trim();
+    if (!editable || query.length === 0) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setSearchLoading(true);
+      try {
+        const response = await fetch(
+          `/api/admin/players?query=${encodeURIComponent(query)}`,
+          { cache: "no-store", signal: controller.signal },
+        );
+        const value: unknown = await response.json();
+        if (!response.ok || !isPlayerSearchResponse(value)) throw new Error();
+        setSearchResults(
+          value.players.filter((player) => !selectedIds.has(player.id)),
+        );
+        setKnownPlayers((current) => mergePlayers(current, value.players));
+        setSearchComplete(true);
+      } catch (caught) {
+        if (caught instanceof DOMException && caught.name === "AbortError")
+          return;
+        setError(messages.playerSearchError);
+        setSearchResults([]);
+        setSearchComplete(true);
+      } finally {
+        if (!controller.signal.aborted) setSearchLoading(false);
+      }
+    }, 200);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [editable, messages.playerSearchError, search, selectedIds]);
+
+  const announcements = useMemo<Announcements>(
+    () => ({
+      onDragStart({ active }) {
+        return messages.dragStarted.replace(
+          "{player}",
+          playerName(participants, String(active.id)),
+        );
+      },
+      onDragOver({ active, over }) {
+        if (!over || !isLane(over.id)) return messages.dragCancelled;
+        return messages.dragOver
+          .replace("{player}", playerName(participants, String(active.id)))
+          .replace("{group}", lineupLaneTitle(String(over.id), messages));
+      },
+      onDragEnd({ active, over }) {
+        if (!over || !isLane(over.id)) return messages.dragCancelled;
+        return messages.playerMoved
+          .replace("{player}", playerName(participants, String(active.id)))
+          .replace("{group}", lineupLaneTitle(String(over.id), messages));
+      },
+      onDragCancel() {
+        return messages.dragCancelled;
+      },
+    }),
+    [messages, participants],
+  );
 
   async function post(path: string, body: unknown) {
     setError("");
@@ -132,45 +212,130 @@ export function AdminLineupEditor({
     setOutcome("");
   }
 
-  function addPlayer(
-    playerId: string,
-    playerName: string,
-    createInternalIdentity: boolean,
-    squadRole: "starter" | "substitute",
-  ) {
+  function replaceParticipants(next: EditableParticipant[], status: string) {
+    setParticipants(next);
+    setInteractionStatus(status);
+    setError("");
+    resetAuthorization();
+  }
+
+  function addPlayer(player: AdminPlayerOption, lane: LineupLane) {
+    if (selectedIds.has(player.id)) {
+      setError(messages.duplicatePlayerError);
+      return;
+    }
+    if (lane === "starters" && starters.length >= 11) {
+      setError(messages.starterLimitError);
+      return;
+    }
+    const participant = participantForLane(
+      {
+        playerId: player.id,
+        playerName: player.name,
+        createInternalIdentity: false,
+        evidenceProvenance: "operator_verified",
+      },
+      lane,
+    );
+    replaceParticipants(
+      [...participants, participant],
+      movedMessage(participant.playerName, lane, messages),
+    );
+    setSearch("");
+    setSearchResults([]);
+  }
+
+  function addInternalPlayer(lane: LineupLane) {
+    const playerId = internalId.trim();
+    const playerNameValue = internalName.trim();
+    if (!internalVerified || !playerId || !playerNameValue) return;
     if (selectedIds.has(playerId)) {
       setError(messages.duplicatePlayerError);
       return;
     }
-    setParticipants((current) => [
-      ...current,
+    if (lane === "starters" && starters.length >= 11) {
+      setError(messages.starterLimitError);
+      return;
+    }
+    const participant = participantForLane(
       {
         playerId,
-        playerName,
-        createInternalIdentity,
-        squadRole,
-        participationStatus:
-          squadRole === "starter" ? "confirmed_starter" : "unused_substitute",
+        playerName: playerNameValue,
+        createInternalIdentity: true,
+        evidenceProvenance: "operator_verified",
       },
-    ]);
-    setSearch("");
+      lane,
+    );
+    setKnownPlayers((current) =>
+      mergePlayers(current, [
+        {
+          id: playerId,
+          name: playerNameValue,
+          identityProvenance: "operator_verified",
+        },
+      ]),
+    );
+    replaceParticipants(
+      [...participants, participant],
+      movedMessage(playerNameValue, lane, messages),
+    );
     setInternalId("");
     setInternalName("");
-    resetAuthorization();
+    setInternalVerified(false);
   }
 
-  function updateParticipant(
-    playerId: string,
-    values: Partial<EditableParticipant>,
-  ) {
+  function movePlayer(playerId: string, lane: LineupLane) {
+    const current = participants.find(
+      (participant) => participant.playerId === playerId,
+    );
+    if (!current || laneFor(current) === lane) return;
+    if (lane === "starters" && starters.length >= 11) {
+      setError(messages.starterLimitError);
+      setInteractionStatus(messages.starterLimitError);
+      return;
+    }
+    replaceParticipants(
+      participants.map((participant) =>
+        participant.playerId === playerId
+          ? participantForLane(participant, lane)
+          : participant,
+      ),
+      movedMessage(current.playerName, lane, messages),
+    );
+  }
+
+  function updateEntryMinute(playerId: string, enteredAtMinute?: number) {
     setParticipants((current) =>
       current.map((participant) =>
         participant.playerId === playerId
-          ? { ...participant, ...values }
+          ? { ...participant, enteredAtMinute }
           : participant,
       ),
     );
     resetAuthorization();
+  }
+
+  function removePlayer(playerId: string) {
+    const current = participants.find(
+      (participant) => participant.playerId === playerId,
+    );
+    if (!current) return;
+    replaceParticipants(
+      participants.filter((participant) => participant.playerId !== playerId),
+      messages.playerRemoved.replace("{player}", current.playerName),
+    );
+  }
+
+  function resetDraft() {
+    replaceParticipants(initialParticipants, messages.draftRestored);
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    if (event.over && isLane(event.over.id)) {
+      movePlayer(String(event.active.id), event.over.id);
+    } else {
+      setInteractionStatus(messages.dragCancelled);
+    }
   }
 
   async function createPreview(event: FormEvent) {
@@ -239,55 +404,7 @@ export function AdminLineupEditor({
       <Link className="button-utility w-fit px-4 py-3" href="/admin">
         {messages.backToConsole}
       </Link>
-      <section className="card grid gap-3 p-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="eyebrow">{messages.matchOperation}</p>
-            <h2 className="mt-2 text-xl font-bold">
-              {detail.match.homeTeamName} {messages.versus}{" "}
-              {detail.match.awayTeamName}
-            </h2>
-          </div>
-          <span className="status-badge">
-            {messages.statuses[detail.match.status]}
-          </span>
-        </div>
-        <div className="game-inset grid gap-1 p-4 text-sm">
-          <span>
-            {messages.fixture}: {detail.match.externalFixtureId}
-          </span>
-          <span>
-            {messages.lifecycle}:{" "}
-            {messages.ratingStates[detail.match.ratingState]}
-          </span>
-          <span>
-            {messages.currentAssignment}:{" "}
-            {detail.match.assignment?.coachName ?? messages.none}
-          </span>
-          <span>
-            {messages.lineupEvidence}:{" "}
-            {detail.match.verifiedLineup
-              ? messages.verifiedPreparation
-              : detail.match.lineupSnapshotAt
-                ? messages.providerPreparation
-                : messages.none}
-          </span>
-          {detail.match.verifiedLineup ? (
-            <>
-              <a
-                className="break-all underline"
-                href={detail.match.verifiedLineup.verificationSource}
-                rel="noreferrer"
-                target="_blank"
-              >
-                {detail.match.verifiedLineup.verificationSource}
-              </a>
-              <span>{detail.match.verifiedLineup.verificationReason}</span>
-            </>
-          ) : null}
-        </div>
-        <p className="text-muted text-sm">{messages.lifecycleOwnsVoting}</p>
-      </section>
+      <MatchSummary detail={detail} messages={messages} />
 
       {!editable ? (
         <section className="card p-5" role="status">
@@ -296,55 +413,53 @@ export function AdminLineupEditor({
       ) : (
         <form className="grid gap-6" onSubmit={createPreview}>
           <section className="card grid gap-4 p-5">
-            <h2 className="score-font text-xl">{messages.playerSelection}</h2>
+            <div>
+              <p className="eyebrow">{messages.canonicalRoster}</p>
+              <h2 className="score-font mt-2 text-xl">
+                {messages.playerSelection}
+              </h2>
+            </div>
             <label className="grid gap-2">
               <span>{messages.searchPlayers}</span>
               <input
                 className="game-inset min-h-11 px-3"
                 type="search"
                 value={search}
-                onChange={(event) => setSearch(event.target.value)}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setSearch(value);
+                  setSearchComplete(false);
+                  if (value.trim().length === 0) {
+                    setSearchResults([]);
+                    setSearchLoading(false);
+                  }
+                }}
+                aria-describedby="player-search-status"
               />
             </label>
-            {search ? (
-              <ul className="game-inset grid max-h-64 gap-2 overflow-auto p-3">
-                {availablePlayers.length === 0 ? (
-                  <li className="text-muted text-sm">{messages.noPlayers}</li>
-                ) : (
-                  availablePlayers.map((player) => (
-                    <li
-                      className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--game-border)] pb-2"
-                      key={player.id}
-                    >
-                      <span>{player.name}</span>
-                      <span className="flex flex-wrap gap-2">
-                        <button
-                          className="button-utility min-h-11 px-3"
-                          type="button"
-                          onClick={() =>
-                            addPlayer(player.id, player.name, false, "starter")
-                          }
-                        >
-                          {messages.addStarter}
-                        </button>
-                        <button
-                          className="button-utility min-h-11 px-3"
-                          type="button"
-                          onClick={() =>
-                            addPlayer(
-                              player.id,
-                              player.name,
-                              false,
-                              "substitute",
-                            )
-                          }
-                        >
-                          {messages.addSubstitute}
-                        </button>
-                      </span>
-                    </li>
-                  ))
-                )}
+            <p
+              id="player-search-status"
+              className="text-muted text-sm"
+              role="status"
+              aria-live="polite"
+            >
+              {searchLoading
+                ? messages.searchingPlayers
+                : searchComplete && searchResults.length === 0
+                  ? messages.noPlayers
+                  : messages.searchPlayersHelp}
+            </p>
+            {searchResults.length > 0 ? (
+              <ul className="game-inset grid max-h-72 gap-2 overflow-auto p-3">
+                {searchResults.map((player) => (
+                  <RosterResult
+                    key={player.id}
+                    player={player}
+                    messages={messages}
+                    starterDisabled={starters.length >= 11}
+                    add={addPlayer}
+                  />
+                ))}
               </ul>
             ) : null}
             <details className="game-inset p-4">
@@ -371,24 +486,35 @@ export function AdminLineupEditor({
                     onChange={(event) => setInternalName(event.target.value)}
                   />
                 </label>
+                <label className="flex min-h-11 items-center gap-3">
+                  <input
+                    type="checkbox"
+                    checked={internalVerified}
+                    onChange={(event) =>
+                      setInternalVerified(event.target.checked)
+                    }
+                  />
+                  <span>{messages.internalIdentityConfirmation}</span>
+                </label>
                 <div className="flex flex-wrap gap-2">
                   <button
                     className="button-utility min-h-11 px-3"
                     type="button"
-                    disabled={!internalId || !internalName}
-                    onClick={() =>
-                      addPlayer(internalId, internalName, true, "starter")
+                    disabled={
+                      !internalId ||
+                      !internalName ||
+                      !internalVerified ||
+                      starters.length >= 11
                     }
+                    onClick={() => addInternalPlayer("starters")}
                   >
                     {messages.addStarter}
                   </button>
                   <button
                     className="button-utility min-h-11 px-3"
                     type="button"
-                    disabled={!internalId || !internalName}
-                    onClick={() =>
-                      addPlayer(internalId, internalName, true, "substitute")
-                    }
+                    disabled={!internalId || !internalName || !internalVerified}
+                    onClick={() => addInternalPlayer("available")}
                   >
                     {messages.addSubstitute}
                   </button>
@@ -397,34 +523,52 @@ export function AdminLineupEditor({
             </details>
           </section>
 
-          <ParticipantGroup
-            title={`${messages.starters} (${starters.length}/11)`}
-            participants={starters}
-            messages={messages}
-            update={updateParticipant}
-            remove={(playerId) => {
-              setParticipants((current) =>
-                current.filter(
-                  (participant) => participant.playerId !== playerId,
-                ),
-              );
-              resetAuthorization();
+          <DndContext
+            sensors={sensors}
+            onDragEnd={handleDragEnd}
+            accessibility={{
+              announcements,
+              screenReaderInstructions: {
+                draggable: messages.dragInstructions,
+              },
             }}
-          />
-          <ParticipantGroup
-            title={`${messages.substitutes} (${substitutes.length})`}
-            participants={substitutes}
-            messages={messages}
-            update={updateParticipant}
-            remove={(playerId) => {
-              setParticipants((current) =>
-                current.filter(
-                  (participant) => participant.playerId !== playerId,
-                ),
-              );
-              resetAuthorization();
-            }}
-          />
+          >
+            <div className="grid gap-4 lg:grid-cols-2">
+              {(
+                ["starters", "available", "entered", "unconfirmed"] as const
+              ).map((lane) => (
+                <LineupGroup
+                  key={lane}
+                  lane={lane}
+                  participants={participants.filter(
+                    (participant) => laneFor(participant) === lane,
+                  )}
+                  metadata={metadata}
+                  messages={messages}
+                  starterCount={starters.length}
+                  move={movePlayer}
+                  remove={removePlayer}
+                  updateEntryMinute={updateEntryMinute}
+                />
+              ))}
+            </div>
+          </DndContext>
+
+          <div
+            className="game-inset flex flex-wrap items-center justify-between gap-3 p-4 text-sm"
+            role="status"
+            aria-live="polite"
+          >
+            <span>{interactionStatus}</span>
+            <button
+              className="button-utility min-h-11 px-3"
+              type="button"
+              disabled={changes.length === 0}
+              onClick={resetDraft}
+            >
+              {messages.restorePreload}
+            </button>
+          </div>
 
           <section className="card grid gap-4 p-5">
             <h2 className="score-font text-xl">{messages.evidenceTitle}</h2>
@@ -455,6 +599,14 @@ export function AdminLineupEditor({
                 required
               />
             </label>
+            {starters.length !== 11 ? (
+              <p className="text-warning" role="status">
+                {messages.exactStartersRequired.replace(
+                  "{count}",
+                  String(starters.length),
+                )}
+              </p>
+            ) : null}
             <button
               className="button-primary min-h-11 px-4"
               type="submit"
@@ -480,18 +632,7 @@ export function AdminLineupEditor({
               .replace("{updates}", String(preview.participantUpdates ?? 0))
               .replace("{deletes}", String(preview.participantDeletes ?? 0))}
           </p>
-          <ul className="game-inset grid gap-1 p-4 text-sm">
-            {participants.map((participant) => (
-              <li key={participant.playerId}>
-                {participant.playerName} ·{" "}
-                {
-                  messages.participationStatuses[
-                    participant.participationStatus
-                  ]
-                }
-              </li>
-            ))}
-          </ul>
+          <ChangeList changes={changes} messages={messages} />
           <form className="grid gap-3" onSubmit={authorize}>
             <label className="grid gap-2">
               <span>{messages.passphrase}</span>
@@ -544,123 +685,116 @@ export function AdminLineupEditor({
   );
 }
 
-function ParticipantGroup({
-  title,
-  participants,
+function MatchSummary({
+  detail,
   messages,
-  update,
-  remove,
 }: {
-  title: string;
-  participants: EditableParticipant[];
+  detail: AdminMatchDetail;
   messages: AdminMessages;
-  update: (playerId: string, values: Partial<EditableParticipant>) => void;
-  remove: (playerId: string) => void;
 }) {
   return (
-    <section className="card grid gap-4 p-5">
-      <h2 className="score-font text-xl">{title}</h2>
-      {participants.length === 0 ? (
-        <p className="text-muted text-sm">{messages.groupEmpty}</p>
-      ) : (
-        <ul className="grid gap-3">
-          {participants.map((participant) => (
-            <li
-              className="game-inset grid gap-3 p-4"
-              key={participant.playerId}
+    <section className="card grid gap-3 p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="eyebrow">{messages.matchOperation}</p>
+          <h2 className="mt-2 text-xl font-bold">
+            {detail.match.homeTeamName} {messages.versus}{" "}
+            {detail.match.awayTeamName}
+          </h2>
+        </div>
+        <span className="status-badge">
+          {messages.statuses[detail.match.status]}
+        </span>
+      </div>
+      <div className="game-inset grid gap-1 p-4 text-sm">
+        <span>
+          {messages.fixture}: {detail.match.externalFixtureId}
+        </span>
+        <span>
+          {messages.lifecycle}:{" "}
+          {messages.ratingStates[detail.match.ratingState]}
+        </span>
+        <span>
+          {messages.currentAssignment}:{" "}
+          {detail.match.assignment?.coachName ?? messages.none}
+        </span>
+        <span>
+          {messages.lineupEvidence}:{" "}
+          {detail.match.verifiedLineup
+            ? messages.verifiedPreparation
+            : detail.match.lineupSnapshotAt
+              ? messages.providerPreparation
+              : messages.none}
+        </span>
+        {detail.match.verifiedLineup ? (
+          <>
+            <a
+              className="break-all underline"
+              href={detail.match.verifiedLineup.verificationSource}
+              rel="noreferrer"
+              target="_blank"
             >
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <strong>{participant.playerName}</strong>
-                <button
-                  className="button-utility min-h-11 px-3"
-                  type="button"
-                  onClick={() => remove(participant.playerId)}
-                >
-                  {messages.remove}
-                </button>
-              </div>
-              <label className="grid gap-2">
-                <span>{messages.role}</span>
-                <select
-                  className="game-inset min-h-11 px-3"
-                  value={participant.squadRole}
-                  onChange={(event) => {
-                    const starter = event.target.value === "starter";
-                    update(participant.playerId, {
-                      squadRole: starter ? "starter" : "substitute",
-                      participationStatus: starter
-                        ? "confirmed_starter"
-                        : "unused_substitute",
-                      enteredAtMinute: undefined,
-                    });
-                  }}
-                >
-                  <option value="starter">{messages.starter}</option>
-                  <option value="substitute">{messages.substitute}</option>
-                </select>
-              </label>
-              {participant.squadRole === "substitute" ? (
-                <>
-                  <label className="grid gap-2">
-                    <span>{messages.participation}</span>
-                    <select
-                      className="game-inset min-h-11 px-3"
-                      value={participant.participationStatus}
-                      onChange={(event) => {
-                        const status = event.target
-                          .value as ParticipationStatus;
-                        update(participant.playerId, {
-                          participationStatus: status,
-                          ...(status === "confirmed_substitute"
-                            ? {}
-                            : { enteredAtMinute: undefined }),
-                        });
-                      }}
-                    >
-                      <option value="confirmed_substitute">
-                        {messages.participationStatuses.confirmed_substitute}
-                      </option>
-                      <option value="unused_substitute">
-                        {messages.participationStatuses.unused_substitute}
-                      </option>
-                      <option value="unconfirmed">
-                        {messages.participationStatuses.unconfirmed}
-                      </option>
-                    </select>
-                  </label>
-                  {participant.participationStatus ===
-                  "confirmed_substitute" ? (
-                    <label className="grid gap-2">
-                      <span>{messages.entryMinute}</span>
-                      <input
-                        className="game-inset min-h-11 px-3"
-                        inputMode="numeric"
-                        min={1}
-                        max={130}
-                        type="number"
-                        value={participant.enteredAtMinute ?? ""}
-                        onChange={(event) =>
-                          update(participant.playerId, {
-                            enteredAtMinute: event.target.value
-                              ? Number(event.target.value)
-                              : undefined,
-                          })
-                        }
-                      />
-                    </label>
-                  ) : null}
-                </>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-      )}
+              {detail.match.verifiedLineup.verificationSource}
+            </a>
+            <span>{detail.match.verifiedLineup.verificationReason}</span>
+          </>
+        ) : null}
+      </div>
+      <p className="text-muted text-sm">{messages.lifecycleOwnsVoting}</p>
     </section>
   );
 }
 
-function isPlayerPosition(value: string | undefined): value is PlayerPosition {
-  return ["goalkeeper", "defender", "midfielder", "attacker"].includes(
-    value ?? "",
+function ChangeList({
+  changes,
+  messages,
+}: {
+  changes: LineupChange[];
+  messages: AdminMessages;
+}) {
+  return (
+    <div className="game-inset grid gap-2 p-4 text-sm">
+      <strong>{messages.currentVsProposed}</strong>
+      {changes.length === 0 ? (
+        <p>{messages.noDraftChanges}</p>
+      ) : (
+        <ul className="grid gap-2">
+          {changes.map((change) => (
+            <li key={change.playerId}>
+              <strong>{change.playerName}</strong>:{" "}
+              {displayStatus(change.before, messages)} →{" "}
+              {displayStatus(change.after, messages)}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
+}
+
+function movedMessage(
+  name: string,
+  lane: LineupLane,
+  messages: AdminMessages,
+): string {
+  return messages.playerMoved
+    .replace("{player}", name)
+    .replace("{group}", lineupLaneTitle(lane, messages));
+}
+
+function playerName(
+  participants: EditableParticipant[],
+  playerId: string,
+): string {
+  return (
+    participants.find((participant) => participant.playerId === playerId)
+      ?.playerName ?? playerId
+  );
+}
+
+function displayStatus(
+  status: LineupChange["before"],
+  messages: AdminMessages,
+): string {
+  return status ? messages.participationStatuses[status] : messages.notSelected;
 }

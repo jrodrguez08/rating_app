@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useRef, useState, type FormEvent } from "react";
 import { signInWithEmailAndPassword, signOut } from "firebase/auth";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 import type { Messages } from "@/i18n/messages";
 import { formatDate } from "@/i18n/format";
@@ -16,10 +17,14 @@ import type { AdminCoachAction } from "@/lib/server/admin-coach-action";
 type AdminMessages = Messages["admin"];
 
 export function AdminLogin({ messages }: { messages: AdminMessages }) {
+  const router = useRouter();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const submitting = useRef(false);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submitting.current) return;
+    submitting.current = true;
     setBusy(true);
     setError("");
     const form = new FormData(event.currentTarget);
@@ -39,10 +44,11 @@ export function AdminLogin({ messages }: { messages: AdminMessages }) {
       });
       await signOut(auth);
       if (!response.ok) throw new Error();
-      window.location.reload();
+      router.refresh();
     } catch {
       setError(messages.credentialsError);
       setBusy(false);
+      submitting.current = false;
     }
   }
   return (
@@ -72,12 +78,25 @@ export function AdminLogin({ messages }: { messages: AdminMessages }) {
           {error}
         </p>
       ) : null}
+      {busy ? (
+        <p
+          className="game-inset flex min-h-11 items-center gap-3 px-3 text-sm"
+          role="status"
+          aria-live="polite"
+        >
+          <span
+            className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--game-muted)] border-t-[var(--club-secondary)] motion-reduce:animate-none"
+            aria-hidden="true"
+          />
+          {messages.signingInStatus}
+        </p>
+      ) : null}
       <button
         className="min-h-11 bg-brand px-4 font-bold"
         disabled={busy}
         type="submit"
       >
-        {messages.signIn}
+        {busy ? messages.signingIn : messages.signIn}
       </button>
     </form>
   );
