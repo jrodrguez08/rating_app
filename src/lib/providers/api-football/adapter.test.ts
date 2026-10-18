@@ -431,7 +431,7 @@ describe("ApiFootballAdapter", () => {
     expect(logs).toEqual(
       expect.arrayContaining([
         expect.stringContaining(
-          '"event":"provider.lineup","request":"fixtures/lineups","resultCount":2,"trackedTeamFound":true,"startXI":"present","substitutes":"present","fixtureCoachPresent":true,"fixtureCoachIdUsable":true,"starterCount":11,"substituteCount":2,"classification":"usable"',
+          '"event":"provider.lineup","request":"fixtures/lineups","resultCount":2,"trackedTeamFound":true,"startXI":"present","substitutes":"present","fixtureCoachPresent":true,"fixtureCoachIdUsable":true,"fixtureCoachNameUsable":true,"starterCount":11,"substituteCount":2,"classification":"usable"',
         ),
         expect.stringContaining(
           '"event":"provider.player_statistics","request":"fixtures/players"',
