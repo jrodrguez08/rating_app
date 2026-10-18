@@ -458,9 +458,7 @@ export function AdminLineupEditor({
             <button
               className="button-primary min-h-11 px-4"
               type="submit"
-              disabled={
-                busy || starters.length !== 11 || substitutes.length < 1
-              }
+              disabled={busy || starters.length !== 11}
             >
               {busy ? messages.loading : messages.preview}
             </button>

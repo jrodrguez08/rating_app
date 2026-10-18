@@ -4,8 +4,15 @@ import { deleteApp, initializeApp } from "firebase-admin/app";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { runMatchLifecycle } from "@/application/match-lifecycle";
+import { syncMatchParticipants } from "@/application/sync-match-participants";
 import type { Coach, CoachAssignment, MatchParticipant } from "@/domain/models";
 import { playerProviderAliasId } from "@/domain/player-identity";
+import type {
+  FootballDataProvider,
+  ProviderFixture,
+  ProviderMatchContext,
+} from "@/domain/ports";
 import {
   AdminVerifiedLineupCommitError,
   AdminVerifiedLineupRejectedError,
@@ -13,6 +20,7 @@ import {
   type AdminVerifiedLineupInput,
 } from "@/lib/firebase/admin-lineup";
 import { AdminFootballSyncStore } from "@/lib/firebase/server";
+import { ProviderError } from "@/lib/providers/api-football/errors";
 import {
   adminLineupAuditId,
   hashAdminLineupAction,
@@ -453,11 +461,14 @@ describe("verified lineup preparation persistence", () => {
     await expect(
       store.replaceMatchParticipantContext(matchId, {
         players,
-        participants: providerParticipants,
+        participants: providerParticipants.slice(0, 5),
         coach,
         assignment,
       }),
     ).resolves.toBeDefined();
+    expect(
+      (await database.collection(`matches/${matchId}/participants`).get()).size,
+    ).toBe(12);
     const before = await readDocuments([
       `matches/${matchId}/participants/player-${matchId}-12`,
       `matches/${matchId}/coachAssignments/head-coach`,
@@ -481,12 +492,150 @@ describe("verified lineup preparation persistence", () => {
         `matches/${matchId}/coachAssignments/head-coach`,
       ]),
     ).toEqual(before);
+    const unexpectedParticipant = {
+      ...providerParticipants[0],
+      playerId: "unexpected-player",
+      externalProviderPlayerId: "unexpected-provider-player",
+    };
+    await expect(
+      store.replaceMatchParticipantContext(matchId, {
+        players,
+        participants: [unexpectedParticipant],
+        coach,
+        assignment,
+      }),
+    ).rejects.toThrow(/identity conflicts with the verified lineup/i);
+    await expect(
+      store.replaceMatchParticipantContext(matchId, {
+        players,
+        participants: [
+          {
+            ...providerParticipants[0],
+            squadRole: "substitute",
+            starter: false,
+          },
+        ],
+        coach,
+        assignment,
+      }),
+    ).rejects.toThrow(/participation conflicts with the verified lineup/i);
+    expect(
+      await readDocuments([
+        `matches/${matchId}/participants/player-${matchId}-12`,
+        `matches/${matchId}/coachAssignments/head-coach`,
+      ]),
+    ).toEqual(before);
+  });
+
+  it("opens the normal rating window from an all-internal verified lineup after provider lineup failure", async () => {
+    const matchId = "lineup-manual-lifecycle";
+    const teamId = "team-manual-lifecycle";
+    const input = await seedScenario(matchId, 11, true, teamId);
+    const token = challengeToken(matchId);
+    await seedChallenge(input, token);
+    await service.applyAuthorized(input, token);
+    const verifiedAt = "2026-10-20T22:30:00.000Z";
+    await database.doc(`teams/${teamId}`).set({
+      displayName: "Equipo verificado",
+      shortName: "Verificado",
+      countryName: "Costa Rica",
+      countryCode: "CR",
+      externalProviderId: "815",
+      brandingKey: "verified",
+      createdAt: Timestamp.fromDate(new Date(verifiedAt)),
+      updatedAt: Timestamp.fromDate(new Date(verifiedAt)),
+    });
+    await database.doc("coaches/coach-manual").set({
+      displayName: "Director verificado",
+      identityProvenance: "operator_verified",
+      createdAt: Timestamp.fromDate(new Date(verifiedAt)),
+      updatedAt: Timestamp.fromDate(new Date(verifiedAt)),
+    });
+    await database
+      .doc(`matches/${matchId}/verifiedCoachAssignments/head-coach`)
+      .set({
+        matchId,
+        trackedTeamId: teamId,
+        externalProvider: "api-football",
+        externalFixtureId: `fixture-${matchId}`,
+        coachId: "coach-manual",
+        verificationSource: `https://evidence.example.test/${matchId}`,
+        verificationReason: "Acta oficial revisada para este partido.",
+        operatorId: "owner-verified",
+        provenance: "operator_verified",
+        verifiedAt: Timestamp.fromDate(new Date(verifiedAt)),
+        createdAt: Timestamp.fromDate(new Date(verifiedAt)),
+        updatedAt: Timestamp.fromDate(new Date(verifiedAt)),
+      });
+    const store = new AdminFootballSyncStore(database);
+    const provider = new UnavailableLineupProvider(matchId);
+    const now = new Date("2026-10-20T23:00:00.000Z");
+    const dependencies = {
+      teamId,
+      provider,
+      store,
+      now: () => now,
+      discoverFixtures: async () => undefined,
+      syncParticipants: async (
+        selectedMatchId: string,
+        currentTime: Date,
+        phase: "lineup" | "final",
+      ) =>
+        syncMatchParticipants(
+          selectedMatchId,
+          provider,
+          store,
+          currentTime,
+          phase,
+        ),
+    };
+    const aliasCountBefore = (
+      await database.collection("playerProviderAliases").count().get()
+    ).data().count;
+
+    const first = await runMatchLifecycle(dependencies);
+    const ready = await store.getMatch(matchId);
+    const participants = await database
+      .collection(`matches/${matchId}/participants`)
+      .get();
+    const aliasCountAfter = (
+      await database.collection("playerProviderAliases").count().get()
+    ).data().count;
+    const second = await runMatchLifecycle({
+      ...dependencies,
+      now: () => new Date("2026-10-20T23:30:00.000Z"),
+    });
+
+    expect(first.action).toBe("rating_ready");
+    expect(ready).toMatchObject({
+      ratingState: "rating_ready",
+      votingOpensAt: now.toISOString(),
+      votingClosesAt: "2026-10-21T01:00:00.000Z",
+    });
+    expect(participants.size).toBe(11);
+    expect(
+      participants.docs.every(
+        (participant) =>
+          participant.data().participationProvenance === "operator_verified" &&
+          participant.data().externalProviderPlayerId === undefined,
+      ),
+    ).toBe(true);
+    expect(aliasCountAfter).toBe(aliasCountBefore);
+    expect(second.action).toBe("idle");
+    expect((await store.getMatch(matchId)).votingOpensAt).toBe(
+      ready.votingOpensAt,
+    );
   });
 });
 
-async function seedScenario(matchId: string, participantCount = 12) {
+async function seedScenario(
+  matchId: string,
+  participantCount = 12,
+  internalOnly = false,
+  teamId = "team-verified",
+) {
   await database.doc(`matches/${matchId}`).set({
-    trackedTeamId: "team-verified",
+    trackedTeamId: teamId,
     trackedTeamExternalProviderId: "815",
     competitionId: "competition-1",
     seasonId: "season-1",
@@ -507,18 +656,21 @@ async function seedScenario(matchId: string, participantCount = 12) {
     (_, index) => {
       const number = String(index + 1).padStart(2, "0");
       const playerId = `player-${matchId}-${number}`;
-      batch.set(database.doc(`players/${playerId}`), {
-        displayName: `Jugador ${index + 1}`,
-        identityProvenance: "provider",
-        currentTeamId: "team-verified",
-        externalProvider: "api-football",
-        externalProviderId: `${matchId}-${index + 1}`,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
+      if (!internalOnly) {
+        batch.set(database.doc(`players/${playerId}`), {
+          displayName: `Jugador ${index + 1}`,
+          identityProvenance: "provider",
+          currentTeamId: teamId,
+          externalProvider: "api-football",
+          externalProviderId: `${matchId}-${index + 1}`,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+      }
       return {
         playerId,
-        createInternalIdentity: false,
+        createInternalIdentity: internalOnly,
+        ...(internalOnly ? { playerName: `Jugador ${index + 1}` } : {}),
         squadRole: index < 11 ? ("starter" as const) : ("substitute" as const),
         participationStatus:
           index < 11
@@ -530,13 +682,66 @@ async function seedScenario(matchId: string, participantCount = 12) {
   await batch.commit();
   return {
     matchId,
-    trackedTeamId: "team-verified",
+    trackedTeamId: teamId,
     externalFixtureId: `fixture-${matchId}`,
     participants,
     verificationSource: `https://evidence.example.test/${matchId}`,
     verificationReason: "Acta oficial revisada para este partido.",
     operatorId: "owner-verified",
   } satisfies AdminVerifiedLineupInput;
+}
+
+class UnavailableLineupProvider implements FootballDataProvider {
+  readonly name = "api-football";
+  requestCount = 0;
+
+  constructor(private readonly matchId: string) {}
+
+  async resolveTeam(): Promise<never> {
+    throw new Error("Unexpected team lookup.");
+  }
+
+  async getCompetitionSeasons(): Promise<never> {
+    throw new Error("Unexpected competition lookup.");
+  }
+
+  async getFixtures(): Promise<never> {
+    throw new Error("Unexpected fixture discovery.");
+  }
+
+  async getFixture(): Promise<ProviderFixture> {
+    this.requestCount += 1;
+    return {
+      externalFixtureId: `fixture-${this.matchId}`,
+      externalCompetitionId: "competition-1",
+      providerSeason: 2026,
+      kickoffAt: "2026-10-20T22:00:00.000Z",
+      status: "finished",
+      homeTeam: { externalProviderId: "815", name: "Equipo local" },
+      awayTeam: { externalProviderId: "900", name: "Equipo visitante" },
+      score: { home: 1, away: 0 },
+    };
+  }
+
+  async getMatchContext(): Promise<ProviderMatchContext> {
+    throw new Error("Unexpected legacy context lookup.");
+  }
+
+  async getMatchEvidence(): Promise<never> {
+    this.requestCount += 3;
+    throw new ProviderError(
+      "lineup-unavailable",
+      "Provider lineups, player statistics, and events are unavailable.",
+    );
+  }
+
+  async getLineupContext(): Promise<ProviderMatchContext | null> {
+    throw new Error("Unexpected pre-match lineup lookup.");
+  }
+
+  async getSquad(): Promise<never> {
+    throw new Error("Unexpected squad lookup.");
+  }
 }
 
 async function seedChallenge(input: AdminVerifiedLineupInput, token: string) {

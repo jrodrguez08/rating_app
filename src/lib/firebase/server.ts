@@ -1676,6 +1676,7 @@ export class AdminFootballSyncStore
     const unique = [
       ...new Map(values.map((value) => [value.id, value])).values(),
     ];
+    if (unique.length === 0) return [];
     return this.database.runTransaction(async (transaction) => {
       const references = unique.map((value) =>
         this.database.doc(`playerProviderAliases/${value.id}`),

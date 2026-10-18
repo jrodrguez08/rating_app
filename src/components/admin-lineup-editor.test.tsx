@@ -55,6 +55,23 @@ describe("admin lineup editor", () => {
       screen.queryByRole("button", { name: messages.preview }),
     ).not.toBeInTheDocument();
   });
+
+  it("allows preview with eleven verified starters and no substitutes", () => {
+    const matchDetail = detail("preparing_rating");
+    matchDetail.participants = matchDetail.participants.slice(0, 11);
+    matchDetail.players = matchDetail.players.slice(0, 11);
+    render(
+      <AdminLineupEditor
+        detail={matchDetail}
+        messages={messages}
+        teamId="club-sport-herediano"
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: messages.preview }),
+    ).toBeEnabled();
+  });
 });
 
 function detail(

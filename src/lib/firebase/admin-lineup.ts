@@ -484,7 +484,7 @@ function validateInput(input: AdminVerifiedLineupInput): void {
     !/^[A-Za-z0-9_-]{1,128}$/.test(input.trackedTeamId) ||
     !/^[A-Za-z0-9_-]{1,128}$/.test(input.externalFixtureId) ||
     !/^[A-Za-z0-9_.@:-]{1,128}$/.test(input.operatorId) ||
-    input.participants.length < 12 ||
+    input.participants.length < 11 ||
     input.participants.length > MAX_PARTICIPANTS ||
     !validHttpsUrl(input.verificationSource) ||
     input.verificationReason.trim().length < 10 ||
