@@ -6,7 +6,12 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { runMatchLifecycle } from "@/application/match-lifecycle";
 import { syncMatchParticipants } from "@/application/sync-match-participants";
-import type { Coach, CoachAssignment, MatchParticipant } from "@/domain/models";
+import type {
+  Coach,
+  CoachAssignment,
+  MatchParticipant,
+  VerifiedLineupReconciliation,
+} from "@/domain/models";
 import { playerProviderAliasId } from "@/domain/player-identity";
 import type {
   FootballDataProvider,
@@ -108,6 +113,7 @@ describe("verified lineup preparation persistence", () => {
     ).toMatchObject({
       matchId,
       trackedTeamId: "team-verified",
+      externalProvider: "api-football",
       externalFixtureId: `fixture-${matchId}`,
       provenance: "operator_verified",
       operatorId: input.operatorId,
@@ -547,12 +553,93 @@ describe("verified lineup preparation persistence", () => {
         assignment,
       }),
     ).rejects.toThrow(/participation conflicts with the verified lineup/i);
+    await expect(
+      store.replaceMatchParticipantContext(matchId, {
+        players,
+        participants: [providerParticipants[0], providerParticipants[0]],
+        coach,
+        assignment,
+      }),
+    ).rejects.toThrow(/duplicate canonical identities/i);
     expect(
       await readDocuments([
         `matches/${matchId}/participants/player-${matchId}-12`,
         `matches/${matchId}/coachAssignments/head-coach`,
       ]),
     ).toEqual(before);
+  });
+
+  it("persists reconciliation transitions atomically without erasing conclusive evidence", async () => {
+    const matchId = "lineup-reconciliation-transitions";
+    const store = new AdminFootballSyncStore(database);
+    const receipt = (
+      status: VerifiedLineupReconciliation["status"],
+      reason: string,
+      observedAt: string,
+      providerParticipantCount: number,
+    ): VerifiedLineupReconciliation => ({
+      matchId,
+      trackedTeamId: "team-verified",
+      externalProvider: "api-football",
+      externalFixtureId: `fixture-${matchId}`,
+      status,
+      reason,
+      observedAt,
+      providerParticipantCount,
+    });
+    const conflict = receipt(
+      "conflict",
+      "provider-role-conflict",
+      "2026-10-20T23:00:00.000Z",
+      12,
+    );
+
+    await Promise.all([
+      store.recordVerifiedLineupReconciliation(
+        receipt(
+          "provider_partial",
+          "provider-identities-incomplete",
+          "2026-10-20T22:59:00.000Z",
+          8,
+        ),
+      ),
+      store.recordVerifiedLineupReconciliation(conflict),
+    ]);
+    await store.recordVerifiedLineupReconciliation(
+      receipt(
+        "provider_missing",
+        "provider-lineup-unavailable",
+        "2026-10-20T23:05:00.000Z",
+        0,
+      ),
+    );
+
+    const reference = database.doc(
+      `matches/${matchId}/lineupReconciliations/provider`,
+    );
+    expect((await reference.get()).data()).toMatchObject(conflict);
+
+    const matched = receipt(
+      "matched",
+      "provider-evidence-compatible",
+      "2026-10-20T23:10:00.000Z",
+      12,
+    );
+    await store.recordVerifiedLineupReconciliation(matched);
+    await store.recordVerifiedLineupReconciliation({
+      ...matched,
+      observedAt: "2026-10-20T23:15:00.000Z",
+    });
+    await store.recordVerifiedLineupReconciliation(
+      receipt(
+        "provider_missing",
+        "provider-lineup-unavailable",
+        "2026-10-20T23:20:00.000Z",
+        0,
+      ),
+    );
+
+    expect((await reference.get()).data()).toEqual(matched);
   });
 
   it("opens the normal rating window from an all-internal verified lineup after provider lineup failure", async () => {

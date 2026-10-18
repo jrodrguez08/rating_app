@@ -402,7 +402,7 @@ describe("participant synchronization identities", () => {
       const store = storeWith();
       store.getVerifiedLineupSnapshot = vi
         .fn()
-        .mockResolvedValue(verifiedLineup());
+        .mockResolvedValue(verifiedLineup("provider_backed"));
       store.getVerifiedCoachAssignment = vi
         .fn()
         .mockResolvedValue(verifiedCoach());
@@ -466,6 +466,46 @@ describe("participant synchronization identities", () => {
     ).rejects.toThrow(/conflicts with the verified lineup/i);
     expect(store.recordVerifiedLineupReconciliation).toHaveBeenCalledWith(
       expect.objectContaining({ status: "conflict" }),
+    );
+  });
+
+  it("records an alias conflict without persisting participant context", async () => {
+    const store = storeWith();
+    store.getVerifiedLineupSnapshot = vi
+      .fn()
+      .mockResolvedValue(verifiedLineup("provider_backed"));
+    store.getVerifiedCoachAssignment = vi
+      .fn()
+      .mockResolvedValue(verifiedCoach());
+    store.resolvePlayerProviderAliases = vi
+      .fn()
+      .mockRejectedValue(
+        new Error(
+          "Player provider alias alias-1 conflicts with its persisted canonical identity.",
+        ),
+      );
+    store.replaceMatchParticipantContext = vi.fn();
+    const provider = providerWith("unused");
+    provider.getMatchEvidence = vi.fn().mockResolvedValue({
+      participants: Array.from({ length: 11 }, (_, index) => ({
+        externalTeamId: "815",
+        externalPlayerId: `provider-${index + 1}`,
+        name: `Verified Player ${index + 1}`,
+        squadRole: "starter" as const,
+        participated: true,
+      })),
+      coach: { status: "unavailable", reason: "ambiguous-coach" },
+    });
+
+    await expect(
+      syncMatchParticipants(match.id, provider, store),
+    ).rejects.toThrow(/provider alias.+conflicts/i);
+    expect(store.replaceMatchParticipantContext).not.toHaveBeenCalled();
+    expect(store.recordVerifiedLineupReconciliation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "conflict",
+        reason: "provider-alias-conflict",
+      }),
     );
   });
 
@@ -585,7 +625,9 @@ const match: Match = {
 
 const counts = { created: 1, updated: 0, unchanged: 0 };
 
-function verifiedLineup(identityMode: "manual_only" | "mixed" = "manual_only") {
+function verifiedLineup(
+  identityMode: "manual_only" | "mixed" | "provider_backed" = "manual_only",
+) {
   const verifiedAt = "2026-09-07T13:00:00.000Z";
   return {
     matchId: match.id,
@@ -599,11 +641,13 @@ function verifiedLineup(identityMode: "manual_only" | "mixed" = "manual_only") {
       participationStatus: "confirmed_starter" as const,
       participated: true,
       identityProvenance:
-        identityMode === "mixed" && index === 0
+        identityMode === "provider_backed" ||
+        (identityMode === "mixed" && index === 0)
           ? ("provider" as const)
           : ("operator_verified" as const),
-      ...(identityMode === "mixed" && index === 0
-        ? { externalProviderPlayerId: "provider-player-1" }
+      ...(identityMode === "provider_backed" ||
+      (identityMode === "mixed" && index === 0)
+        ? { externalProviderPlayerId: `provider-${index + 1}` }
         : {}),
       verificationSource: "https://example.com/match-report",
       verificationReason: "Independent match report confirmation.",

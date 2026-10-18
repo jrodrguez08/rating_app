@@ -72,6 +72,7 @@ import {
   playerProviderAliasId,
   providerEntityId,
 } from "@/domain/player-identity";
+import { selectDurableVerifiedLineupReconciliation } from "@/domain/verified-lineup-reconciliation";
 import {
   getEffectiveVotingWindow,
   getVotingWindowState,
@@ -2064,9 +2065,21 @@ export class AdminFootballSyncStore
   async recordVerifiedLineupReconciliation(
     value: VerifiedLineupReconciliation,
   ): Promise<void> {
-    await this.database
-      .doc(`matches/${value.matchId}/lineupReconciliations/provider`)
-      .set(toDocument(value));
+    const reference = this.database.doc(
+      `matches/${value.matchId}/lineupReconciliations/provider`,
+    );
+    await this.database.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(reference);
+      const existing = snapshot.exists
+        ? fromDocument<VerifiedLineupReconciliation>(snapshot)
+        : null;
+      const selected = selectDurableVerifiedLineupReconciliation(
+        existing,
+        value,
+      );
+      if (selected === existing) return;
+      transaction.set(reference, toDocument(selected));
+    });
   }
   upsertCoaches(values: Coach[]) {
     return this.upsert("coaches", values);
@@ -2649,6 +2662,14 @@ function preserveVerifiedParticipants(
   );
   if (verifiedById.size !== verified.participants.length) {
     throw new Error("Verified lineup contains duplicate identities.");
+  }
+  const providerIds = new Set(
+    providerParticipants.map((participant) => participant.playerId),
+  );
+  if (providerIds.size !== providerParticipants.length) {
+    throw new Error(
+      "Provider participants contain duplicate canonical identities that conflict with the verified lineup.",
+    );
   }
   for (const providerParticipant of providerParticipants) {
     const manual = verifiedById.get(providerParticipant.playerId);

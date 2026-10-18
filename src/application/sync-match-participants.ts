@@ -14,6 +14,7 @@ import type {
   SyncWriteCounts,
 } from "@/domain/ports";
 import { providerEntityId } from "@/domain/player-identity";
+import { compareVerifiedLineupEvidence } from "@/domain/verified-lineup-reconciliation";
 import {
   emitOperationalLog,
   type OperationalLogger,
@@ -141,6 +142,7 @@ export async function syncMatchParticipants(
       await recordVerifiedReconciliation(store, {
         matchId: match.id,
         trackedTeamId: team.id,
+        externalProvider: provider.name,
         externalFixtureId: match.externalProviderFixtureId,
         status: "provider_missing",
         reason: "provider-lineup-unavailable",
@@ -242,15 +244,37 @@ export async function syncMatchParticipants(
       `Provider returned a head coach for Team ${context.headCoach.externalTeamId}, not tracked Team ${externalTeamId}.`,
     );
   }
-  const aliases = await store.resolvePlayerProviderAliases(
-    trackedParticipants.map((participant) =>
-      proposedPlayerProviderAlias(
-        provider.name,
-        participant.externalPlayerId,
-        timestamp,
+  let aliases;
+  try {
+    aliases = await store.resolvePlayerProviderAliases(
+      trackedParticipants.map((participant) =>
+        proposedPlayerProviderAlias(
+          provider.name,
+          participant.externalPlayerId,
+          timestamp,
+        ),
       ),
-    ),
-  );
+    );
+  } catch (error) {
+    if (verifiedLineup !== null && isProviderAliasConflict(error)) {
+      emitOperationalLog(log, "participants.verified_evidence", {
+        matchId: match.id,
+        status: "conflict",
+        reason: "provider-alias-conflict",
+      });
+      await recordVerifiedReconciliation(store, {
+        matchId: match.id,
+        trackedTeamId: team.id,
+        externalProvider: provider.name,
+        externalFixtureId: match.externalProviderFixtureId,
+        status: "conflict",
+        reason: "provider-alias-conflict",
+        observedAt: timestamp,
+        providerParticipantCount: trackedParticipants.length,
+      });
+    }
+    throw error;
+  }
   const canonicalIds = new Map(
     aliases.map((alias) => [alias.externalProviderPlayerId, alias]),
   );
@@ -338,6 +362,31 @@ export async function syncMatchParticipants(
     updatedAt: timestamp,
   };
 
+  const comparison =
+    verifiedLineup === null
+      ? null
+      : compareVerifiedLineupEvidence(verifiedLineup, participants);
+  if (comparison?.status === "conflict") {
+    emitOperationalLog(log, "participants.verified_evidence", {
+      matchId: match.id,
+      status: "conflict",
+      reason: comparison.reason,
+      providerParticipantCount: comparison.providerParticipantCount,
+    });
+    await recordVerifiedReconciliation(store, {
+      matchId: match.id,
+      trackedTeamId: team.id,
+      externalProvider: provider.name,
+      externalFixtureId: match.externalProviderFixtureId,
+      ...comparison,
+      observedAt: timestamp,
+    });
+    reconciliationRecorded = true;
+    throw new Error(
+      `Provider evidence conflicts with the verified lineup (${comparison.reason}).`,
+    );
+  }
+
   let counts;
   try {
     counts =
@@ -374,6 +423,7 @@ export async function syncMatchParticipants(
       await recordVerifiedReconciliation(store, {
         matchId: match.id,
         trackedTeamId: team.id,
+        externalProvider: provider.name,
         externalFixtureId: match.externalProviderFixtureId,
         status: "conflict",
         reason: "provider-conflict",
@@ -402,30 +452,26 @@ export async function syncMatchParticipants(
         (participant) => participant.participated,
       ).length,
     });
-    const providerIdentityCount = new Set(
-      participants.map((participant) => participant.playerId),
-    ).size;
-    const status: VerifiedLineupReconciliation["status"] = manualOnlyRecovery
-      ? "provider_missing"
-      : providerIdentityCount < verifiedLineup.participants.length
-        ? "provider_partial"
-        : "matched";
     if (!reconciliationRecorded) {
       await recordVerifiedReconciliation(store, {
         matchId: match.id,
         trackedTeamId: team.id,
+        externalProvider: provider.name,
         externalFixtureId: match.externalProviderFixtureId,
-        status,
-        reason:
-          status === "matched"
-            ? "provider-evidence-compatible"
-            : status === "provider_partial"
-              ? "provider-evidence-incomplete"
-              : "provider-lineup-unavailable",
+        ...(comparison ?? {
+          status: "provider_missing" as const,
+          reason: "provider-lineup-unavailable",
+          providerParticipantCount: 0,
+        }),
         observedAt: timestamp,
-        providerParticipantCount: participants.length,
       });
     }
+    emitOperationalLog(log, "participants.verified_evidence", {
+      matchId: match.id,
+      status: comparison?.status ?? "provider_missing",
+      reason: comparison?.reason ?? "provider-lineup-unavailable",
+      providerParticipantCount: comparison?.providerParticipantCount ?? 0,
+    });
   }
   emitOperationalLog(log, "participants.reconciliation", {
     matchId: match.id,
@@ -457,6 +503,14 @@ export async function syncMatchParticipants(
     coach: { id: coach.id, name: coach.displayName },
     apiRequests: provider.requestCount,
   };
+}
+
+function isProviderAliasConflict(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.message.toLowerCase().includes("player provider alias") &&
+    error.message.toLowerCase().includes("conflict")
+  );
 }
 
 async function recordVerifiedReconciliation(

@@ -286,6 +286,7 @@ export interface AdminLineupDraft {
 export interface VerifiedLineupReconciliation {
   matchId: EntityId;
   trackedTeamId: EntityId;
+  externalProvider: string;
   externalFixtureId: string;
   status: "matched" | "provider_missing" | "provider_partial" | "conflict";
   reason: string;
