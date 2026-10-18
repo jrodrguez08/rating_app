@@ -5,6 +5,7 @@ import type {
   MatchParticipant,
   Player,
   VerifiedCoachAssignment,
+  VerifiedLineupReconciliation,
 } from "@/domain/models";
 import type {
   FootballDataProvider,
@@ -13,6 +14,7 @@ import type {
   SyncWriteCounts,
 } from "@/domain/ports";
 import { providerEntityId } from "@/domain/player-identity";
+import { compareVerifiedLineupEvidence } from "@/domain/verified-lineup-reconciliation";
 import {
   emitOperationalLog,
   type OperationalLogger,
@@ -114,6 +116,7 @@ export async function syncMatchParticipants(
   }
   let evidence = null;
   let manualOnlyRecovery = false;
+  let reconciliationRecorded = false;
   if (phase === "final" && provider.getMatchEvidence !== undefined) {
     try {
       evidence = await provider.getMatchEvidence(
@@ -136,6 +139,17 @@ export async function syncMatchParticipants(
         recovery: "verified-lineup",
       });
       manualOnlyRecovery = true;
+      await recordVerifiedReconciliation(store, {
+        matchId: match.id,
+        trackedTeamId: team.id,
+        externalProvider: provider.name,
+        externalFixtureId: match.externalProviderFixtureId,
+        status: "provider_missing",
+        reason: "provider-lineup-unavailable",
+        observedAt: now.toISOString(),
+        providerParticipantCount: 0,
+      });
+      reconciliationRecorded = true;
     }
   }
   let context;
@@ -230,15 +244,37 @@ export async function syncMatchParticipants(
       `Provider returned a head coach for Team ${context.headCoach.externalTeamId}, not tracked Team ${externalTeamId}.`,
     );
   }
-  const aliases = await store.resolvePlayerProviderAliases(
-    trackedParticipants.map((participant) =>
-      proposedPlayerProviderAlias(
-        provider.name,
-        participant.externalPlayerId,
-        timestamp,
+  let aliases;
+  try {
+    aliases = await store.resolvePlayerProviderAliases(
+      trackedParticipants.map((participant) =>
+        proposedPlayerProviderAlias(
+          provider.name,
+          participant.externalPlayerId,
+          timestamp,
+        ),
       ),
-    ),
-  );
+    );
+  } catch (error) {
+    if (verifiedLineup !== null && isProviderAliasConflict(error)) {
+      emitOperationalLog(log, "participants.verified_evidence", {
+        matchId: match.id,
+        status: "conflict",
+        reason: "provider-alias-conflict",
+      });
+      await recordVerifiedReconciliation(store, {
+        matchId: match.id,
+        trackedTeamId: team.id,
+        externalProvider: provider.name,
+        externalFixtureId: match.externalProviderFixtureId,
+        status: "conflict",
+        reason: "provider-alias-conflict",
+        observedAt: timestamp,
+        providerParticipantCount: trackedParticipants.length,
+      });
+    }
+    throw error;
+  }
   const canonicalIds = new Map(
     aliases.map((alias) => [alias.externalProviderPlayerId, alias]),
   );
@@ -326,6 +362,31 @@ export async function syncMatchParticipants(
     updatedAt: timestamp,
   };
 
+  const comparison =
+    verifiedLineup === null
+      ? null
+      : compareVerifiedLineupEvidence(verifiedLineup, participants);
+  if (comparison?.status === "conflict") {
+    emitOperationalLog(log, "participants.verified_evidence", {
+      matchId: match.id,
+      status: "conflict",
+      reason: comparison.reason,
+      providerParticipantCount: comparison.providerParticipantCount,
+    });
+    await recordVerifiedReconciliation(store, {
+      matchId: match.id,
+      trackedTeamId: team.id,
+      externalProvider: provider.name,
+      externalFixtureId: match.externalProviderFixtureId,
+      ...comparison,
+      observedAt: timestamp,
+    });
+    reconciliationRecorded = true;
+    throw new Error(
+      `Provider evidence conflicts with the verified lineup (${comparison.reason}).`,
+    );
+  }
+
   let counts;
   try {
     counts =
@@ -359,6 +420,16 @@ export async function syncMatchParticipants(
         status: "conflict",
         reason: "provider-conflict",
       });
+      await recordVerifiedReconciliation(store, {
+        matchId: match.id,
+        trackedTeamId: team.id,
+        externalProvider: provider.name,
+        externalFixtureId: match.externalProviderFixtureId,
+        status: "conflict",
+        reason: "provider-conflict",
+        observedAt: timestamp,
+        providerParticipantCount: participants.length,
+      });
     }
     throw error;
   }
@@ -380,6 +451,26 @@ export async function syncMatchParticipants(
       rateableParticipantCount: verifiedLineup.participants.filter(
         (participant) => participant.participated,
       ).length,
+    });
+    if (!reconciliationRecorded) {
+      await recordVerifiedReconciliation(store, {
+        matchId: match.id,
+        trackedTeamId: team.id,
+        externalProvider: provider.name,
+        externalFixtureId: match.externalProviderFixtureId,
+        ...(comparison ?? {
+          status: "provider_missing" as const,
+          reason: "provider-lineup-unavailable",
+          providerParticipantCount: 0,
+        }),
+        observedAt: timestamp,
+      });
+    }
+    emitOperationalLog(log, "participants.verified_evidence", {
+      matchId: match.id,
+      status: comparison?.status ?? "provider_missing",
+      reason: comparison?.reason ?? "provider-lineup-unavailable",
+      providerParticipantCount: comparison?.providerParticipantCount ?? 0,
     });
   }
   emitOperationalLog(log, "participants.reconciliation", {
@@ -412,6 +503,21 @@ export async function syncMatchParticipants(
     coach: { id: coach.id, name: coach.displayName },
     apiRequests: provider.requestCount,
   };
+}
+
+function isProviderAliasConflict(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.message.toLowerCase().includes("player provider alias") &&
+    error.message.toLowerCase().includes("conflict")
+  );
+}
+
+async function recordVerifiedReconciliation(
+  store: FootballSyncStore,
+  value: VerifiedLineupReconciliation,
+): Promise<void> {
+  await store.recordVerifiedLineupReconciliation?.(value);
 }
 
 function validateVerifiedLineup({

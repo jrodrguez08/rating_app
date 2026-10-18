@@ -1,3 +1,8 @@
+import {
+  membershipFromParticipant,
+  membershipFromPlayer,
+  mergeTeamPlayerMembership,
+} from "@/application/team-player-membership";
 import { preserveMonotonicMatchStatus } from "@/domain/match-status";
 import { aggregateMatchResult } from "@/domain/result-aggregation";
 import type {
@@ -13,6 +18,7 @@ import type {
   Season,
   StandingsSnapshot,
   Team,
+  TeamPlayerMembership,
   VerifiedCoachAssignment,
 } from "@/domain/models";
 import type {
@@ -414,8 +420,15 @@ export class EmulatorFootballSyncStore
     return this.upsert("matches", matches, true);
   }
 
-  upsertPlayers(players: Player[]): Promise<SyncWriteCounts> {
-    return this.upsert("players", players);
+  async upsertPlayers(players: Player[]): Promise<SyncWriteCounts> {
+    const counts = await this.upsert("players", players);
+    await this.upsertTeamPlayerMemberships(
+      players.flatMap((player) => {
+        const membership = membershipFromPlayer(player, player.updatedAt);
+        return membership === null ? [] : [membership];
+      }),
+    );
+    return counts;
   }
 
   async resolvePlayerProviderAliases(
@@ -629,7 +642,32 @@ export class EmulatorFootballSyncStore
         this.upsertCoaches([values.coach]),
         this.upsertCoachAssignment(matchId, values.assignment),
       ]);
+    await this.upsertTeamPlayerMemberships(
+      values.participants.map(membershipFromParticipant),
+    );
     return { players, participants, coaches, coachAssignments };
+  }
+
+  private async upsertTeamPlayerMemberships(
+    memberships: TeamPlayerMembership[],
+  ): Promise<void> {
+    for (const membership of memberships) {
+      const collection = `teams/${encodeURIComponent(
+        membership.teamId,
+      )}/playerMemberships`;
+      const existing = await this.get(collection, membership.playerId);
+      await this.put(
+        collection,
+        membership.playerId,
+        mergeTeamPlayerMembership(
+          existing === null
+            ? undefined
+            : (existing as unknown as TeamPlayerMembership),
+          membership,
+        ) as unknown as Record<string, unknown>,
+        existing === null ? membership.createdAt : String(existing.createdAt),
+      );
+    }
   }
 
   private async upsert(

@@ -1,9 +1,15 @@
 import { Timestamp, type Firestore } from "firebase-admin/firestore";
 
+import {
+  membershipFromParticipant,
+  mergeTeamPlayerMembership,
+} from "@/application/team-player-membership";
 import type {
+  AdminLineupDraft,
   Match,
   MatchParticipant,
   Player,
+  TeamPlayerMembership,
   VerifiedLineupParticipant,
   VerifiedLineupSnapshot,
 } from "@/domain/models";
@@ -179,6 +185,9 @@ export class AdminVerifiedLineupService {
       const verifiedReference = this.database.doc(
         `matches/${input.matchId}/verifiedLineups/current`,
       );
+      const draftReference = this.database.doc(
+        `matches/${input.matchId}/lineupDrafts/${input.operatorId}`,
+      );
       const participantCollection = this.database.collection(
         `matches/${input.matchId}/participants`,
       );
@@ -195,6 +204,7 @@ export class AdminVerifiedLineupService {
         matchSnapshot,
         resultSnapshot,
         verifiedSnapshot,
+        draftSnapshot,
         participantSnapshot,
         ballots,
         revisions,
@@ -203,6 +213,7 @@ export class AdminVerifiedLineupService {
         transaction.get(matchReference),
         transaction.get(resultReference),
         transaction.get(verifiedReference),
+        transaction.get(draftReference),
         transaction.get(participantCollection),
         transaction.get(ballotQuery),
         transaction.get(revisionQuery),
@@ -238,6 +249,33 @@ export class AdminVerifiedLineupService {
           fromSnapshot<MatchParticipant>(snapshot),
         ]),
       );
+      const existingDraft = draftSnapshot.exists
+        ? fromSnapshot<AdminLineupDraft>(draftSnapshot)
+        : undefined;
+      if (
+        existingDraft &&
+        (existingDraft.ownerId !== input.operatorId ||
+          existingDraft.matchId !== input.matchId ||
+          existingDraft.trackedTeamId !== input.trackedTeamId ||
+          existingDraft.externalFixtureId !== input.externalFixtureId)
+      ) {
+        throw new AdminVerifiedLineupRejectedError(
+          "Saved lineup draft binding is invalid.",
+        );
+      }
+      const membershipReferences = input.participants.map((participant) =>
+        this.database.doc(
+          `teams/${input.trackedTeamId}/playerMemberships/${participant.playerId}`,
+        ),
+      );
+      const membershipSnapshots = await transaction.getAll(
+        ...membershipReferences,
+      );
+      const draftPlayerIds = new Set(
+        existingDraft?.participants.map(
+          (participant) => participant.playerId,
+        ) ?? [],
+      );
       const timestamp = matchSnapshot.readTime.toDate().toISOString();
       const players: Player[] = [];
       const internalPlayerIds: string[] = [];
@@ -268,9 +306,14 @@ export class AdminVerifiedLineupService {
         }
         const player = fromSnapshot<Player>(snapshot);
         const currentParticipant = existingParticipants.get(player.id);
+        const membership = membershipSnapshots[index].exists
+          ? fromSnapshot<TeamPlayerMembership>(membershipSnapshots[index])
+          : undefined;
         if (
           player.currentTeamId !== input.trackedTeamId &&
-          currentParticipant?.teamId !== input.trackedTeamId
+          currentParticipant?.teamId !== input.trackedTeamId &&
+          membership?.teamId !== input.trackedTeamId &&
+          !draftPlayerIds.has(player.id)
         ) {
           throw new AdminVerifiedLineupRejectedError(
             "Canonical player does not belong to the tracked Team.",
@@ -435,6 +478,16 @@ export class AdminVerifiedLineupService {
           toDocument(participant),
         );
       }
+      materialized.forEach((participant, index) => {
+        const membership = membershipFromParticipant(participant);
+        const existing = membershipSnapshots[index].exists
+          ? fromSnapshot<TeamPlayerMembership>(membershipSnapshots[index])
+          : undefined;
+        transaction.set(
+          membershipReferences[index],
+          toDocument(mergeTeamPlayerMembership(existing, membership)),
+        );
+      });
       for (const document of participantSnapshot.docs) {
         if (!proposedIds.has(document.id)) transaction.delete(document.ref);
       }
@@ -455,6 +508,7 @@ export class AdminVerifiedLineupService {
         updatedAt: timestamp,
       };
       transaction.set(verifiedReference, toDocument(snapshot));
+      if (draftSnapshot.exists) transaction.delete(draftReference);
       transaction.update(challengeReference, {
         consumedAt: Timestamp.fromDate(matchSnapshot.readTime.toDate()),
         committedAuditId: auditId,

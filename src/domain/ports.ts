@@ -15,6 +15,7 @@ import type {
   Team,
   VerifiedCoachAssignment,
   VerifiedLineupSnapshot,
+  VerifiedLineupReconciliation,
 } from "./models";
 
 export interface TeamLookup {
@@ -293,6 +294,9 @@ export interface FootballSyncStore {
   getVerifiedLineupSnapshot?(
     matchId: string,
   ): Promise<VerifiedLineupSnapshot | null>;
+  recordVerifiedLineupReconciliation?(
+    value: VerifiedLineupReconciliation,
+  ): Promise<void>;
   upsertCoaches(coaches: Coach[]): Promise<SyncWriteCounts>;
   upsertCoachAssignment(
     matchId: string,

@@ -52,7 +52,13 @@ export function AdminLineupEditor({
     () => buildInitialParticipants(detail),
     [detail],
   );
+  const [savedParticipants, setSavedParticipants] =
+    useState(initialParticipants);
   const [participants, setParticipants] = useState(initialParticipants);
+  const [draftVersion, setDraftVersion] = useState(detail.draft?.version ?? 0);
+  const [draftStatus, setDraftStatus] = useState<
+    "saved" | "saving" | "unsaved" | "error"
+  >(detail.draft ? "saved" : "unsaved");
   const [knownPlayers, setKnownPlayers] = useState(detail.players);
   const [search, setSearch] = useState("");
   const [searchResults, setSearchResults] = useState<AdminPlayerOption[]>([]);
@@ -104,9 +110,10 @@ export function AdminLineupEditor({
     (participant) => laneFor(participant) === "starters",
   );
   const changes = useMemo(
-    () => describeChanges(initialParticipants, participants),
-    [initialParticipants, participants],
+    () => describeChanges(savedParticipants, participants),
+    [participants, savedParticipants],
   );
+  const hasUnsavedChanges = changes.length > 0 || draftVersion === 0;
   const action: AdminLineupAction = {
     matchId: detail.match.id,
     trackedTeamId: teamId,
@@ -115,35 +122,45 @@ export function AdminLineupEditor({
     verificationSource: evidence,
     verificationReason: reason,
   };
+  const draftAction = {
+    matchId: detail.match.id,
+    trackedTeamId: teamId,
+    externalFixtureId: detail.match.externalFixtureId,
+    baseVersion: draftVersion,
+    participants,
+  };
 
   useEffect(() => {
     const query = search.trim();
-    if (!editable || query.length === 0) return;
+    if (!editable) return;
     const controller = new AbortController();
-    const timer = window.setTimeout(async () => {
-      setSearchLoading(true);
-      try {
-        const response = await fetch(
-          `/api/admin/players?query=${encodeURIComponent(query)}`,
-          { cache: "no-store", signal: controller.signal },
-        );
-        const value: unknown = await response.json();
-        if (!response.ok || !isPlayerSearchResponse(value)) throw new Error();
-        setSearchResults(
-          value.players.filter((player) => !selectedIds.has(player.id)),
-        );
-        setKnownPlayers((current) => mergePlayers(current, value.players));
-        setSearchComplete(true);
-      } catch (caught) {
-        if (caught instanceof DOMException && caught.name === "AbortError")
-          return;
-        setError(messages.playerSearchError);
-        setSearchResults([]);
-        setSearchComplete(true);
-      } finally {
-        if (!controller.signal.aborted) setSearchLoading(false);
-      }
-    }, 200);
+    const timer = window.setTimeout(
+      async () => {
+        setSearchLoading(true);
+        try {
+          const response = await fetch(
+            `/api/admin/players?query=${encodeURIComponent(query)}`,
+            { cache: "no-store", signal: controller.signal },
+          );
+          const value: unknown = await response.json();
+          if (!response.ok || !isPlayerSearchResponse(value)) throw new Error();
+          setSearchResults(
+            value.players.filter((player) => !selectedIds.has(player.id)),
+          );
+          setKnownPlayers((current) => mergePlayers(current, value.players));
+          setSearchComplete(true);
+        } catch (caught) {
+          if (caught instanceof DOMException && caught.name === "AbortError")
+            return;
+          setError(messages.playerSearchError);
+          setSearchResults([]);
+          setSearchComplete(true);
+        } finally {
+          if (!controller.signal.aborted) setSearchLoading(false);
+        }
+      },
+      query.length === 0 ? 0 : 200,
+    );
     return () => {
       window.clearTimeout(timer);
       controller.abort();
@@ -214,6 +231,7 @@ export function AdminLineupEditor({
 
   function replaceParticipants(next: EditableParticipant[], status: string) {
     setParticipants(next);
+    setDraftStatus("unsaved");
     setInteractionStatus(status);
     setError("");
     resetAuthorization();
@@ -234,6 +252,10 @@ export function AdminLineupEditor({
         playerName: player.name,
         createInternalIdentity: false,
         evidenceProvenance: "operator_verified",
+        ...(player.shirtNumber === undefined
+          ? {}
+          : { shirtNumber: player.shirtNumber }),
+        ...(player.position === undefined ? {} : { position: player.position }),
       },
       lane,
     );
@@ -312,6 +334,8 @@ export function AdminLineupEditor({
           : participant,
       ),
     );
+    setDraftStatus("unsaved");
+    setError("");
     resetAuthorization();
   }
 
@@ -327,7 +351,27 @@ export function AdminLineupEditor({
   }
 
   function resetDraft() {
-    replaceParticipants(initialParticipants, messages.draftRestored);
+    replaceParticipants(savedParticipants, messages.draftRestored);
+    setDraftStatus(detail.draft || draftVersion > 0 ? "saved" : "unsaved");
+  }
+
+  async function saveDraft() {
+    setDraftStatus("saving");
+    setError("");
+    try {
+      const result = await post("/api/admin/lineup-draft", draftAction);
+      const nextVersion = Number(result.version);
+      if (!Number.isInteger(nextVersion) || nextVersion <= 0) throw new Error();
+      setDraftVersion(nextVersion);
+      setSavedParticipants(participants);
+      setDraftStatus("saved");
+      setInteractionStatus(messages.draftSaved);
+    } catch (caught) {
+      setDraftStatus("error");
+      setError(
+        caught instanceof Error ? caught.message : messages.draftSaveError,
+      );
+    }
   }
 
   function handleDragEnd(event: DragEndEvent) {
@@ -411,7 +455,7 @@ export function AdminLineupEditor({
           {messages.historicalReadOnly}
         </section>
       ) : (
-        <form className="grid gap-6" onSubmit={createPreview}>
+        <div className="grid gap-6">
           <section className="card grid gap-4 p-5">
             <div>
               <p className="eyebrow">{messages.canonicalRoster}</p>
@@ -429,10 +473,6 @@ export function AdminLineupEditor({
                   const value = event.target.value;
                   setSearch(value);
                   setSearchComplete(false);
-                  if (value.trim().length === 0) {
-                    setSearchResults([]);
-                    setSearchLoading(false);
-                  }
                 }}
                 aria-describedby="player-search-status"
               />
@@ -464,9 +504,10 @@ export function AdminLineupEditor({
             ) : null}
             <details className="game-inset p-4">
               <summary className="cursor-pointer font-bold">
-                {messages.internalIdentity}
+                {messages.advancedActions}
               </summary>
               <div className="mt-4 grid gap-3">
+                <strong>{messages.internalIdentity}</strong>
                 <p className="text-muted text-sm">
                   {messages.internalIdentityHelp}
                 </p>
@@ -570,52 +611,102 @@ export function AdminLineupEditor({
             </button>
           </div>
 
-          <section className="card grid gap-4 p-5">
-            <h2 className="score-font text-xl">{messages.evidenceTitle}</h2>
-            <label className="grid gap-2">
-              <span>{messages.evidence}</span>
-              <input
-                className="game-inset min-h-11 px-3"
-                type="url"
-                value={evidence}
-                onChange={(event) => {
-                  setEvidence(event.target.value);
-                  resetAuthorization();
-                }}
-                required
-              />
-            </label>
-            <label className="grid gap-2">
-              <span>{messages.reason}</span>
-              <textarea
-                className="game-inset min-h-28 p-3"
-                minLength={10}
-                maxLength={500}
-                value={reason}
-                onChange={(event) => {
-                  setReason(event.target.value);
-                  resetAuthorization();
-                }}
-                required
-              />
-            </label>
-            {starters.length !== 11 ? (
-              <p className="text-warning" role="status">
-                {messages.exactStartersRequired.replace(
-                  "{count}",
-                  String(starters.length),
-                )}
-              </p>
-            ) : null}
+          <section className="card grid gap-3 p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="eyebrow">{messages.draftTitle}</p>
+                <p className="text-muted mt-2 text-sm">{messages.draftHelp}</p>
+              </div>
+              <span className="status-badge" role="status" aria-live="polite">
+                {messages.draftStatuses[draftStatus]}
+              </span>
+            </div>
             <button
               className="button-primary min-h-11 px-4"
-              type="submit"
-              disabled={busy || starters.length !== 11}
+              type="button"
+              disabled={draftStatus === "saving" || !hasUnsavedChanges}
+              onClick={saveDraft}
             >
-              {busy ? messages.loading : messages.preview}
+              {draftStatus === "saving"
+                ? messages.savingDraft
+                : messages.saveDraft}
             </button>
           </section>
-        </form>
+
+          <details className="card p-5">
+            <summary className="cursor-pointer font-bold">
+              {messages.confirmVerifiedLineup}
+            </summary>
+            <form className="mt-4 grid gap-4" onSubmit={createPreview}>
+              <div className="game-inset grid gap-2 p-4 text-sm">
+                <strong>{messages.verificationSummary}</strong>
+                <span>
+                  {detail.match.homeTeamName} {messages.versus}{" "}
+                  {detail.match.awayTeamName}
+                </span>
+                <span>
+                  {messages.fixture}: {detail.match.externalFixtureId}
+                </span>
+                <span>
+                  {messages.previewParticipants
+                    .replace("{starters}", String(starters.length))
+                    .replace(
+                      "{substitutes}",
+                      String(participants.length - starters.length),
+                    )
+                    .replace(
+                      "{entered}",
+                      String(countLane(participants, "entered")),
+                    )}
+                </span>
+                <span>{messages.verificationAuthorityHelp}</span>
+              </div>
+              <h2 className="score-font text-xl">{messages.evidenceTitle}</h2>
+              <label className="grid gap-2">
+                <span>{messages.evidence}</span>
+                <input
+                  className="game-inset min-h-11 px-3"
+                  type="url"
+                  value={evidence}
+                  onChange={(event) => {
+                    setEvidence(event.target.value);
+                    resetAuthorization();
+                  }}
+                  required
+                />
+              </label>
+              <label className="grid gap-2">
+                <span>{messages.reason}</span>
+                <textarea
+                  className="game-inset min-h-28 p-3"
+                  minLength={10}
+                  maxLength={500}
+                  value={reason}
+                  onChange={(event) => {
+                    setReason(event.target.value);
+                    resetAuthorization();
+                  }}
+                  required
+                />
+              </label>
+              {starters.length !== 11 ? (
+                <p className="text-warning" role="status">
+                  {messages.exactStartersRequired.replace(
+                    "{count}",
+                    String(starters.length),
+                  )}
+                </p>
+              ) : null}
+              <button
+                className="button-secondary min-h-11 px-4"
+                type="submit"
+                disabled={busy || starters.length !== 11}
+              >
+                {busy ? messages.loading : messages.preview}
+              </button>
+            </form>
+          </details>
+        </div>
       )}
 
       {preview ? (
@@ -738,6 +829,12 @@ function MatchSummary({
             </a>
             <span>{detail.match.verifiedLineup.verificationReason}</span>
           </>
+        ) : null}
+        {detail.reconciliation ? (
+          <span>
+            {messages.reconciliation}:{" "}
+            {messages.reconciliationStatuses[detail.reconciliation.status]}
+          </span>
         ) : null}
       </div>
       <p className="text-muted text-sm">{messages.lifecycleOwnsVoting}</p>

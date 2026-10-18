@@ -405,7 +405,8 @@ export const enMessages = {
     playerSelection: "Player selection",
     canonicalRoster: "Canonical roster",
     searchPlayers: "Search canonical players",
-    searchPlayersHelp: "Search by name. Results belong to the configured Team.",
+    searchPlayersHelp:
+      "Current and historical Team players. Type to filter by name.",
     searchingPlayers: "Searching players…",
     playerSearchError: "Players could not be searched right now.",
     noPlayers: "No available players match that search.",
@@ -422,6 +423,7 @@ export const enMessages = {
     addStarter: "Add starter",
     addSubstitute: "Add substitute",
     internalIdentity: "Add verified internal identity",
+    advancedActions: "Exceptional actions",
     internalIdentityHelp:
       "Use this only when the identity was independently verified and no usable provider ID exists.",
     internalIdentityConfirmation:
@@ -455,8 +457,30 @@ export const enMessages = {
     markNotEntered: "Mark as did not enter",
     markUnconfirmed: "Mark unconfirmed",
     removeFromPreparation: "Remove from preparation",
-    restorePreload: "Restore preloaded data",
-    draftRestored: "The preloaded evidence was restored.",
+    restorePreload: "Restore saved preparation",
+    draftRestored: "The saved preparation was restored.",
+    draftTitle: "Match preparation",
+    draftHelp:
+      "You can save an incomplete lineup. A draft does not create eligibility or open voting.",
+    saveDraft: "Save draft",
+    savingDraft: "Saving draft…",
+    draftSaved: "The draft was saved.",
+    draftSaveError: "The draft could not be saved.",
+    draftStaleError:
+      "The draft changed in another session. Reload the match before saving again.",
+    draftStatuses: {
+      saved: "Saved",
+      saving: "Saving…",
+      unsaved: "Unsaved changes",
+      error: "Save error",
+    },
+    savedDraftEvidence: "Saved draft",
+    confirmVerifiedLineup: "Confirm verified lineup",
+    verificationSummary: "Confirmation summary",
+    verificationAuthorityHelp:
+      "Confirmation creates authoritative evidence for this fixture. It requires independent evidence, authorization, and exact confirmation.",
+    previewParticipants:
+      "{starters} starters, {substitutes} substitutes, and {entered} confirmed entrants.",
     preloadSummary:
       "Preloaded evidence: {starters} starters and {substitutes} substitutes.",
     preloadedEvidence: "Preloaded evidence",
@@ -499,6 +523,13 @@ export const enMessages = {
       "The match already has ballots, results, revisions, or an active window and cannot be recovered this way.",
     coachConflictError:
       "The existing assignment or identity conflicts with the proposal.",
+    reconciliation: "Provider reconciliation",
+    reconciliationStatuses: {
+      matched: "Provider evidence matches",
+      provider_missing: "The provider has not published the lineup yet",
+      provider_partial: "Provider evidence is incomplete",
+      conflict: "Conflict pending review",
+    },
   },
   footer: {
     supporting: "Built for supporters. Ready to grow club by club.",

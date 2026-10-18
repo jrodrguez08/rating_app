@@ -186,6 +186,20 @@ export interface PlayerProviderAlias {
   createdAt: string;
   updatedAt: string;
 }
+export interface TeamPlayerMembership {
+  playerId: EntityId;
+  teamId: EntityId;
+  displayName: string;
+  searchName: string;
+  searchPrefixes: string[];
+  source: "current_squad" | "match_participant" | "operator_verified";
+  sourceMatchId?: EntityId;
+  shirtNumber?: number;
+  firstObservedAt: string;
+  lastObservedAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
 export type SquadRole = "starter" | "substitute";
 export type ParticipationStatus =
   | "confirmed_starter"
@@ -247,6 +261,37 @@ export interface VerifiedLineupSnapshot {
   verifiedAt: string;
   createdAt: string;
   updatedAt: string;
+}
+export interface AdminLineupDraftParticipant {
+  playerId: EntityId;
+  playerName: string;
+  createInternalIdentity: boolean;
+  squadRole: SquadRole;
+  participationStatus: ParticipationStatus;
+  shirtNumber?: number;
+  position?: PlayerPosition;
+  enteredAtMinute?: number;
+}
+export interface AdminLineupDraft {
+  matchId: EntityId;
+  trackedTeamId: EntityId;
+  externalFixtureId: string;
+  ownerId: string;
+  version: number;
+  contentHash: string;
+  participants: AdminLineupDraftParticipant[];
+  createdAt: string;
+  updatedAt: string;
+}
+export interface VerifiedLineupReconciliation {
+  matchId: EntityId;
+  trackedTeamId: EntityId;
+  externalProvider: string;
+  externalFixtureId: string;
+  status: "matched" | "provider_missing" | "provider_partial" | "conflict";
+  reason: string;
+  observedAt: string;
+  providerParticipantCount?: number;
 }
 export interface CoachAssignment {
   matchId: EntityId;

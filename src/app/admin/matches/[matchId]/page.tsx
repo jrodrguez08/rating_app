@@ -25,13 +25,16 @@ export default async function AdminMatchPage({
   params: Promise<{ matchId: string }>;
 }) {
   const cookieStore = await cookies();
+  let ownerId: string;
   try {
-    await verifyAdminSession(cookieStore.get(ADMIN_SESSION_COOKIE)?.value);
+    ownerId = (
+      await verifyAdminSession(cookieStore.get(ADMIN_SESSION_COOKIE)?.value)
+    ).uid;
   } catch {
     redirect("/admin");
   }
   const { matchId } = await params;
-  const detail = await new AdminConsoleService().detail(matchId);
+  const detail = await new AdminConsoleService().detail(matchId, ownerId);
   if (!detail) notFound();
   const messages = getMessages("es").admin;
   return (
