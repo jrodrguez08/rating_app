@@ -57,3 +57,9 @@ Social feeds, comments, fantasy football, betting, player-to-player comparisons,
 ## Future direction
 
 The same team, competition, season, match, participant, ballot, and result concepts can support more clubs and supporter communities. Add teams through data and theming; do not fork the domain or create club-named collections.
+
+## Owner administrative recovery
+
+`/admin` is an unlinked, non-indexed Spanish operator surface for the single configured owner. It lists a bounded set of finished matches still in `preparing_rating`, with persisted lifecycle diagnostics, participation counts, and existing coach evidence. Its first release performs only verified head-coach recovery: select or define a Coach, supply independent HTTPS evidence and a reason, run a zero-write preview, review the exact plan, authorize that exact action with the independent passphrase, type the target confirmation, and apply through the existing verified-coach service. Challenge consumption, the verified assignment, and its success audit commit together. An exact authenticated retry can recover that original receipt without repeating the mutation even after voting opens, ballots arrive, or results publish; an unused expired challenge still fails. The normal lifecycle remains solely responsible for opening voting.
+
+The surface is dormant until the owner Firebase email/password account and all server secrets are configured. Supporter anonymous identity continues in the default Firebase browser app; admin sign-in uses a named in-memory Auth app and exchanges its ID token for a server session before immediately signing out locally.

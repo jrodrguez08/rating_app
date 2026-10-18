@@ -72,6 +72,12 @@ export type MatchStatus =
   | "abandoned";
 export type RatingState =
   "not_ready" | "preparing_rating" | "rating_ready" | "rating_closed";
+export type RatingBlockReason =
+  | "ambiguous_coach"
+  | "missing_coach_evidence"
+  | "missing_participant_evidence"
+  | "provider_failure"
+  | "unknown";
 export interface MatchTeamSnapshot {
   externalProviderId: string;
   name: string;
@@ -102,6 +108,8 @@ export interface Match {
   lastProviderSyncAt?: string;
   lineupSnapshotAt?: string;
   participantSyncedAt?: string;
+  ratingBlockReason?: RatingBlockReason;
+  ratingBlockObservedAt?: string;
   ratingReadyAt?: string;
   votingOpensAt?: string;
   votingClosesAt?: string;

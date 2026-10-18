@@ -312,6 +312,15 @@ async function executeMatchLifecycle({
         fixtureCoachPresent: hasCoach,
         reason: blockingReason,
       });
+      await store.updateMatchLifecycle({
+        ...synced,
+        ratingBlockReason:
+          participantCount < MINIMUM_RATEABLE_PARTICIPANTS
+            ? "missing_participant_evidence"
+            : "missing_coach_evidence",
+        ratingBlockObservedAt: currentTime.toISOString(),
+        updatedAt: currentTime.toISOString(),
+      });
       return {
         action: "preparing_rating",
         matchId: match.id,
@@ -337,6 +346,8 @@ async function executeMatchLifecycle({
     });
     await store.updateMatchLifecycle({
       ...synced,
+      ratingBlockReason: undefined,
+      ratingBlockObservedAt: undefined,
       ratingState: "rating_ready",
       ratingReadyAt: synced.ratingReadyAt ?? currentTime.toISOString(),
       votingOpensAt: opensAt,
@@ -367,8 +378,51 @@ async function executeMatchLifecycle({
       fixtureCoachPresent: readiness.fixtureCoachPresent,
       reason: operationalErrorReason(error),
     });
+    await persistRatingBlock(store, preparing, error, currentTime, log);
     return retryable(provider, match.id, error, "preparing_rating");
   }
+}
+
+async function persistRatingBlock(
+  store: MatchLifecycleStore,
+  match: Match,
+  error: unknown,
+  now: Date,
+  log: OperationalLogger,
+): Promise<void> {
+  try {
+    await store.updateMatchLifecycle({
+      ...match,
+      ratingBlockReason: ratingBlockReason(error),
+      ratingBlockObservedAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    });
+  } catch (persistenceError) {
+    emitOperationalLog(log, "lifecycle.diagnostic", {
+      action: "persistence_failed",
+      matchId: match.id,
+      reason: operationalErrorReason(persistenceError),
+    });
+  }
+}
+
+function ratingBlockReason(error: unknown): Match["ratingBlockReason"] {
+  const reason = operationalErrorReason(error);
+  if (reason.includes("ambiguous") && reason.includes("coach")) {
+    return "ambiguous_coach";
+  }
+  if (reason.includes("coach")) return "missing_coach_evidence";
+  if (
+    reason.includes("request") ||
+    reason.includes("rate-limit") ||
+    reason.includes("api-key")
+  ) {
+    return "provider_failure";
+  }
+  if (reason.includes("lineup") || reason.includes("participant")) {
+    return "missing_participant_evidence";
+  }
+  return "unknown";
 }
 
 async function observePersistedReadiness(

@@ -121,3 +121,7 @@ Public app identity uses a simple project-owned Rating App `R` mark that remains
 - checks at 320px and 200% zoom
 
 Pixel aesthetics never override modern usability.
+
+## Owner console
+
+The private owner console follows the same compact sports-game language without adopting a generic dashboard shell. It uses one narrow responsive column, meaningful hard-bordered panels, readable sans labels and long evidence text, and score typography only for short headings. Forms keep 44px targets, visible focus, semantic labels, explicit error status, and natural wrapping at 320px. The preview is a readable inset plan before the separately authorized apply control. Sensitive confirmation requires typed text and cannot rely on color. Admin strings exist in both message resources, while the current operator presentation is intentionally Spanish.

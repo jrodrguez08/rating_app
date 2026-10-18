@@ -658,6 +658,10 @@ describe("match lifecycle synchronization", () => {
     );
     expect(result.action).toBe("preparing_rating");
     expect(secondStore.matches[0].votingOpensAt).toBeUndefined();
+    expect(secondStore.matches[0]).toMatchObject({
+      ratingBlockReason: "missing_participant_evidence",
+      ratingBlockObservedAt: NOW.toISOString(),
+    });
   });
 
   it("works with the tracked Team home or away and rejects unrelated fixtures", async () => {

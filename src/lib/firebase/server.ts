@@ -67,6 +67,11 @@ import {
   getEffectiveVotingWindow,
   getVotingWindowState,
 } from "@/domain/voting-window";
+import {
+  adminChallengeDocumentId,
+  adminCoachAssignmentAuditId,
+  hashAdminCoachAction,
+} from "@/lib/server/admin-coach-action";
 import { readFirebaseAdminRuntimeConfig } from "@/lib/server/environment";
 
 const TIMESTAMP_FIELDS = new Set([
@@ -839,23 +844,85 @@ export interface VerifiedCoachAssignmentPlan {
   verificationReason: string;
 }
 
+export interface VerifiedCoachAssignmentInput {
+  matchId: string;
+  trackedTeamId: string;
+  externalFixtureId: string;
+  coachId: string;
+  coachName: string;
+  externalProviderCoachId?: string;
+  verificationSource: string;
+  verificationReason: string;
+  operatorId: string;
+}
+
+export interface AuthorizedVerifiedCoachAssignmentResult {
+  plan: VerifiedCoachAssignmentPlan;
+  auditId: string;
+  disposition: "committed" | "idempotent_retry";
+}
+
+export class AdminVerifiedCoachAssignmentRejectedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AdminVerifiedCoachAssignmentRejectedError";
+  }
+}
+
+export class AdminVerifiedCoachAssignmentCommitError extends Error {
+  constructor() {
+    super("Verified coach assignment transaction failed before commit.");
+    this.name = "AdminVerifiedCoachAssignmentCommitError";
+  }
+}
+
 export class AdminVerifiedCoachService {
   constructor(private readonly database = getServerFirestore()) {}
 
   async assign(
-    input: {
-      matchId: string;
-      trackedTeamId: string;
-      externalFixtureId: string;
-      coachId: string;
-      coachName: string;
-      externalProviderCoachId?: string;
-      verificationSource: string;
-      verificationReason: string;
-      operatorId: string;
-    },
+    input: VerifiedCoachAssignmentInput,
     apply: boolean,
   ): Promise<VerifiedCoachAssignmentPlan> {
+    return (await this.execute(input, apply)).plan;
+  }
+
+  async assignAuthorized(
+    input: VerifiedCoachAssignmentInput,
+    challengeToken: string | undefined,
+  ): Promise<AuthorizedVerifiedCoachAssignmentResult> {
+    if (!challengeToken || !/^[A-Za-z0-9_-]{40,64}$/.test(challengeToken)) {
+      throw new AdminVerifiedCoachAssignmentRejectedError(
+        "Admin action challenge is invalid.",
+      );
+    }
+    const challengeId = adminChallengeDocumentId(challengeToken);
+    try {
+      const result = await this.execute(input, true, challengeId);
+      if (!result.auditId || !result.disposition) {
+        throw new Error("Atomic coach assignment did not return an audit.");
+      }
+      return {
+        plan: result.plan,
+        auditId: result.auditId,
+        disposition: result.disposition,
+      };
+    } catch (error) {
+      if (isAlreadyExistsError(error)) {
+        throw new AdminVerifiedCoachAssignmentCommitError();
+      }
+      throw error;
+    }
+  }
+
+  private async execute(
+    input: VerifiedCoachAssignmentInput,
+    apply: boolean,
+    challengeId?: string,
+  ): Promise<{
+    plan: VerifiedCoachAssignmentPlan;
+    auditId?: string;
+    disposition?: "committed" | "idempotent_retry";
+  }> {
     if (
       !/^[A-Za-z0-9_-]{1,128}$/.test(input.matchId) ||
       !/^[A-Za-z0-9_-]{1,128}$/.test(input.trackedTeamId) ||
@@ -870,7 +937,9 @@ export class AdminVerifiedCoachService {
       (input.externalProviderCoachId !== undefined &&
         !/^\d+$/.test(input.externalProviderCoachId))
     ) {
-      throw new Error("Verified coach assignment input is invalid.");
+      throw new AdminVerifiedCoachAssignmentRejectedError(
+        "Verified coach assignment input is invalid.",
+      );
     }
     return this.database.runTransaction(async (transaction) => {
       const matchReference = this.database.doc(`matches/${input.matchId}`);
@@ -887,31 +956,154 @@ export class AdminVerifiedCoachService {
       const ballotQuery = this.database.collection(
         `matches/${input.matchId}/ballots`,
       );
+      const revisionQuery = this.database.collection(
+        `matches/${input.matchId}/resultRevisions`,
+      );
+      const challengeReference = challengeId
+        ? this.database.doc(`adminActionChallenges/${challengeId}`)
+        : undefined;
+      const auditId = challengeId
+        ? adminCoachAssignmentAuditId(challengeId)
+        : undefined;
+      const auditReference = auditId
+        ? this.database.doc(`adminAudit/${auditId}`)
+        : undefined;
+      const actionHash = challengeReference
+        ? hashAdminCoachAction(input)
+        : undefined;
+      if (challengeReference && auditReference && auditId && actionHash) {
+        const challengeSnapshot = await transaction.get(challengeReference);
+        const challenge = challengeSnapshot.data();
+        if (
+          !challengeSnapshot.exists ||
+          challenge?.operatorUid !== input.operatorId ||
+          challenge.matchId !== input.matchId ||
+          challenge.actionHash !== actionHash ||
+          !(challenge.expiresAt instanceof Timestamp)
+        ) {
+          throw new AdminVerifiedCoachAssignmentRejectedError(
+            "Admin action challenge is invalid.",
+          );
+        }
+        if (challenge.consumedAt !== undefined) {
+          if (
+            !(challenge.consumedAt instanceof Timestamp) ||
+            challenge.committedAuditId !== auditId
+          ) {
+            throw new AdminVerifiedCoachAssignmentRejectedError(
+              "Admin action challenge is invalid.",
+            );
+          }
+          const auditSnapshot = await transaction.get(auditReference);
+          const audit = auditSnapshot.data();
+          if (
+            !auditSnapshot.exists ||
+            audit?.operatorUid !== input.operatorId ||
+            audit.action !== "coach_assignment_apply" ||
+            audit.matchId !== input.matchId ||
+            audit.trackedTeamId !== input.trackedTeamId ||
+            audit.externalFixtureId !== input.externalFixtureId ||
+            audit.coachId !== input.coachId ||
+            audit.coachName !== input.coachName ||
+            audit.externalProviderCoachId !==
+              (input.externalProviderCoachId ?? null) ||
+            audit.evidenceReference !== input.verificationSource ||
+            audit.verificationReason !== input.verificationReason ||
+            audit.actionHash !== actionHash ||
+            audit.outcome !== "success" ||
+            audit.commitDisposition !== "committed" ||
+            !(audit.createdAt instanceof Timestamp) ||
+            typeof audit.coachExistedBefore !== "boolean" ||
+            typeof audit.verifiedAssignmentExistedBefore !== "boolean" ||
+            typeof audit.coachCreated !== "boolean" ||
+            typeof audit.assignmentCreated !== "boolean" ||
+            (audit.headCoachId !== undefined &&
+              typeof audit.headCoachId !== "string") ||
+            (audit.headCoachProvenance !== undefined &&
+              audit.headCoachProvenance !== "provider" &&
+              audit.headCoachProvenance !== "operator_verified")
+          ) {
+            throw new AdminVerifiedCoachAssignmentRejectedError(
+              "Committed admin action audit is invalid.",
+            );
+          }
+          return {
+            plan: {
+              matchId: input.matchId,
+              trackedTeamId: input.trackedTeamId,
+              externalFixtureId: input.externalFixtureId,
+              current: {
+                coachExists: audit.coachExistedBefore,
+                verifiedAssignmentExists: audit.verifiedAssignmentExistedBefore,
+                ...(audit.headCoachId
+                  ? {
+                      headCoachId: audit.headCoachId,
+                      ...(audit.headCoachProvenance
+                        ? {
+                            headCoachProvenance:
+                              audit.headCoachProvenance as NonNullable<
+                                CoachAssignment["provenance"]
+                              >,
+                          }
+                        : {}),
+                    }
+                  : {}),
+              },
+              coachId: input.coachId,
+              coachName: input.coachName,
+              coachCreated: audit.coachCreated,
+              assignmentCreated: audit.assignmentCreated,
+              verificationSource: input.verificationSource,
+              verificationReason: input.verificationReason,
+            },
+            auditId,
+            disposition: "idempotent_retry" as const,
+          };
+        }
+        if (
+          challenge.committedAuditId !== undefined ||
+          challenge.expiresAt.toMillis() <=
+            challengeSnapshot.readTime.toMillis()
+        ) {
+          throw new AdminVerifiedCoachAssignmentRejectedError(
+            "Admin action challenge is invalid.",
+          );
+        }
+      }
       const matchSnapshot = await transaction.get(matchReference);
       const coachSnapshot = await transaction.get(coachReference);
       const verifiedSnapshot = await transaction.get(verifiedReference);
       const assignmentSnapshot = await transaction.get(assignmentReference);
       const resultSnapshot = await transaction.get(resultReference);
       const ballots = await transaction.get(ballotQuery);
-      if (!matchSnapshot.exists) throw new Error("Match was not found.");
+      const revisions = await transaction.get(revisionQuery);
+      if (!matchSnapshot.exists) {
+        throw new AdminVerifiedCoachAssignmentRejectedError(
+          "Match was not found.",
+        );
+      }
       const match = fromDocument<Match>(matchSnapshot);
       if (
         match.trackedTeamId !== input.trackedTeamId ||
         match.externalProviderFixtureId !== input.externalFixtureId
       ) {
-        throw new Error("Match Team or fixture confirmation does not match.");
+        throw new AdminVerifiedCoachAssignmentRejectedError(
+          "Match Team or fixture confirmation does not match.",
+        );
       }
       if (
         match.status !== "finished" ||
         !["not_ready", "preparing_rating"].includes(match.ratingState) ||
         resultSnapshot.exists ||
-        !ballots.empty
+        !ballots.empty ||
+        !revisions.empty
       ) {
-        throw new Error(
+        throw new AdminVerifiedCoachAssignmentRejectedError(
           "Verified coach recovery is not permitted in the current match state.",
         );
       }
-      const trustedAt = matchSnapshot.readTime.toDate().toISOString();
+      const trustedDate = matchSnapshot.readTime.toDate();
+      const trustedAt = trustedDate.toISOString();
       if (input.externalProviderCoachId !== undefined) {
         const expectedId = providerEntityId(
           "coach",
@@ -919,7 +1111,7 @@ export class AdminVerifiedCoachService {
           input.externalProviderCoachId,
         );
         if (expectedId !== input.coachId) {
-          throw new Error(
+          throw new AdminVerifiedCoachAssignmentRejectedError(
             "Coach ID must match the verified provider identity mapping.",
           );
         }
@@ -938,10 +1130,18 @@ export class AdminVerifiedCoachService {
         updatedAt: trustedAt,
       };
       if (coachSnapshot.exists) {
-        assertCompatibleCoach(
-          fromDocument<Coach>(coachSnapshot),
-          proposedCoach,
-        );
+        try {
+          assertCompatibleCoach(
+            fromDocument<Coach>(coachSnapshot),
+            proposedCoach,
+          );
+        } catch (error) {
+          throw new AdminVerifiedCoachAssignmentRejectedError(
+            error instanceof Error
+              ? error.message
+              : "Coach identity conflicts with recovery.",
+          );
+        }
       }
       const proposedAssignment: VerifiedCoachAssignment = {
         matchId: match.id,
@@ -972,7 +1172,7 @@ export class AdminVerifiedCoachService {
             proposedAssignment.verificationReason ||
           existing.operatorId !== proposedAssignment.operatorId
         ) {
-          throw new Error(
+          throw new AdminVerifiedCoachAssignmentRejectedError(
             "Verified coach assignment conflicts with existing audit data.",
           );
         }
@@ -980,20 +1180,12 @@ export class AdminVerifiedCoachService {
       if (assignmentSnapshot.exists) {
         const existing = fromDocument<CoachAssignment>(assignmentSnapshot);
         if (existing.coachId !== input.coachId) {
-          throw new Error(
+          throw new AdminVerifiedCoachAssignmentRejectedError(
             "Current head-coach assignment conflicts with recovery.",
           );
         }
       }
-      if (apply) {
-        if (!coachSnapshot.exists) {
-          transaction.create(coachReference, toDocument(proposedCoach));
-        }
-        if (!verifiedSnapshot.exists) {
-          transaction.create(verifiedReference, toDocument(proposedAssignment));
-        }
-      }
-      return {
+      const plan: VerifiedCoachAssignmentPlan = {
         matchId: match.id,
         trackedTeamId: match.trackedTeamId,
         externalFixtureId: match.externalProviderFixtureId,
@@ -1016,8 +1208,62 @@ export class AdminVerifiedCoachService {
         verificationSource: input.verificationSource,
         verificationReason: input.verificationReason,
       };
+
+      if (apply) {
+        if (!coachSnapshot.exists) {
+          transaction.create(coachReference, toDocument(proposedCoach));
+        }
+        if (!verifiedSnapshot.exists) {
+          transaction.create(verifiedReference, toDocument(proposedAssignment));
+        }
+      }
+      if (challengeReference && auditReference && auditId) {
+        if (!actionHash) {
+          throw new Error("Admin action hash is unavailable.");
+        }
+        transaction.update(challengeReference, {
+          consumedAt: Timestamp.fromDate(trustedDate),
+          committedAuditId: auditId,
+        });
+        transaction.create(auditReference, {
+          operatorUid: input.operatorId,
+          action: "coach_assignment_apply",
+          matchId: input.matchId,
+          trackedTeamId: input.trackedTeamId,
+          externalFixtureId: input.externalFixtureId,
+          coachId: input.coachId,
+          coachName: input.coachName,
+          externalProviderCoachId: input.externalProviderCoachId ?? null,
+          evidenceReference: input.verificationSource,
+          verificationReason: input.verificationReason,
+          actionHash,
+          outcome: "success",
+          commitDisposition: "committed",
+          coachExistedBefore: plan.current.coachExists,
+          verifiedAssignmentExistedBefore:
+            plan.current.verifiedAssignmentExists,
+          ...(plan.current.headCoachId && plan.current.headCoachProvenance
+            ? {
+                headCoachId: plan.current.headCoachId,
+                headCoachProvenance: plan.current.headCoachProvenance,
+              }
+            : {}),
+          coachCreated: plan.coachCreated,
+          assignmentCreated: plan.assignmentCreated,
+          createdAt: Timestamp.fromDate(trustedDate),
+        });
+        return { plan, auditId, disposition: "committed" as const };
+      }
+      return { plan };
     });
   }
+}
+
+function isAlreadyExistsError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null || !("code" in error)) {
+    return false;
+  }
+  return error.code === 6 || error.code === "already-exists";
 }
 
 const NOTIFICATION_LEASE_MS = 5 * 60 * 1000;
