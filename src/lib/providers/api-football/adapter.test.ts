@@ -804,6 +804,47 @@ describe("ApiFootballAdapter", () => {
     expect(adapter.requestCount).toBe(3);
   });
 
+  it("returns validated participant evidence when only coach identity is ambiguous", async () => {
+    const payload = structuredClone(matchContextResponse);
+    payload[0].lineups[0].coach.id = null as never;
+    const coaches = [
+      {
+        id: 900,
+        name: "Herediano Coach",
+        team: { id: 1234, name: "Herediano" },
+      },
+      {
+        id: 901,
+        name: "Herediano Coach",
+        team: { id: 1234, name: "Herediano" },
+      },
+    ];
+    const adapter = new ApiFootballAdapter(
+      "test-key",
+      matchContextFetcher(payload, coaches),
+    );
+
+    const evidence = await adapter.getMatchEvidence("5001", "1234");
+
+    expect(evidence.coach).toEqual({
+      status: "unavailable",
+      reason: "ambiguous-coach",
+    });
+    expect(evidence.participants).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          externalPlayerId: "20",
+          participated: true,
+        }),
+        expect.objectContaining({
+          externalPlayerId: "21",
+          participated: false,
+        }),
+      ]),
+    );
+    expect(adapter.requestCount).toBe(4);
+  });
+
   it("logs provider coach fallback failures without exposing response data", async () => {
     const payload = structuredClone(matchContextResponse);
     payload[0].lineups[0].coach.id = null as never;

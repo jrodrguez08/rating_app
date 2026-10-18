@@ -46,6 +46,7 @@ import type {
   Season,
   StandingsSnapshot,
   Team,
+  VerifiedCoachAssignment,
 } from "@/domain/models";
 import type {
   FootballSyncStore,
@@ -60,6 +61,7 @@ import type {
 import {
   canonicalPlayerIdMap,
   playerProviderAliasId,
+  providerEntityId,
 } from "@/domain/player-identity";
 import {
   getEffectiveVotingWindow,
@@ -85,6 +87,7 @@ const TIMESTAMP_FIELDS = new Set([
   "votingOpenNotificationAttemptedAt",
   "votingOpenNotificationLeaseUntil",
   "votingOpenNotificationSentAt",
+  "verifiedAt",
   "archivedAt",
   "windowOpensAt",
   "windowClosesAt",
@@ -469,7 +472,7 @@ export class AdminBallotService {
         name: participant.playerName,
         ...(participant.position === undefined
           ? {}
-          : { position: participant.position }),
+          : { position: participant.position as Player["position"] }),
         substitute: participant.squadRole === "substitute",
       }));
     const coach = coachSnapshot.exists
@@ -815,6 +818,205 @@ export class AdminVotingWindowService {
         finalizesImmediately: true,
       },
     } satisfies VotingWindowPlan;
+  }
+}
+
+export interface VerifiedCoachAssignmentPlan {
+  matchId: string;
+  trackedTeamId: string;
+  externalFixtureId: string;
+  current: {
+    coachExists: boolean;
+    verifiedAssignmentExists: boolean;
+    headCoachId?: string;
+    headCoachProvenance?: CoachAssignment["provenance"];
+  };
+  coachId: string;
+  coachName: string;
+  coachCreated: boolean;
+  assignmentCreated: boolean;
+  verificationSource: string;
+  verificationReason: string;
+}
+
+export class AdminVerifiedCoachService {
+  constructor(private readonly database = getServerFirestore()) {}
+
+  async assign(
+    input: {
+      matchId: string;
+      trackedTeamId: string;
+      externalFixtureId: string;
+      coachId: string;
+      coachName: string;
+      externalProviderCoachId?: string;
+      verificationSource: string;
+      verificationReason: string;
+      operatorId: string;
+    },
+    apply: boolean,
+  ): Promise<VerifiedCoachAssignmentPlan> {
+    if (
+      !/^[A-Za-z0-9_-]{1,128}$/.test(input.matchId) ||
+      !/^[A-Za-z0-9_-]{1,128}$/.test(input.trackedTeamId) ||
+      !/^[A-Za-z0-9_-]{1,128}$/.test(input.externalFixtureId) ||
+      !/^[A-Za-z0-9_-]{1,128}$/.test(input.coachId) ||
+      input.coachName.trim() === "" ||
+      input.coachName.length > 120 ||
+      !validVerificationSource(input.verificationSource) ||
+      input.verificationReason.trim().length < 10 ||
+      input.verificationReason.length > 500 ||
+      !/^[A-Za-z0-9_.@-]{1,128}$/.test(input.operatorId) ||
+      (input.externalProviderCoachId !== undefined &&
+        !/^\d+$/.test(input.externalProviderCoachId))
+    ) {
+      throw new Error("Verified coach assignment input is invalid.");
+    }
+    return this.database.runTransaction(async (transaction) => {
+      const matchReference = this.database.doc(`matches/${input.matchId}`);
+      const coachReference = this.database.doc(`coaches/${input.coachId}`);
+      const verifiedReference = this.database.doc(
+        `matches/${input.matchId}/verifiedCoachAssignments/head-coach`,
+      );
+      const assignmentReference = this.database.doc(
+        `matches/${input.matchId}/coachAssignments/head-coach`,
+      );
+      const resultReference = this.database.doc(
+        `matches/${input.matchId}/results/summary`,
+      );
+      const ballotQuery = this.database.collection(
+        `matches/${input.matchId}/ballots`,
+      );
+      const matchSnapshot = await transaction.get(matchReference);
+      const coachSnapshot = await transaction.get(coachReference);
+      const verifiedSnapshot = await transaction.get(verifiedReference);
+      const assignmentSnapshot = await transaction.get(assignmentReference);
+      const resultSnapshot = await transaction.get(resultReference);
+      const ballots = await transaction.get(ballotQuery);
+      if (!matchSnapshot.exists) throw new Error("Match was not found.");
+      const match = fromDocument<Match>(matchSnapshot);
+      if (
+        match.trackedTeamId !== input.trackedTeamId ||
+        match.externalProviderFixtureId !== input.externalFixtureId
+      ) {
+        throw new Error("Match Team or fixture confirmation does not match.");
+      }
+      if (
+        match.status !== "finished" ||
+        !["not_ready", "preparing_rating"].includes(match.ratingState) ||
+        resultSnapshot.exists ||
+        !ballots.empty
+      ) {
+        throw new Error(
+          "Verified coach recovery is not permitted in the current match state.",
+        );
+      }
+      const trustedAt = matchSnapshot.readTime.toDate().toISOString();
+      if (input.externalProviderCoachId !== undefined) {
+        const expectedId = providerEntityId(
+          "coach",
+          match.externalProvider,
+          input.externalProviderCoachId,
+        );
+        if (expectedId !== input.coachId) {
+          throw new Error(
+            "Coach ID must match the verified provider identity mapping.",
+          );
+        }
+      }
+      const proposedCoach: Coach = {
+        id: input.coachId,
+        displayName: input.coachName,
+        identityProvenance: "operator_verified",
+        ...(input.externalProviderCoachId === undefined
+          ? {}
+          : {
+              externalProvider: match.externalProvider,
+              externalProviderId: input.externalProviderCoachId,
+            }),
+        createdAt: trustedAt,
+        updatedAt: trustedAt,
+      };
+      if (coachSnapshot.exists) {
+        assertCompatibleCoach(
+          fromDocument<Coach>(coachSnapshot),
+          proposedCoach,
+        );
+      }
+      const proposedAssignment: VerifiedCoachAssignment = {
+        matchId: match.id,
+        trackedTeamId: match.trackedTeamId,
+        externalProvider: match.externalProvider,
+        externalFixtureId: match.externalProviderFixtureId,
+        coachId: input.coachId,
+        verificationSource: input.verificationSource,
+        verificationReason: input.verificationReason,
+        operatorId: input.operatorId,
+        provenance: "operator_verified",
+        verifiedAt: trustedAt,
+        createdAt: trustedAt,
+        updatedAt: trustedAt,
+      };
+      if (verifiedSnapshot.exists) {
+        const existing =
+          fromDocument<VerifiedCoachAssignment>(verifiedSnapshot);
+        if (
+          existing.matchId !== proposedAssignment.matchId ||
+          existing.trackedTeamId !== proposedAssignment.trackedTeamId ||
+          existing.externalProvider !== proposedAssignment.externalProvider ||
+          existing.externalFixtureId !== proposedAssignment.externalFixtureId ||
+          existing.coachId !== proposedAssignment.coachId ||
+          existing.verificationSource !==
+            proposedAssignment.verificationSource ||
+          existing.verificationReason !==
+            proposedAssignment.verificationReason ||
+          existing.operatorId !== proposedAssignment.operatorId
+        ) {
+          throw new Error(
+            "Verified coach assignment conflicts with existing audit data.",
+          );
+        }
+      }
+      if (assignmentSnapshot.exists) {
+        const existing = fromDocument<CoachAssignment>(assignmentSnapshot);
+        if (existing.coachId !== input.coachId) {
+          throw new Error(
+            "Current head-coach assignment conflicts with recovery.",
+          );
+        }
+      }
+      if (apply) {
+        if (!coachSnapshot.exists) {
+          transaction.create(coachReference, toDocument(proposedCoach));
+        }
+        if (!verifiedSnapshot.exists) {
+          transaction.create(verifiedReference, toDocument(proposedAssignment));
+        }
+      }
+      return {
+        matchId: match.id,
+        trackedTeamId: match.trackedTeamId,
+        externalFixtureId: match.externalProviderFixtureId,
+        current: {
+          coachExists: coachSnapshot.exists,
+          verifiedAssignmentExists: verifiedSnapshot.exists,
+          ...(assignmentSnapshot.exists
+            ? {
+                headCoachId:
+                  fromDocument<CoachAssignment>(assignmentSnapshot).coachId,
+                headCoachProvenance:
+                  fromDocument<CoachAssignment>(assignmentSnapshot).provenance,
+              }
+            : {}),
+        },
+        coachId: input.coachId,
+        coachName: input.coachName,
+        coachCreated: !coachSnapshot.exists,
+        assignmentCreated: !verifiedSnapshot.exists,
+        verificationSource: input.verificationSource,
+        verificationReason: input.verificationReason,
+      };
+    });
   }
 }
 
@@ -1285,9 +1487,15 @@ export class AdminFootballSyncStore
     const coachSnapshot = await this.database
       .doc(`coaches/${assignment.coachId}`)
       .get();
-    if (!coachSnapshot.exists) return null;
+    if (!coachSnapshot.exists) {
+      throw new Error("Verified coach identity is missing.");
+    }
     const coach = fromDocument<Coach>(coachSnapshot);
-    if (coach.externalProvider !== provider) return null;
+    if (
+      coach.externalProvider !== provider ||
+      coach.externalProviderId === undefined
+    )
+      return null;
     const participants = participantSnapshot.docs
       .map((document) => fromDocument<MatchParticipant>(document))
       .filter(
@@ -1327,6 +1535,63 @@ export class AdminFootballSyncStore
       },
     };
   }
+  async getPersistedParticipantContext(
+    matchId: string,
+    teamId: string,
+    provider: string,
+  ) {
+    const snapshot = await this.database
+      .collection(`matches/${matchId}/participants`)
+      .get();
+    const participants = snapshot.docs
+      .map((document) => fromDocument<MatchParticipant>(document))
+      .filter(
+        (participant) =>
+          participant.teamId === teamId &&
+          participant.externalProvider === provider,
+      );
+    if (participants.length === 0) return null;
+    return {
+      participants: participants.map((participant) => ({
+        externalTeamId: participant.externalProviderTeamId,
+        externalPlayerId: participant.externalProviderPlayerId,
+        name: participant.playerName,
+        ...(participant.shirtNumber === undefined
+          ? {}
+          : { shirtNumber: participant.shirtNumber }),
+        ...(participant.position === undefined
+          ? {}
+          : { position: participant.position as Player["position"] }),
+        squadRole: participant.squadRole,
+        participated: participant.participated,
+        ...(participant.enteredAtMinute === undefined
+          ? {}
+          : { enteredAtMinute: participant.enteredAtMinute }),
+        ...(participant.exitedAtMinute === undefined
+          ? {}
+          : { exitedAtMinute: participant.exitedAtMinute }),
+        ...(participant.captain === undefined
+          ? {}
+          : { captain: participant.captain }),
+      })),
+    };
+  }
+  async getVerifiedCoachAssignment(matchId: string) {
+    const assignmentSnapshot = await this.database
+      .doc(`matches/${matchId}/verifiedCoachAssignments/head-coach`)
+      .get();
+    if (!assignmentSnapshot.exists) return null;
+    const assignment =
+      fromDocument<VerifiedCoachAssignment>(assignmentSnapshot);
+    const coachSnapshot = await this.database
+      .doc(`coaches/${assignment.coachId}`)
+      .get();
+    if (!coachSnapshot.exists) return null;
+    return {
+      assignment,
+      coach: fromDocument<Coach>(coachSnapshot),
+    };
+  }
   upsertCoaches(values: Coach[]) {
     return this.upsert("coaches", values);
   }
@@ -1334,6 +1599,194 @@ export class AdminFootballSyncStore
     return this.upsert(`matches/${matchId}/coachAssignments`, [
       { ...value, id: "head-coach" },
     ]);
+  }
+
+  async replaceMatchParticipantContext(
+    matchId: string,
+    values: {
+      players: Player[];
+      participants: MatchParticipant[];
+      coach: Coach;
+      assignment: CoachAssignment;
+    },
+  ) {
+    return this.database.runTransaction(async (transaction) => {
+      const matchReference = this.database.doc(`matches/${matchId}`);
+      const resultReference = this.database.doc(
+        `matches/${matchId}/results/summary`,
+      );
+      const ballotQuery = this.database.collection(
+        `matches/${matchId}/ballots`,
+      );
+      const participantCollection = this.database.collection(
+        `matches/${matchId}/participants`,
+      );
+      const coachReference = this.database.doc(`coaches/${values.coach.id}`);
+      const assignmentReference = this.database.doc(
+        `matches/${matchId}/coachAssignments/head-coach`,
+      );
+      const verifiedReference = this.database.doc(
+        `matches/${matchId}/verifiedCoachAssignments/head-coach`,
+      );
+      const playerReferences = values.players.map((player) =>
+        this.database.doc(`players/${player.id}`),
+      );
+      const matchSnapshot = await transaction.get(matchReference);
+      const resultSnapshot = await transaction.get(resultReference);
+      const ballots = await transaction.get(ballotQuery);
+      const participantSnapshot = await transaction.get(participantCollection);
+      const playerSnapshots = await transaction.getAll(...playerReferences);
+      const coachSnapshot = await transaction.get(coachReference);
+      const assignmentSnapshot = await transaction.get(assignmentReference);
+      const verifiedSnapshot = await transaction.get(verifiedReference);
+      if (!matchSnapshot.exists) throw new Error("Match was not found.");
+      const match = fromDocument<Match>(matchSnapshot);
+      if (
+        match.ratingState === "rating_ready" ||
+        match.ratingState === "rating_closed" ||
+        resultSnapshot.exists ||
+        !ballots.empty
+      ) {
+        throw new Error(
+          "Participant context cannot change after voting data or results exist.",
+        );
+      }
+      if (
+        values.assignment.matchId !== matchId ||
+        values.assignment.teamId !== match.trackedTeamId ||
+        values.assignment.coachId !== values.coach.id ||
+        values.participants.some(
+          (participant) =>
+            participant.matchId !== matchId ||
+            participant.teamId !== match.trackedTeamId,
+        )
+      ) {
+        throw new Error(
+          "Participant context does not match the tracked match.",
+        );
+      }
+      if (values.assignment.provenance === "operator_verified") {
+        if (!verifiedSnapshot.exists) {
+          throw new Error("Verified coach assignment is missing.");
+        }
+        const verified =
+          fromDocument<VerifiedCoachAssignment>(verifiedSnapshot);
+        if (
+          verified.matchId !== matchId ||
+          verified.trackedTeamId !== match.trackedTeamId ||
+          verified.externalProvider !== match.externalProvider ||
+          verified.externalFixtureId !== match.externalProviderFixtureId ||
+          verified.coachId !== values.coach.id
+        ) {
+          throw new Error("Verified coach assignment binding is invalid.");
+        }
+      } else if (verifiedSnapshot.exists) {
+        throw new Error(
+          "Provider synchronization cannot replace a verified coach assignment.",
+        );
+      }
+      if (assignmentSnapshot.exists) {
+        const existing = fromDocument<CoachAssignment>(assignmentSnapshot);
+        if (
+          existing.coachId !== values.assignment.coachId ||
+          (existing.provenance === "operator_verified" &&
+            values.assignment.provenance !== "operator_verified")
+        ) {
+          throw new Error("Existing coach assignment conflicts with sync.");
+        }
+      }
+      if (coachSnapshot.exists) {
+        assertCompatibleCoach(fromDocument<Coach>(coachSnapshot), values.coach);
+      }
+
+      const players = writeCounts(
+        playerSnapshots.map((snapshot) =>
+          snapshot.exists ? fromDocument<Player>(snapshot) : undefined,
+        ),
+        values.players,
+      );
+      values.players.forEach((player, index) => {
+        const existing = playerSnapshots[index].exists
+          ? fromDocument<Player>(playerSnapshots[index])
+          : undefined;
+        transaction.set(
+          playerReferences[index],
+          toDocument(
+            existing === undefined
+              ? player
+              : { ...existing, ...player, createdAt: existing.createdAt },
+          ),
+        );
+      });
+
+      const existingParticipants = new Map(
+        participantSnapshot.docs.map((document) => [
+          document.id,
+          fromDocument<MatchParticipant>(document),
+        ]),
+      );
+      const participantCounts = { created: 0, updated: 0, unchanged: 0 };
+      const incomingIds = new Set<string>();
+      for (const participant of values.participants) {
+        incomingIds.add(participant.playerId);
+        const existing = existingParticipants.get(participant.playerId);
+        const candidate =
+          existing === undefined
+            ? participant
+            : { ...existing, ...participant, createdAt: existing.createdAt };
+        if (existing === undefined) participantCounts.created += 1;
+        else if (comparable(existing) === comparable(candidate))
+          participantCounts.unchanged += 1;
+        else participantCounts.updated += 1;
+        transaction.set(
+          participantCollection.doc(participant.playerId),
+          toDocument(candidate),
+        );
+      }
+      for (const document of participantSnapshot.docs) {
+        if (!incomingIds.has(document.id)) {
+          transaction.delete(document.ref);
+          participantCounts.updated += 1;
+        }
+      }
+
+      const existingCoach = coachSnapshot.exists
+        ? fromDocument<Coach>(coachSnapshot)
+        : undefined;
+      const coachCandidate =
+        existingCoach === undefined
+          ? values.coach
+          : {
+              ...existingCoach,
+              ...values.coach,
+              createdAt: existingCoach.createdAt,
+            };
+      const coaches = writeCounts([existingCoach], [coachCandidate]);
+      transaction.set(coachReference, toDocument(coachCandidate));
+
+      const existingAssignment = assignmentSnapshot.exists
+        ? fromDocument<CoachAssignment>(assignmentSnapshot)
+        : undefined;
+      const assignmentCandidate =
+        existingAssignment === undefined
+          ? values.assignment
+          : {
+              ...existingAssignment,
+              ...values.assignment,
+              createdAt: existingAssignment.createdAt,
+            };
+      const coachAssignments = writeCounts(
+        [existingAssignment],
+        [assignmentCandidate],
+      );
+      transaction.set(assignmentReference, toDocument(assignmentCandidate));
+      return {
+        players,
+        participants: participantCounts,
+        coaches,
+        coachAssignments,
+      };
+    });
   }
 
   private async requiredDocument<T extends { id: string }>(
@@ -1661,6 +2114,60 @@ function mergePlayerIdentities(
   for (const value of persisted) identities.set(value.id, value);
   return [...identities.values()];
 }
+
+function assertCompatibleCoach(existing: Coach, proposed: Coach): void {
+  if (
+    existing.id !== proposed.id ||
+    existing.displayName !== proposed.displayName ||
+    (existing.externalProvider !== undefined &&
+      proposed.externalProvider !== undefined &&
+      existing.externalProvider !== proposed.externalProvider) ||
+    (existing.externalProviderId !== undefined &&
+      proposed.externalProviderId !== undefined &&
+      existing.externalProviderId !== proposed.externalProviderId)
+  ) {
+    throw new Error("Coach identity conflicts with the existing record.");
+  }
+  if (
+    (existing.externalProvider === undefined) !==
+      (existing.externalProviderId === undefined) ||
+    (proposed.externalProvider === undefined) !==
+      (proposed.externalProviderId === undefined)
+  ) {
+    throw new Error("Coach provider identity is incomplete.");
+  }
+}
+
+function validVerificationSource(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" &&
+      url.username === "" &&
+      url.password === "" &&
+      url.hash === ""
+    );
+  } catch {
+    return false;
+  }
+}
+
+function writeCounts<T extends object>(
+  existing: Array<T | undefined>,
+  proposed: T[],
+): SyncWriteCounts {
+  return proposed.reduce<SyncWriteCounts>(
+    (counts, value, index) => {
+      const current = existing[index];
+      if (current === undefined) counts.created += 1;
+      else if (comparable(current) === comparable(value)) counts.unchanged += 1;
+      else counts.updated += 1;
+      return counts;
+    },
+    { created: 0, updated: 0, unchanged: 0 },
+  );
+}
+
 function preserveMatchLifecycle(existing: Match, incoming: Match): Match {
   return {
     ...existing,

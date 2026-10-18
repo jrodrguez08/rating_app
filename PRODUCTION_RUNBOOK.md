@@ -46,6 +46,8 @@ No Firebase or API-Football credential belongs in GitHub for this workflow.
 
 Exceptional voting-window recovery is a local production CLI operation. Generate one high-entropy secret in the operator's password manager. Keep the raw value out of the repository, `.env.local`, Vercel, GitHub, shell history, logs, and command arguments. Configure its lowercase SHA-256 digest as `VOTING_WINDOW_OPERATOR_SECRET_SHA256` only in the controlled operator environment. Supply the raw value for one command process as `VOTING_WINDOW_OPERATOR_TOKEN`. Both are separate from Firebase Admin credentials; the CLI requires all of them.
 
+Verified coach recovery reuses this credential and additionally requires `VOTING_WINDOW_OPERATOR_ID` in the controlled operator environment. Use a stable, non-secret identifier for the authorized operator, such as the organization's operator account label. It is written to the assignment audit record but omitted from CLI output and lifecycle logs. Do not put it in browser-prefixed variables or Vercel because the recovery command runs only from the controlled local checkout.
+
 To rotate, generate a new high-entropy value, replace the configured digest, remove the old digest, and use only the new raw value for later invocations. Rotation does not alter matches, ballots, results, or revision documents. Never print either value during verification.
 
 `NEXT_PUBLIC_SITE_URL` is public, non-sensitive canonical metadata configuration. It must be one HTTPS origin with no path, query, fragment, or credentials. The build has the same explicit Vercel production origin as a safe fallback, never derives canonical links from `VERCEL_URL` or an incoming request host, and therefore cannot silently canonize a Preview deployment.
@@ -146,6 +148,67 @@ After deploying the reviewed identity-aware release, use a controlled checkout o
 The command rejects development/local mode, emulator hosts, demo projects, project mismatches, missing production Admin credentials, and an inexact apply confirmation. CI never runs it. Adding a future reconciliation requires confirming the real player identity independently, reviewing the canonical metadata choice and historical references, adding focused tests, deploying the code, and then following this dry-run/apply/dry-run sequence. Name-only or shirt-only merging is prohibited.
 
 Network/provider validation, lineup-not-observed/cache-empty, incomplete lineup, missing fixture coach, participant-evidence, Firebase write, and aggregation integrity failures remain retryable. They cannot open voting early, erase a trusted snapshot, extend timestamps, replace ballots, publish partial results, or regress finalized state. Cancelled/abandoned matches never open or finalize ratings; postponed/suspended matches retry conservatively.
+
+## Verified head-coach recovery
+
+This feature is available for production use only after the reviewed release is deployed and the same commit is checked out in the controlled operator environment. It handles the narrow case where lifecycle logs report `ambiguous-coach` while tracked-Team lineup and participation evidence remains valid. It does not recover a missing coach slot, malformed or missing lineup, participant error, provider outage, wrong Team, or wrong fixture. Each affected fixture requires its own verified assignment.
+
+The command uses production Firebase Admin credentials, the exact project argument, `VOTING_WINDOW_OPERATOR_SECRET_SHA256`, the invocation-only `VOTING_WINDOW_OPERATOR_TOKEN`, and `VOTING_WINDOW_OPERATOR_ID`. It rejects emulator hosts, `demo-*` projects, mismatched projects, unauthorized execution, non-finished or already-open/finalized matches, ballots, results, malformed evidence, conflicting identities, and inexact confirmation. Dry-run is the default and makes zero writes. Apply creates only the missing Coach identity and deterministic `matches/<matchId>/verifiedCoachAssignments/head-coach` audit record; it never changes `ratingState`, participants, the effective head-coach assignment, ballots, or results. The next normal lifecycle run performs those context and readiness changes atomically.
+
+### Evidence and identity review
+
+1. Keep lifecycle scheduling disabled for the affected match while reviewing the incident. Record the sanitized `provider.coach_identity`, `coach.manual_assignment`, `participants.reconciliation`, and readiness log entries.
+2. Confirm the historical fixture's head coach from an independent, fixture-specific HTTPS source. Check its date, teams, competition, and fixture details. A current roster or latest coach page alone is insufficient.
+3. Read the exact Match and existing `coaches` documents through the Firebase console. Confirm the internal Match ID, configured tracked Team, provider fixture ID, `finished` status, and `not_ready` or `preparing_rating` state. Confirm that no ballots or result summary exist.
+4. Select an existing Coach only when the record is the same person and its display name and real provider identity, if present, agree with the evidence. Otherwise choose a new stable internal Coach ID that does not imply a provider ID. Add `--provider-coach-id` only when that numeric API-Football identity was independently verified; when supplied, use the repository's deterministic provider Coach document ID already shown by a matching existing Coach record. Never derive or merge identities by similar names.
+
+For the issue #74 incident, the values under review are Match `match-b88ee2d600491ca670bbe00c`, API-Football fixture `1551697`, and expected coach Jafet Soto. Treat the name as a claim to verify, not as authority. No application code contains an exception for these values.
+
+### Dry-run, apply, and lifecycle verification
+
+Set placeholders in the controlled PowerShell process without echoing secret values:
+
+```powershell
+$projectId = "rating-app-prod-8b7df"
+$matchId = "<exact-match-id>"
+$fixtureId = "<exact-provider-fixture-id>"
+$coachId = "<reviewed-existing-or-new-internal-coach-id>"
+$coachName = "<verified-display-name>"
+$evidenceUrl = "<independent-https-evidence-url>"
+$reason = "<fixture-specific-verification-reason>"
+$env:VOTING_WINDOW_OPERATOR_SECRET_SHA256 = "<configured-64-character-sha256-digest>"
+$env:VOTING_WINDOW_OPERATOR_TOKEN = "<raw-high-entropy-operator-secret>"
+$env:VOTING_WINDOW_OPERATOR_ID = "<stable-authorized-operator-id>"
+```
+
+1. Inspect and validate the proposed operation without writes:
+
+   ```powershell
+   npm run manage:coach-assignment -- --project-id $projectId --match-id $matchId --fixture-id $fixtureId --coach-id $coachId --coach-name $coachName --source $evidenceUrl --reason $reason
+   ```
+
+   If a real provider coach ID was independently verified, add `--provider-coach-id <numeric-id>`. Review the returned Match/Team/fixture binding, `current` coach and verified-assignment state, proposed identity and evidence, and the `coachCreated`/`assignmentCreated` actions. Stop on any unexpected identity or existing assignment.
+
+2. Apply with the exact match-specific confirmation:
+
+   ```powershell
+   npm run manage:coach-assignment -- --project-id $projectId --match-id $matchId --fixture-id $fixtureId --coach-id $coachId --coach-name $coachName --source $evidenceUrl --reason $reason --apply true --confirm "assign-verified-coach:$matchId"
+   ```
+
+   Repeat the dry-run and require `coachCreated: false` and `assignmentCreated: false`. This verifies idempotency without changing the audit timestamps.
+
+3. Invoke the normal authenticated `/api/internal/match-lifecycle` endpoint once through the established production procedure. Do not use local emulator-only sync commands and do not edit `ratingState`.
+4. Inspect the sanitized lifecycle trace. Require `coach.manual_assignment` accepted for the exact Match and `participants.reconciliation` with the expected aggregate counts. Require provider reads to remain within the documented context bound.
+5. Read Firestore through the console. Confirm only tracked-Team participants exist, exactly the starters and substitutes with confirmed participation are rateable, unused substitutes remain false, and `coachAssignments/head-coach` refers to the verified Coach with `operator_verified` provenance. Confirm the audit record still matches the reviewed Team, fixture, evidence, reason, and operator context.
+6. Confirm lifecycle readiness. If all canonical checks pass, the standard lifecycle establishes the original voting timestamps and opens voting; then confirm the normal operator email and rating route. If readiness remains blocked, preserve the documents and use the sanitized blocker to investigate participant evidence or another prerequisite.
+
+Automatic provider reconciliation preserves the verified assignment. If a later provider response resolves the same real identity, synchronization may proceed without changing provenance. A different provider identity is a conflict and writes nothing. Do not delete or rewrite the audit record to silence a conflict.
+
+### Rollback and conflicts
+
+Before lifecycle consumes an applied assignment, an incorrect assignment still requires a reviewed corrective operation; this CLI intentionally has no force, replace, or delete mode. Disable lifecycle scheduling, preserve the audit data, document the evidence error, and ship a narrowly reviewed correction rather than editing Firestore manually. After participants or voting state exist, preserve the assignment, ballots, timestamps, results, and revisions and handle the incident as an integrity review. If apply outcome is uncertain, rerun dry-run: identical existing data reports no proposed creates, while any mismatch fails closed. Remove `VOTING_WINDOW_OPERATOR_TOKEN` from the process environment when finished.
+
+No Firestore rule or index deployment is required. The existing recursive deny rule protects Coach, head-coach assignment, and verified-assignment documents from every browser client.
 
 ## Exceptional voting-window recovery
 

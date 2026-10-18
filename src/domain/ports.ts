@@ -13,6 +13,7 @@ import type {
   Season,
   StandingsSnapshot,
   Team,
+  VerifiedCoachAssignment,
 } from "./models";
 
 export interface TeamLookup {
@@ -75,6 +76,16 @@ export interface ProviderHeadCoach {
 export interface ProviderMatchContext {
   participants: ProviderMatchParticipant[];
   headCoach: ProviderHeadCoach;
+}
+
+export interface ProviderParticipantContext {
+  participants: ProviderMatchParticipant[];
+}
+
+export interface ProviderMatchEvidence extends ProviderParticipantContext {
+  coach:
+    | { status: "resolved"; value: ProviderHeadCoach }
+    | { status: "unavailable"; reason: "coach-missing" | "ambiguous-coach" };
 }
 
 export interface ProviderSquadPlayer {
@@ -153,6 +164,12 @@ export interface FootballDataProvider {
     baseline?: ProviderMatchContext,
     fixtureKickoffAt?: string,
   ): Promise<ProviderMatchContext>;
+  getMatchEvidence?(
+    externalFixtureId: string,
+    externalTeamId: string,
+    baseline?: ProviderParticipantContext,
+    fixtureKickoffAt?: string,
+  ): Promise<ProviderMatchEvidence>;
   getLineupContext(
     externalFixtureId: string,
     externalTeamId: string,
@@ -233,11 +250,34 @@ export interface FootballSyncStore {
     teamId: string,
     provider: string,
   ): Promise<ProviderMatchContext | null>;
+  getPersistedParticipantContext?(
+    matchId: string,
+    teamId: string,
+    provider: string,
+  ): Promise<ProviderParticipantContext | null>;
+  getVerifiedCoachAssignment?(matchId: string): Promise<{
+    assignment: VerifiedCoachAssignment;
+    coach: Coach;
+  } | null>;
   upsertCoaches(coaches: Coach[]): Promise<SyncWriteCounts>;
   upsertCoachAssignment(
     matchId: string,
     assignment: CoachAssignment,
   ): Promise<SyncWriteCounts>;
+  replaceMatchParticipantContext?(
+    matchId: string,
+    values: {
+      players: Player[];
+      participants: MatchParticipant[];
+      coach: Coach;
+      assignment: CoachAssignment;
+    },
+  ): Promise<{
+    players: SyncWriteCounts;
+    participants: SyncWriteCounts;
+    coaches: SyncWriteCounts;
+    coachAssignments: SyncWriteCounts;
+  }>;
 }
 
 export interface SyncWriteCounts {

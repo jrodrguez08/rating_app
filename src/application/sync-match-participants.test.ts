@@ -82,6 +82,217 @@ describe("participant synchronization identities", () => {
       .id;
     expect(firstId).not.toBe(secondId);
   });
+
+  it("recovers ambiguous coach identity with a fixture-bound verified assignment", async () => {
+    const store = storeWith();
+    const provider = providerWith("known-player");
+    provider.getMatchEvidence = vi.fn().mockResolvedValue({
+      participants: participantEvidence("known-player"),
+      coach: { status: "unavailable", reason: "ambiguous-coach" },
+    });
+    store.getVerifiedCoachAssignment = vi.fn().mockResolvedValue({
+      assignment: {
+        matchId: match.id,
+        trackedTeamId: team.id,
+        externalProvider: "api-football",
+        externalFixtureId: match.externalProviderFixtureId,
+        coachId: "coach-verified",
+        verificationSource: "https://example.com/report",
+        verificationReason: "Independent match report confirmation.",
+        operatorId: "operator",
+        provenance: "operator_verified",
+        verifiedAt: "2026-09-07T13:00:00.000Z",
+        createdAt: "2026-09-07T13:00:00.000Z",
+        updatedAt: "2026-09-07T13:00:00.000Z",
+      },
+      coach: {
+        id: "coach-verified",
+        displayName: "Verified Coach",
+        identityProvenance: "operator_verified",
+        createdAt: "2026-09-07T13:00:00.000Z",
+        updatedAt: "2026-09-07T13:00:00.000Z",
+      },
+    });
+    store.replaceMatchParticipantContext = vi.fn().mockResolvedValue({
+      players: counts,
+      participants: counts,
+      coaches: counts,
+      coachAssignments: counts,
+    });
+
+    const result = await syncMatchParticipants(match.id, provider, store);
+
+    expect(result.coach).toEqual({
+      id: "coach-verified",
+      name: "Verified Coach",
+    });
+    expect(store.replaceMatchParticipantContext).toHaveBeenCalledWith(
+      match.id,
+      expect.objectContaining({
+        assignment: expect.objectContaining({
+          coachId: "coach-verified",
+          provenance: "operator_verified",
+        }),
+      }),
+    );
+    expect(store.upsertPlayers).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when ambiguous coach identity has no verified assignment", async () => {
+    const store = storeWith();
+    const provider = providerWith("known-player");
+    provider.getMatchEvidence = vi.fn().mockResolvedValue({
+      participants: participantEvidence("known-player"),
+      coach: { status: "unavailable", reason: "ambiguous-coach" },
+    });
+    store.getVerifiedCoachAssignment = vi.fn().mockResolvedValue(null);
+
+    await expect(
+      syncMatchParticipants(match.id, provider, store),
+    ).rejects.toMatchObject({ code: "ambiguous-coach" });
+    expect(store.upsertPlayers).not.toHaveBeenCalled();
+  });
+
+  it("preserves a trusted provider coach when later coach evidence is unavailable", async () => {
+    const store = storeWith();
+    store.getMatch = vi.fn().mockResolvedValue({
+      ...match,
+      lineupSnapshotAt: "2026-09-07T11:30:00.000Z",
+    });
+    store.getPersistedMatchContext = vi.fn().mockResolvedValue({
+      participants: participantEvidence("known-player"),
+      headCoach: {
+        externalTeamId: "815",
+        externalCoachId: "coach-baseline",
+        name: "Baseline Coach",
+      },
+    });
+    const provider = providerWith("known-player");
+    provider.getMatchEvidence = vi.fn().mockResolvedValue({
+      participants: participantEvidence("known-player"),
+      coach: { status: "unavailable", reason: "ambiguous-coach" },
+    });
+
+    const result = await syncMatchParticipants(match.id, provider, store);
+
+    expect(result.coach).toEqual({
+      id: providerEntityId("coach", "api-football", "coach-baseline"),
+      name: "Baseline Coach",
+    });
+  });
+
+  it("rejects a verified assignment whose internal Coach cannot be loaded", async () => {
+    const store = storeWith();
+    const provider = providerWith("known-player");
+    const log = vi.fn();
+    store.getVerifiedCoachAssignment = vi
+      .fn()
+      .mockRejectedValue(new Error("Verified coach identity is missing."));
+
+    await expect(
+      syncMatchParticipants(
+        match.id,
+        provider,
+        store,
+        new Date("2026-09-07T13:00:00.000Z"),
+        "final",
+        log,
+      ),
+    ).rejects.toThrow(/identity is missing/i);
+    expect(log).toHaveBeenCalledWith(
+      expect.stringContaining('"status":"rejected"'),
+    );
+    expect(provider.getMatchContext).not.toHaveBeenCalled();
+  });
+
+  it("rejects stale fixture bindings", async () => {
+    const store = storeWith();
+    const provider = providerWith("known-player");
+    provider.getMatchEvidence = vi.fn().mockResolvedValue({
+      participants: participantEvidence("known-player"),
+      coach: {
+        status: "resolved",
+        value: {
+          externalTeamId: "815",
+          externalCoachId: "provider-other",
+          name: "Other Coach",
+        },
+      },
+    });
+    store.getVerifiedCoachAssignment = vi.fn().mockResolvedValue({
+      assignment: {
+        matchId: match.id,
+        trackedTeamId: team.id,
+        externalProvider: "api-football",
+        externalFixtureId: "wrong-fixture",
+        coachId: "coach-verified",
+        verificationSource: "https://example.com/report",
+        verificationReason: "Independent match report confirmation.",
+        operatorId: "operator",
+        provenance: "operator_verified",
+        verifiedAt: "2026-09-07T13:00:00.000Z",
+        createdAt: "2026-09-07T13:00:00.000Z",
+        updatedAt: "2026-09-07T13:00:00.000Z",
+      },
+      coach: {
+        id: "coach-verified",
+        displayName: "Verified Coach",
+        identityProvenance: "operator_verified",
+        createdAt: "2026-09-07T13:00:00.000Z",
+        updatedAt: "2026-09-07T13:00:00.000Z",
+      },
+    });
+
+    await expect(
+      syncMatchParticipants(match.id, provider, store),
+    ).rejects.toThrow(/does not match the fixture/i);
+  });
+
+  it("rejects conflicting provider and operator coach identities", async () => {
+    const store = storeWith();
+    const provider = providerWith("known-player");
+    provider.getMatchEvidence = vi.fn().mockResolvedValue({
+      participants: participantEvidence("known-player"),
+      coach: {
+        status: "resolved",
+        value: {
+          externalTeamId: "815",
+          externalCoachId: "provider-other",
+          name: "Other Coach",
+        },
+      },
+    });
+    store.getVerifiedCoachAssignment = vi.fn().mockResolvedValue({
+      assignment: {
+        matchId: match.id,
+        trackedTeamId: team.id,
+        externalProvider: "api-football",
+        externalFixtureId: match.externalProviderFixtureId,
+        coachId: "coach-verified",
+        verificationSource: "https://example.com/report",
+        verificationReason: "Independent match report confirmation.",
+        operatorId: "operator",
+        provenance: "operator_verified",
+        verifiedAt: "2026-09-07T13:00:00.000Z",
+        createdAt: "2026-09-07T13:00:00.000Z",
+        updatedAt: "2026-09-07T13:00:00.000Z",
+      },
+      coach: {
+        id: "coach-verified",
+        displayName: "Verified Coach",
+        identityProvenance: "operator_verified",
+        externalProvider: "api-football",
+        externalProviderId: "provider-verified",
+        createdAt: "2026-09-07T13:00:00.000Z",
+        updatedAt: "2026-09-07T13:00:00.000Z",
+      },
+    });
+
+    await expect(
+      syncMatchParticipants(match.id, provider, store),
+    ).rejects.toThrow(/conflicts with the verified assignment/i);
+    expect(store.upsertPlayers).not.toHaveBeenCalled();
+  });
 });
 
 const team: Team = {
@@ -112,6 +323,20 @@ const match: Match = {
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
 };
+
+const counts = { created: 1, updated: 0, unchanged: 0 };
+
+function participantEvidence(externalPlayerId: string) {
+  return [
+    {
+      externalTeamId: "815",
+      externalPlayerId,
+      name: "Player",
+      squadRole: "starter" as const,
+      participated: true,
+    },
+  ];
+}
 
 function providerWith(
   externalPlayerId: string,
@@ -148,7 +373,6 @@ function providerWith(
 }
 
 function storeWith(): FootballSyncStore {
-  const counts = { created: 1, updated: 0, unchanged: 0 };
   return {
     getTeam: vi.fn().mockResolvedValue(team),
     getMatch: vi.fn().mockResolvedValue(match),

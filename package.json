@@ -28,6 +28,7 @@
     "sync:lifecycle": "tsx --env-file=.env.local scripts/sync-lifecycle.ts",
     "bootstrap:production-team": "tsx scripts/bootstrap-production-team.ts",
     "manage:voting-window": "tsx scripts/manage-voting-window.ts",
+    "manage:coach-assignment": "tsx scripts/manage-coach-assignment.ts",
     "verify": "npm run format:check && npm run check:encoding && npm run lint && npm run typecheck && npm test && npm run build"
   },
   "dependencies": {

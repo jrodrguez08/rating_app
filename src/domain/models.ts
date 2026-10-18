@@ -180,15 +180,31 @@ export interface CoachAssignment {
   externalProviderTeamId: string;
   role: "head-coach";
   coachName: string;
+  provenance?: "provider" | "operator_verified";
   createdAt: string;
   updatedAt: string;
 }
 export interface Coach {
   id: EntityId;
   displayName: string;
-  externalProvider: string;
-  externalProviderId: string;
+  identityProvenance?: "provider" | "operator_verified";
+  externalProvider?: string;
+  externalProviderId?: string;
   photoUrl?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface VerifiedCoachAssignment {
+  matchId: EntityId;
+  trackedTeamId: EntityId;
+  externalProvider: string;
+  externalFixtureId: string;
+  coachId: EntityId;
+  verificationSource: string;
+  verificationReason: string;
+  operatorId: string;
+  provenance: "operator_verified";
+  verifiedAt: string;
   createdAt: string;
   updatedAt: string;
 }
