@@ -82,6 +82,8 @@ const TIMESTAMP_FIELDS = new Set([
   "lastProviderSyncAt",
   "lineupSnapshotAt",
   "participantSyncedAt",
+  "finishedObservedAt",
+  "lastLifecycleRequestedAt",
   "ratingReadyAt",
   "votingOpensAt",
   "votingClosesAt",
@@ -101,6 +103,9 @@ const TIMESTAMP_FIELDS = new Set([
   "windowClosedEarlyAt",
   "generatedAt",
   "lastFixtureDiscoveryAt",
+  "lifecycleLeaseUntil",
+  "lastLifecycleStartedAt",
+  "lastLifecycleCompletedAt",
   "providerSyncedAt",
 ]);
 
@@ -1572,7 +1577,63 @@ export class AdminFootballSyncStore
   async setSyncMetadata(metadata: FootballSyncMetadata): Promise<void> {
     await this.database
       .doc(`footballSyncMetadata/${metadata.teamId}`)
-      .set(toDocument(metadata));
+      .set(toDocument(metadata), { merge: true });
+  }
+  async claimLifecycleExecution(
+    teamId: string,
+    attemptId: string,
+    trigger: "scheduled" | "operator",
+  ): Promise<boolean> {
+    const reference = this.database.doc(`footballSyncMetadata/${teamId}`);
+    return this.database.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(reference);
+      const now = snapshot.readTime.toDate();
+      const leaseUntil = snapshot.data()?.lifecycleLeaseUntil;
+      if (
+        leaseUntil instanceof Timestamp &&
+        leaseUntil.toMillis() > now.getTime()
+      ) {
+        return false;
+      }
+      transaction.set(
+        reference,
+        {
+          teamId,
+          lifecycleAttemptId: attemptId,
+          lifecycleLeaseUntil: Timestamp.fromMillis(now.getTime() + 5 * 60_000),
+          lastLifecycleTrigger: trigger,
+          lastLifecycleStartedAt: Timestamp.fromDate(now),
+          updatedAt: Timestamp.fromDate(now),
+        },
+        { merge: true },
+      );
+      return true;
+    });
+  }
+  async completeLifecycleExecution(
+    teamId: string,
+    attemptId: string,
+    result: { action: string; matchId?: string; providerRequests: number },
+  ): Promise<void> {
+    const reference = this.database.doc(`footballSyncMetadata/${teamId}`);
+    await this.database.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(reference);
+      if (snapshot.data()?.lifecycleAttemptId !== attemptId) return;
+      const now = snapshot.readTime.toDate();
+      transaction.set(
+        reference,
+        {
+          lifecycleAttemptId: FieldValue.delete(),
+          lifecycleLeaseUntil: FieldValue.delete(),
+          lastLifecycleCompletedAt: Timestamp.fromDate(now),
+          lastLifecycleAction: result.action,
+          ...(result.matchId ? { lastLifecycleMatchId: result.matchId } : {}),
+          lastLifecycleProviderRequests: result.providerRequests,
+          updatedAt: Timestamp.fromDate(now),
+        },
+        { merge: true },
+      );
+    });
   }
   async getStandingsTarget(
     trackedTeamId: string,

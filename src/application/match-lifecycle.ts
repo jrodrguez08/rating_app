@@ -629,6 +629,9 @@ function mergeFixture(
     awayTeam: fixture.awayTeam,
     kickoffAt: fixture.kickoffAt,
     lastProviderSyncAt: now.toISOString(),
+    ...(status === "finished"
+      ? { finishedObservedAt: match.finishedObservedAt ?? now.toISOString() }
+      : {}),
     updatedAt: now.toISOString(),
   };
 }

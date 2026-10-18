@@ -22,10 +22,25 @@ export interface AdminMatchOperation {
   ratingState: Match["ratingState"];
   lineupSnapshotAt?: string;
   participantSyncedAt?: string;
+  finishedObservedAt?: string;
+  ratingReadyAt?: string;
+  votingOpensAt?: string;
+  lastProviderSyncAt?: string;
+  lastLifecycleRequestedAt?: string;
+  lastLifecycleStartedAt?: string;
+  lastLifecycleCompletedAt?: string;
+  lastLifecycleTrigger?: "scheduled" | "operator";
+  lastLifecycleAction?: string;
+  lastLifecycleProviderRequests?: number;
   diagnostic?: Match["ratingBlockReason"];
   diagnosticObservedAt?: string;
   participantCount: number;
   rateableParticipantCount: number;
+  confirmedStarterCount: number;
+  confirmedSubstituteCount: number;
+  unconfirmedOrUnusedCount: number;
+  headCoachReady: boolean;
+  lineupProvenance: "provider" | "operator_verified" | "unavailable";
   assignment?: Pick<CoachAssignment, "coachId" | "coachName" | "provenance">;
   verification?: Pick<
     VerifiedCoachAssignment,
@@ -135,14 +150,16 @@ export class AdminConsoleService {
     if (!matchSnapshot.exists) return null;
     const match = fromSnapshot<Match>(matchSnapshot);
     if (match.trackedTeamId !== initialClub.teamId) return null;
-    const [participantSnapshot, playerSnapshot] = await Promise.all([
-      this.database.collection(`matches/${matchId}/participants`).get(),
-      this.database
-        .collection("players")
-        .where("currentTeamId", "==", initialClub.teamId)
-        .limit(150)
-        .get(),
-    ]);
+    const [participantSnapshot, playerSnapshot, metadataSnapshot] =
+      await Promise.all([
+        this.database.collection(`matches/${matchId}/participants`).get(),
+        this.database
+          .collection("players")
+          .where("currentTeamId", "==", initialClub.teamId)
+          .limit(150)
+          .get(),
+        this.database.doc(`footballSyncMetadata/${initialClub.teamId}`).get(),
+      ]);
     const participants = participantSnapshot.docs.map((snapshot) =>
       fromSnapshot<MatchParticipant>(snapshot),
     );
@@ -166,8 +183,39 @@ export class AdminConsoleService {
         }
       }
     }
+    const describedMatch = await this.describeMatch(match);
+    const metadata = metadataSnapshot.data();
     return {
-      match: await this.describeMatch(match),
+      match: {
+        ...describedMatch,
+        ...(metadata?.lastLifecycleStartedAt instanceof Timestamp
+          ? {
+              lastLifecycleStartedAt: metadata.lastLifecycleStartedAt
+                .toDate()
+                .toISOString(),
+            }
+          : {}),
+        ...(metadata?.lastLifecycleCompletedAt instanceof Timestamp
+          ? {
+              lastLifecycleCompletedAt: metadata.lastLifecycleCompletedAt
+                .toDate()
+                .toISOString(),
+            }
+          : {}),
+        ...(metadata?.lastLifecycleTrigger === "scheduled" ||
+        metadata?.lastLifecycleTrigger === "operator"
+          ? { lastLifecycleTrigger: metadata.lastLifecycleTrigger }
+          : {}),
+        ...(typeof metadata?.lastLifecycleAction === "string"
+          ? { lastLifecycleAction: metadata.lastLifecycleAction }
+          : {}),
+        ...(typeof metadata?.lastLifecycleProviderRequests === "number"
+          ? {
+              lastLifecycleProviderRequests:
+                metadata.lastLifecycleProviderRequests,
+            }
+          : {}),
+      },
       participants: participants.map((participant) => ({
         playerId: participant.playerId,
         playerName: participant.playerName,
@@ -206,7 +254,7 @@ export class AdminConsoleService {
     const participants = this.database.collection(
       `matches/${match.id}/participants`,
     );
-    const [assignment, verification, verifiedLineup, total, rateable] =
+    const [assignment, verification, verifiedLineup, participantSnapshot] =
       await Promise.all([
         this.database
           .doc(`matches/${match.id}/coachAssignments/head-coach`)
@@ -215,12 +263,7 @@ export class AdminConsoleService {
           .doc(`matches/${match.id}/verifiedCoachAssignments/head-coach`)
           .get(),
         this.database.doc(`matches/${match.id}/verifiedLineups/current`).get(),
-        participants.count().get(),
-        participants
-          .where("teamId", "==", match.trackedTeamId)
-          .where("participated", "==", true)
-          .count()
-          .get(),
+        participants.get(),
       ]);
     const current = assignment.exists
       ? fromSnapshot<CoachAssignment>(assignment)
@@ -231,6 +274,21 @@ export class AdminConsoleService {
     const lineup = verifiedLineup.exists
       ? fromSnapshot<VerifiedLineupSnapshot>(verifiedLineup)
       : undefined;
+    const participantValues = participantSnapshot.docs.map((snapshot) =>
+      fromSnapshot<MatchParticipant>(snapshot),
+    );
+    const trackedParticipants = participantValues.filter(
+      (participant) => participant.teamId === match.trackedTeamId,
+    );
+    const confirmedStarterCount = trackedParticipants.filter(
+      (participant) =>
+        participant.participationStatus === "confirmed_starter" ||
+        (participant.starter && participant.participated),
+    ).length;
+    const confirmedSubstituteCount = trackedParticipants.filter(
+      (participant) =>
+        participant.participationStatus === "confirmed_substitute",
+    ).length;
     return {
       id: match.id,
       externalFixtureId: match.externalProviderFixtureId,
@@ -245,10 +303,38 @@ export class AdminConsoleService {
       ...(match.participantSyncedAt
         ? { participantSyncedAt: match.participantSyncedAt }
         : {}),
+      ...(match.finishedObservedAt
+        ? { finishedObservedAt: match.finishedObservedAt }
+        : {}),
+      ...(match.ratingReadyAt ? { ratingReadyAt: match.ratingReadyAt } : {}),
+      ...(match.votingOpensAt ? { votingOpensAt: match.votingOpensAt } : {}),
+      ...(match.lastProviderSyncAt
+        ? { lastProviderSyncAt: match.lastProviderSyncAt }
+        : {}),
+      ...(match.lastLifecycleRequestedAt
+        ? { lastLifecycleRequestedAt: match.lastLifecycleRequestedAt }
+        : {}),
       diagnostic: match.ratingBlockReason,
       diagnosticObservedAt: match.ratingBlockObservedAt,
-      participantCount: total.data().count,
-      rateableParticipantCount: rateable.data().count,
+      participantCount: participantValues.length,
+      rateableParticipantCount: trackedParticipants.filter(
+        (participant) => participant.participated,
+      ).length,
+      confirmedStarterCount,
+      confirmedSubstituteCount,
+      unconfirmedOrUnusedCount: Math.max(
+        0,
+        trackedParticipants.length -
+          confirmedStarterCount -
+          confirmedSubstituteCount,
+      ),
+      headCoachReady:
+        current !== undefined && current.teamId === match.trackedTeamId,
+      lineupProvenance: lineup
+        ? "operator_verified"
+        : match.lineupSnapshotAt
+          ? "provider"
+          : "unavailable",
       ...(current
         ? {
             assignment: {

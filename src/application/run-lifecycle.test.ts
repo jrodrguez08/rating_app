@@ -88,4 +88,64 @@ describe("configured match lifecycle notifications", () => {
       notificationStore.claimVotingWindowNotification,
     ).toHaveBeenCalledTimes(2);
   });
+
+  it("skips provider work while another lifecycle execution owns the lease", async () => {
+    const store = {
+      claimLifecycleExecution: vi.fn().mockResolvedValue(false),
+      completeLifecycleExecution: vi.fn(),
+    } as unknown as MatchLifecycleStore;
+
+    const result = await runConfiguredLifecycle(
+      "tracked-team",
+      store,
+      "provider-key",
+      () => new Date("2026-10-13T02:00:00.000Z"),
+      undefined,
+      { trigger: "operator" },
+    );
+
+    expect(result).toMatchObject({
+      action: "idle",
+      providerRequests: 0,
+      reason: expect.stringContaining("already in progress"),
+    });
+    expect(mocks.runMatchLifecycle).not.toHaveBeenCalled();
+    expect(store.completeLifecycleExecution).not.toHaveBeenCalled();
+  });
+
+  it("records completion metrics for the claimed execution", async () => {
+    mocks.runMatchLifecycle.mockResolvedValue({
+      action: "refreshed",
+      matchId: "match-1",
+      providerRequests: 1,
+    });
+    const store = {
+      claimLifecycleExecution: vi.fn().mockResolvedValue(true),
+      completeLifecycleExecution: vi.fn().mockResolvedValue(undefined),
+    } as unknown as MatchLifecycleStore;
+
+    await runConfiguredLifecycle(
+      "tracked-team",
+      store,
+      "provider-key",
+      undefined,
+      undefined,
+      { trigger: "scheduled" },
+    );
+
+    expect(store.claimLifecycleExecution).toHaveBeenCalledWith(
+      "tracked-team",
+      expect.any(String),
+      "scheduled",
+    );
+    expect(store.completeLifecycleExecution).toHaveBeenCalledWith(
+      "tracked-team",
+      expect.any(String),
+      {
+        action: "refreshed",
+        matchId: "match-1",
+        providerRequests: 1,
+      },
+    );
+  });
 });

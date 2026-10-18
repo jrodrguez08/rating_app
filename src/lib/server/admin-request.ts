@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 
 import { getMessages } from "@/i18n/messages";
 import type { AdminCoachAction } from "@/lib/server/admin-coach-action";
+import type { AdminLifecycleAction } from "@/lib/server/admin-lifecycle-action";
 import type {
   AdminLineupAction,
   AdminLineupParticipantAction,
@@ -90,6 +91,24 @@ export function parseAdminLineupAction(value: unknown): AdminLineupAction {
   };
 }
 
+export function parseAdminLifecycleAction(
+  value: unknown,
+): AdminLifecycleAction {
+  if (!isRecord(value)) throw new AdminAuthorizationError(403);
+  for (const key of [
+    "matchId",
+    "trackedTeamId",
+    "externalFixtureId",
+  ] as const) {
+    if (typeof value[key] !== "string") throw new AdminAuthorizationError(403);
+  }
+  return {
+    matchId: value.matchId as string,
+    trackedTeamId: value.trackedTeamId as string,
+    externalFixtureId: value.externalFixtureId as string,
+  };
+}
+
 function parseLineupParticipant(value: unknown): AdminLineupParticipantAction {
   if (
     !isRecord(value) ||
@@ -166,6 +185,12 @@ export function adminError(error: unknown): NextResponse {
     }
     if (value.includes("not permitted")) {
       return adminJson({ error: messages.matchStateError }, 409);
+    }
+    if (value.includes("rate limit")) {
+      return adminJson({ error: messages.lifecycleRateLimitError }, 429);
+    }
+    if (value.includes("canonical match")) {
+      return adminJson({ error: messages.lifecycleTargetError }, 409);
     }
     if (value.includes("conflict")) {
       return adminJson({ error: messages.coachConflictError }, 409);

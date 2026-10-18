@@ -187,6 +187,20 @@ export interface MatchLifecycleStore extends FootballSyncStore {
   finalizeMatchResult(matchId: string, now: Date): Promise<void>;
   getSyncMetadata(teamId: string): Promise<FootballSyncMetadata | null>;
   setSyncMetadata(metadata: FootballSyncMetadata): Promise<void>;
+  claimLifecycleExecution?(
+    teamId: string,
+    attemptId: string,
+    trigger: "scheduled" | "operator",
+  ): Promise<boolean>;
+  completeLifecycleExecution?(
+    teamId: string,
+    attemptId: string,
+    result: {
+      action: string;
+      matchId?: string;
+      providerRequests: number;
+    },
+  ): Promise<void>;
 }
 
 export interface VotingWindowNotificationContext {

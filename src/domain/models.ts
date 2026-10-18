@@ -108,6 +108,8 @@ export interface Match {
   lastProviderSyncAt?: string;
   lineupSnapshotAt?: string;
   participantSyncedAt?: string;
+  finishedObservedAt?: string;
+  lastLifecycleRequestedAt?: string;
   ratingBlockReason?: RatingBlockReason;
   ratingBlockObservedAt?: string;
   ratingReadyAt?: string;
@@ -134,6 +136,14 @@ export interface Match {
 export interface FootballSyncMetadata {
   teamId: EntityId;
   lastFixtureDiscoveryAt?: string;
+  lifecycleAttemptId?: string;
+  lifecycleLeaseUntil?: string;
+  lastLifecycleTrigger?: "scheduled" | "operator";
+  lastLifecycleStartedAt?: string;
+  lastLifecycleCompletedAt?: string;
+  lastLifecycleAction?: string;
+  lastLifecycleMatchId?: string;
+  lastLifecycleProviderRequests?: number;
   updatedAt: string;
 }
 

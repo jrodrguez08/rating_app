@@ -440,6 +440,7 @@ describe("match lifecycle synchronization", () => {
     const ready = store.matches[0];
     expect(ready).toMatchObject({
       ratingState: "rating_ready",
+      finishedObservedAt: NOW.toISOString(),
       votingOpensAt: NOW.toISOString(),
       votingClosesAt: "2026-08-29T20:00:00.000Z",
       votingOpenNotificationWindow: 0,
