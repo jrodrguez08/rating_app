@@ -7,6 +7,7 @@ import { getMessages } from "@/i18n/messages";
 import {
   ADMIN_ACTION_COOKIE,
   ADMIN_CSRF_COOKIE,
+  ADMIN_LIFECYCLE_ACTION_COOKIE,
   ADMIN_LINEUP_ACTION_COOKIE,
   ADMIN_SESSION_COOKIE,
   ADMIN_SESSION_MAX_AGE_MS,
@@ -60,6 +61,12 @@ export async function POST(request: NextRequest) {
       httpOnly: true,
       sameSite: "strict",
       path: "/api/admin/lineup/apply",
+      maxAge: 0,
+    });
+    response.cookies.set(ADMIN_LIFECYCLE_ACTION_COOKIE, "", {
+      httpOnly: true,
+      sameSite: "strict",
+      path: "/api/admin/lifecycle",
       maxAge: 0,
     });
     return response;

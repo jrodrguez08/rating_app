@@ -101,6 +101,11 @@ async function executeMatchLifecycle({
     pendingFinalization !== undefined &&
     isExpiredRatingWindow(pendingFinalization, currentTime)
   ) {
+    await requireLifecycleExecutionOwnership(
+      store,
+      teamId,
+      pendingFinalization.id,
+    );
     emitOperationalLog(log, "lifecycle.phase", {
       phase: "close_finalization",
       matchId: pendingFinalization.id,
@@ -159,6 +164,7 @@ async function executeMatchLifecycle({
     status: match.status,
     ratingState: match.ratingState,
   });
+  await requireLifecycleExecutionOwnership(store, teamId, match.id);
 
   if (isExpiredRatingWindow(match, currentTime)) {
     emitOperationalLog(log, "lifecycle.phase", {
@@ -471,6 +477,19 @@ function operationalErrorReason(error: unknown): string {
   return "participant-sync-failed";
 }
 
+async function requireLifecycleExecutionOwnership(
+  store: MatchLifecycleStore,
+  teamId: string,
+  matchId: string,
+): Promise<void> {
+  if (
+    store.markLifecycleExecutionTarget &&
+    !(await store.markLifecycleExecutionTarget(teamId, matchId))
+  ) {
+    throw new Error("Lifecycle execution lease was lost.");
+  }
+}
+
 export function selectRelevantMatch(
   matches: Match[],
   now: Date,
@@ -629,6 +648,9 @@ function mergeFixture(
     awayTeam: fixture.awayTeam,
     kickoffAt: fixture.kickoffAt,
     lastProviderSyncAt: now.toISOString(),
+    ...(status === "finished"
+      ? { finishedObservedAt: match.finishedObservedAt ?? now.toISOString() }
+      : {}),
     updatedAt: now.toISOString(),
   };
 }

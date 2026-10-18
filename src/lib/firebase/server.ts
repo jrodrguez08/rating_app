@@ -51,6 +51,7 @@ import type {
 } from "@/domain/models";
 import type {
   FootballSyncStore,
+  LifecycleExecutionClaim,
   MatchLifecycleStore,
   ProviderMatchContext,
   StandingsSyncStore,
@@ -82,6 +83,8 @@ const TIMESTAMP_FIELDS = new Set([
   "lastProviderSyncAt",
   "lineupSnapshotAt",
   "participantSyncedAt",
+  "finishedObservedAt",
+  "lastLifecycleRequestedAt",
   "ratingReadyAt",
   "votingOpensAt",
   "votingClosesAt",
@@ -101,6 +104,9 @@ const TIMESTAMP_FIELDS = new Set([
   "windowClosedEarlyAt",
   "generatedAt",
   "lastFixtureDiscoveryAt",
+  "lifecycleLeaseUntil",
+  "lastLifecycleStartedAt",
+  "lastLifecycleCompletedAt",
   "providerSyncedAt",
 ]);
 
@@ -1427,6 +1433,8 @@ export class AdminVotingWindowNotificationStore implements VotingWindowNotificat
 export class AdminFootballSyncStore
   implements FootballSyncStore, MatchLifecycleStore, StandingsSyncStore
 {
+  private lifecycleAttemptId: string | undefined;
+
   constructor(private readonly database = getServerFirestore()) {}
 
   async getTeam(teamId: string): Promise<Team> {
@@ -1572,7 +1580,132 @@ export class AdminFootballSyncStore
   async setSyncMetadata(metadata: FootballSyncMetadata): Promise<void> {
     await this.database
       .doc(`footballSyncMetadata/${metadata.teamId}`)
-      .set(toDocument(metadata));
+      .set(toDocument(metadata), { merge: true });
+  }
+  async claimLifecycleExecution(
+    teamId: string,
+    attemptId: string,
+    trigger: "scheduled" | "operator",
+  ): Promise<LifecycleExecutionClaim> {
+    const reference = this.database.doc(`footballSyncMetadata/${teamId}`);
+    return this.database.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(reference);
+      const now = snapshot.readTime.toDate();
+      const leaseUntil = snapshot.data()?.lifecycleLeaseUntil;
+      if (
+        leaseUntil instanceof Timestamp &&
+        leaseUntil.toMillis() > now.getTime()
+      ) {
+        const data = snapshot.data();
+        return {
+          status: "busy" as const,
+          attemptId:
+            typeof data?.lifecycleAttemptId === "string"
+              ? data.lifecycleAttemptId
+              : "unknown",
+          ...(data?.lastLifecycleTrigger === "scheduled" ||
+          data?.lastLifecycleTrigger === "operator"
+            ? { trigger: data.lastLifecycleTrigger }
+            : {}),
+          ...(typeof data?.lifecycleMatchId === "string"
+            ? { matchId: data.lifecycleMatchId }
+            : {}),
+          ...(data?.lastLifecycleStartedAt instanceof Timestamp
+            ? { startedAt: data.lastLifecycleStartedAt.toDate().toISOString() }
+            : {}),
+          leaseUntil: leaseUntil.toDate().toISOString(),
+        };
+      }
+      const newLeaseUntil = Timestamp.fromMillis(now.getTime() + 5 * 60_000);
+      transaction.set(
+        reference,
+        {
+          teamId,
+          lifecycleAttemptId: attemptId,
+          lifecycleMatchId: FieldValue.delete(),
+          lifecycleLeaseUntil: newLeaseUntil,
+          lastLifecycleTrigger: trigger,
+          lastLifecycleStartedAt: Timestamp.fromDate(now),
+          updatedAt: Timestamp.fromDate(now),
+        },
+        { merge: true },
+      );
+      this.lifecycleAttemptId = attemptId;
+      return {
+        status: "claimed" as const,
+        leaseUntil: newLeaseUntil.toDate().toISOString(),
+      };
+    });
+  }
+  async markLifecycleExecutionTarget(
+    teamId: string,
+    matchId: string,
+  ): Promise<boolean> {
+    const attemptId = this.lifecycleAttemptId;
+    if (!attemptId) return true;
+    const reference = this.database.doc(`footballSyncMetadata/${teamId}`);
+    return this.database.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(reference);
+      const leaseUntil = snapshot.data()?.lifecycleLeaseUntil;
+      if (
+        snapshot.data()?.lifecycleAttemptId !== attemptId ||
+        !(leaseUntil instanceof Timestamp) ||
+        leaseUntil.toMillis() <= snapshot.readTime.toMillis()
+      ) {
+        return false;
+      }
+      transaction.update(reference, { lifecycleMatchId: matchId });
+      return true;
+    });
+  }
+  async renewLifecycleExecution(
+    teamId: string,
+    attemptId: string,
+  ): Promise<boolean> {
+    const reference = this.database.doc(`footballSyncMetadata/${teamId}`);
+    return this.database.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(reference);
+      const leaseUntil = snapshot.data()?.lifecycleLeaseUntil;
+      if (
+        snapshot.data()?.lifecycleAttemptId !== attemptId ||
+        !(leaseUntil instanceof Timestamp) ||
+        leaseUntil.toMillis() <= snapshot.readTime.toMillis()
+      ) {
+        return false;
+      }
+      const now = snapshot.readTime.toDate();
+      transaction.update(reference, {
+        lifecycleLeaseUntil: Timestamp.fromMillis(now.getTime() + 5 * 60_000),
+      });
+      return true;
+    });
+  }
+  async completeLifecycleExecution(
+    teamId: string,
+    attemptId: string,
+    result: { action: string; matchId?: string; providerRequests: number },
+  ): Promise<void> {
+    const reference = this.database.doc(`footballSyncMetadata/${teamId}`);
+    await this.database.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(reference);
+      if (snapshot.data()?.lifecycleAttemptId !== attemptId) return;
+      const now = snapshot.readTime.toDate();
+      transaction.set(
+        reference,
+        {
+          lifecycleAttemptId: FieldValue.delete(),
+          lifecycleMatchId: FieldValue.delete(),
+          lifecycleLeaseUntil: FieldValue.delete(),
+          lastLifecycleCompletedAt: Timestamp.fromDate(now),
+          lastLifecycleAction: result.action,
+          lastLifecycleAttemptId: attemptId,
+          ...(result.matchId ? { lastLifecycleMatchId: result.matchId } : {}),
+          lastLifecycleProviderRequests: result.providerRequests,
+          updatedAt: Timestamp.fromDate(now),
+        },
+        { merge: true },
+      );
+    });
   }
   async getStandingsTarget(
     trackedTeamId: string,

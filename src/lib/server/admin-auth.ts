@@ -8,6 +8,7 @@ export const ADMIN_SESSION_COOKIE = "rating_admin_session";
 export const ADMIN_CSRF_COOKIE = "rating_admin_csrf";
 export const ADMIN_ACTION_COOKIE = "rating_admin_action";
 export const ADMIN_LINEUP_ACTION_COOKIE = "rating_admin_lineup_action";
+export const ADMIN_LIFECYCLE_ACTION_COOKIE = "rating_admin_lifecycle_action";
 export const ADMIN_SESSION_MAX_AGE_MS = 60 * 60 * 1000;
 
 type Environment = Readonly<Record<string, string | undefined>>;

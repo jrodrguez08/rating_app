@@ -99,6 +99,11 @@ function detail(
       ratingState,
       participantCount: 12,
       rateableParticipantCount: 11,
+      confirmedStarterCount: 11,
+      confirmedSubstituteCount: 0,
+      unconfirmedOrUnusedCount: 1,
+      headCoachReady: true,
+      lineupProvenance: "operator_verified",
     },
     participants,
     players: participants.map((participant) => ({

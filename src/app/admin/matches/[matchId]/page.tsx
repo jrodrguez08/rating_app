@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 
 import { AdminLineupEditor } from "@/components/admin-lineup-editor";
+import { AdminLifecycleActionPanel } from "@/components/admin-lifecycle-action";
 import { initialClub } from "@/config/club";
 import { getMessages } from "@/i18n/messages";
 import { AdminConsoleService } from "@/lib/firebase/admin-console";
@@ -50,11 +51,18 @@ export default async function AdminMatchPage({
           {messages.lineupDescription}
         </p>
       </header>
-      <AdminLineupEditor
-        detail={detail}
-        messages={messages}
-        teamId={initialClub.teamId}
-      />
+      <div className="grid gap-6">
+        <AdminLifecycleActionPanel
+          match={detail.match}
+          messages={messages}
+          teamId={initialClub.teamId}
+        />
+        <AdminLineupEditor
+          detail={detail}
+          messages={messages}
+          teamId={initialClub.teamId}
+        />
+      </div>
     </main>
   );
 }

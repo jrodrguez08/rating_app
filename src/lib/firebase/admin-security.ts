@@ -1,6 +1,10 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 import {
+  hashAdminLifecycleAction,
+  type AdminLifecycleAction,
+} from "@/lib/server/admin-lifecycle-action";
+import {
   FieldValue,
   Timestamp,
   type Firestore,
@@ -29,9 +33,12 @@ export type AdminAuditAction =
   | "coach_assignment_passphrase"
   | "coach_assignment_apply"
   | "lineup_preparation_passphrase"
-  | "lineup_preparation_apply";
+  | "lineup_preparation_apply"
+  | "lifecycle_request_passphrase"
+  | "lifecycle_request_apply";
 
-type AdminSensitiveAction = AdminCoachAction | AdminLineupAction;
+type AdminSensitiveAction =
+  AdminCoachAction | AdminLineupAction | AdminLifecycleAction;
 
 export class AdminSecurityError extends Error {
   constructor(
@@ -253,9 +260,9 @@ export class AdminSecurityStore {
 }
 
 function hashAdminSensitiveAction(action: AdminSensitiveAction): string {
-  return "participants" in action
-    ? hashAdminLineupAction(action)
-    : hashAdminCoachAction(action);
+  if ("participants" in action) return hashAdminLineupAction(action);
+  if ("coachId" in action) return hashAdminCoachAction(action);
+  return hashAdminLifecycleAction(action);
 }
 
 function signPreview(payload: string): string {
