@@ -82,6 +82,7 @@ const TIMESTAMP_FIELDS = new Set([
   "kickoffAt",
   "lastProviderSyncAt",
   "lineupSnapshotAt",
+  "lineupCaptureLastAttemptAt",
   "participantSyncedAt",
   "finishedObservedAt",
   "lastLifecycleRequestedAt",
@@ -2681,6 +2682,18 @@ function preserveMatchLifecycle(existing: Match, incoming: Match): Match {
     ...(existing.lineupSnapshotAt === undefined
       ? {}
       : { lineupSnapshotAt: existing.lineupSnapshotAt }),
+    ...(existing.lineupCaptureAttempts === undefined
+      ? {}
+      : { lineupCaptureAttempts: existing.lineupCaptureAttempts }),
+    ...(existing.liveLineupCaptureAttempts === undefined
+      ? {}
+      : { liveLineupCaptureAttempts: existing.liveLineupCaptureAttempts }),
+    ...(existing.lineupCaptureLastAttemptAt === undefined
+      ? {}
+      : { lineupCaptureLastAttemptAt: existing.lineupCaptureLastAttemptAt }),
+    ...(existing.lineupCaptureLastOutcome === undefined
+      ? {}
+      : { lineupCaptureLastOutcome: existing.lineupCaptureLastOutcome }),
     ...(existing.participantSyncedAt === undefined
       ? {}
       : { participantSyncedAt: existing.participantSyncedAt }),

@@ -213,6 +213,18 @@ export async function syncMatchParticipants(
       `Provider returned no participants for tracked Team ${externalTeamId}.`,
     );
   }
+  if (phase === "lineup") {
+    const starterCount = trackedParticipants.filter(
+      (participant) => participant.squadRole === "starter",
+    ).length;
+    const substituteCount = trackedParticipants.length - starterCount;
+    if (starterCount !== 11 || substituteCount === 0) {
+      throw new ProviderError(
+        "lineup-unavailable",
+        `Tracked Team lineup for fixture ${match.externalProviderFixtureId} is incomplete (${starterCount} starters, ${substituteCount} substitutes).`,
+      );
+    }
+  }
   if (context.headCoach.externalTeamId !== externalTeamId) {
     throw new Error(
       `Provider returned a head coach for Team ${context.headCoach.externalTeamId}, not tracked Team ${externalTeamId}.`,

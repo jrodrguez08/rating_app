@@ -5,6 +5,7 @@ import type {
   Match,
   PlayerProviderAlias,
   Team,
+  VerifiedLineupSnapshot,
 } from "@/domain/models";
 import type {
   FootballDataProvider,
@@ -14,6 +15,7 @@ import type {
   ProviderMatchContext,
   ProviderTeamIdentity,
 } from "@/domain/ports";
+import { ProviderError } from "@/lib/providers/api-football/errors";
 
 import {
   runMatchLifecycle,
@@ -66,6 +68,7 @@ class MemoryStore implements MatchLifecycleStore {
   hasCoach = true;
   finalizeCalls = 0;
   finalizationFailure?: Error;
+  verifiedLineup: VerifiedLineupSnapshot | null = null;
 
   constructor(public matches: Match[]) {}
   async getTeam() {
@@ -134,6 +137,9 @@ class MemoryStore implements MatchLifecycleStore {
   async getPersistedMatchContext() {
     return null;
   }
+  async getVerifiedLineupSnapshot() {
+    return this.verifiedLineup;
+  }
   async upsertCoaches() {
     return counts;
   }
@@ -195,15 +201,72 @@ function run(
   sync: LifecycleDependencies["syncParticipants"] = async () => undefined,
   log?: (message: string) => void,
 ) {
+  return runAt(store, provider, NOW, sync, log);
+}
+
+function runAt(
+  store: MemoryStore,
+  provider: FixtureProvider,
+  now: Date,
+  sync: LifecycleDependencies["syncParticipants"] = async () => undefined,
+  log?: (message: string) => void,
+) {
   return runMatchLifecycle({
     teamId: "tracked-team",
     store,
     provider,
-    now: () => NOW,
+    now: () => now,
     discoverFixtures: async () => undefined,
     syncParticipants: sync,
     log,
   });
+}
+
+function fixture1551706Match(overrides: Partial<Match> = {}): Match {
+  return match({
+    id: "match-1551706",
+    externalProviderFixtureId: "1551706",
+    kickoffAt: "2026-10-18T22:00:00.000Z",
+    ...overrides,
+  });
+}
+
+function fixture1551706Provider(): FixtureProvider {
+  return new FixtureProvider({
+    ...fixture("live"),
+    externalFixtureId: "1551706",
+    kickoffAt: "2026-10-18T22:00:00.000Z",
+    elapsedMinute: 13,
+  });
+}
+
+function verifiedLineup1551706(): VerifiedLineupSnapshot {
+  const verifiedAt = "2026-10-18T22:05:00.000Z";
+  return {
+    matchId: "match-1551706",
+    trackedTeamId: "tracked-team",
+    externalProvider: "api-football",
+    externalFixtureId: "1551706",
+    participants: Array.from({ length: 11 }, (_, index) => ({
+      playerId: `verified-player-${index + 1}`,
+      playerName: `Verified Player ${index + 1}`,
+      squadRole: "starter",
+      participationStatus: "confirmed_starter",
+      participated: true,
+      identityProvenance: "operator_verified",
+      verificationSource: "https://example.com/fixture-1551706",
+      verificationReason: "Fixture-specific independent evidence.",
+      verifiedBy: "owner",
+      verifiedAt,
+    })),
+    operatorId: "owner",
+    verificationSource: "https://example.com/fixture-1551706",
+    verificationReason: "Fixture-specific independent evidence.",
+    provenance: "operator_verified",
+    verifiedAt,
+    createdAt: verifiedAt,
+    updatedAt: verifiedAt,
+  };
 }
 
 describe("match lifecycle synchronization", () => {
@@ -219,6 +282,7 @@ describe("match lifecycle synchronization", () => {
 
     const captured = await run(near, nearProvider, async (_id, _now, phase) => {
       phases.push(phase);
+      return { starters: 11, substitutes: 5, participated: 11 };
     });
 
     expect(captured.action).toBe("refreshed");
@@ -269,6 +333,236 @@ describe("match lifecycle synchronization", () => {
       reason: expect.stringContaining("cache propagation"),
     });
     expect(store.matches[0].lineupSnapshotAt).toBeUndefined();
+    expect(store.matches[0]).toMatchObject({
+      lineupCaptureAttempts: 1,
+      liveLineupCaptureAttempts: 0,
+      lineupCaptureLastAttemptAt: NOW.toISOString(),
+      lineupCaptureLastOutcome: "unavailable",
+    });
+  });
+
+  it("retries fixture 1551706 while live, persists cooldown metadata, and captures late evidence", async () => {
+    const firstAt = new Date("2026-10-18T22:13:59.000Z");
+    const store = new MemoryStore([
+      match({
+        id: "match-1551706",
+        externalProviderFixtureId: "1551706",
+        kickoffAt: "2026-10-18T22:00:00.000Z",
+      }),
+    ]);
+    const logs: string[] = [];
+    const firstProvider = new FixtureProvider({
+      ...fixture("live"),
+      externalFixtureId: "1551706",
+      kickoffAt: "2026-10-18T22:00:00.000Z",
+      elapsedMinute: 13,
+    });
+    const unavailable = await runAt(
+      store,
+      firstProvider,
+      firstAt,
+      async () => {
+        firstProvider.requestCount += 1;
+        throw new ProviderError(
+          "lineup-unavailable",
+          "No usable lineup has been observed for fixture 1551706.",
+        );
+      },
+      (message) => logs.push(message),
+    );
+
+    expect(unavailable).toMatchObject({
+      action: "refreshed",
+      matchId: "match-1551706",
+      providerRequests: 2,
+    });
+    expect(store.matches[0]).toMatchObject({
+      status: "live",
+      elapsedMinute: 13,
+      lineupCaptureAttempts: 1,
+      liveLineupCaptureAttempts: 1,
+      lineupCaptureLastAttemptAt: firstAt.toISOString(),
+      lineupCaptureLastOutcome: "unavailable",
+    });
+    expect(store.matches[0].lineupSnapshotAt).toBeUndefined();
+    expect(logs.join("\n")).toContain('"phase":"attempted"');
+    expect(logs.join("\n")).toContain('"outcome":"unavailable"');
+
+    let cooldownSyncs = 0;
+    const cooldownProvider = new FixtureProvider({
+      ...fixture("live"),
+      externalFixtureId: "1551706",
+      kickoffAt: "2026-10-18T22:00:00.000Z",
+      elapsedMinute: 18,
+    });
+    await runAt(
+      store,
+      cooldownProvider,
+      new Date("2026-10-18T22:18:59.000Z"),
+      async () => {
+        cooldownSyncs += 1;
+        return { starters: 11, substitutes: 7, participated: 11 };
+      },
+      (message) => logs.push(message),
+    );
+    expect(cooldownSyncs).toBe(0);
+    expect(cooldownProvider.requestCount).toBe(1);
+    expect(logs.join("\n")).toContain('"reason":"cooldown"');
+
+    const lateAt = new Date("2026-10-18T22:29:00.000Z");
+    const lateProvider = new FixtureProvider({
+      ...fixture("live"),
+      externalFixtureId: "1551706",
+      kickoffAt: "2026-10-18T22:00:00.000Z",
+      elapsedMinute: 29,
+    });
+    await runAt(store, lateProvider, lateAt, async () => {
+      lateProvider.requestCount += 1;
+      return { starters: 11, substitutes: 7, participated: 11 };
+    });
+
+    expect(lateProvider.requestCount).toBe(2);
+    expect(store.matches[0]).toMatchObject({
+      lineupCaptureAttempts: 2,
+      liveLineupCaptureAttempts: 2,
+      lineupCaptureLastAttemptAt: lateAt.toISOString(),
+      lineupCaptureLastOutcome: "complete",
+      lineupSnapshotAt: lateAt.toISOString(),
+    });
+  });
+
+  it("does not mark an incomplete live capture as a snapshot", async () => {
+    const now = new Date("2026-10-18T22:13:59.000Z");
+    const store = new MemoryStore([fixture1551706Match()]);
+    const provider = fixture1551706Provider();
+
+    const result = await runAt(store, provider, now, async () => {
+      provider.requestCount += 1;
+      return { starters: 10, substitutes: 4, participated: 10 };
+    });
+
+    expect(result.action).toBe("refreshed");
+    expect(store.matches[0].lineupSnapshotAt).toBeUndefined();
+    expect(store.matches[0].lineupCaptureLastOutcome).toBe("incomplete");
+  });
+
+  it("enforces the live retry ceiling and provider request budget", async () => {
+    const now = new Date("2026-10-18T22:13:59.000Z");
+    const ceilingStore = new MemoryStore([
+      fixture1551706Match({
+        liveLineupCaptureAttempts: 4,
+        lineupCaptureAttempts: 4,
+        lineupCaptureLastAttemptAt: "2026-10-18T21:00:00.000Z",
+      }),
+    ]);
+    let syncs = 0;
+    const ceilingLogs: string[] = [];
+    const ceilingProvider = fixture1551706Provider();
+    await runAt(
+      ceilingStore,
+      ceilingProvider,
+      now,
+      async () => {
+        syncs += 1;
+        return { starters: 11, substitutes: 5, participated: 11 };
+      },
+      (message) => ceilingLogs.push(message),
+    );
+    expect(syncs).toBe(0);
+    expect(ceilingProvider.requestCount).toBe(1);
+    expect(ceilingLogs.join("\n")).toContain('"reason":"retry-ceiling"');
+
+    const budgetStore = new MemoryStore([fixture1551706Match()]);
+    const budgetProvider = fixture1551706Provider();
+    budgetProvider.requestCount = 1;
+    const budgetLogs: string[] = [];
+    await runAt(
+      budgetStore,
+      budgetProvider,
+      now,
+      async () => {
+        syncs += 1;
+        return { starters: 11, substitutes: 5, participated: 11 };
+      },
+      (message) => budgetLogs.push(message),
+    );
+    expect(syncs).toBe(0);
+    expect(budgetProvider.requestCount).toBe(2);
+    expect(budgetLogs.join("\n")).toContain('"reason":"provider-budget"');
+  });
+
+  it("preserves a verified operator lineup instead of polling live provider evidence", async () => {
+    const store = new MemoryStore([fixture1551706Match()]);
+    store.verifiedLineup = verifiedLineup1551706();
+    const provider = fixture1551706Provider();
+    const logs: string[] = [];
+    let syncs = 0;
+
+    await runAt(
+      store,
+      provider,
+      new Date("2026-10-18T22:13:59.000Z"),
+      async () => {
+        syncs += 1;
+        return { starters: 11, substitutes: 5, participated: 11 };
+      },
+      (message) => logs.push(message),
+    );
+
+    expect(syncs).toBe(0);
+    expect(provider.requestCount).toBe(1);
+    expect(store.matches[0].lineupCaptureAttempts).toBeUndefined();
+    expect(logs.join("\n")).toContain('"reason":"verified-lineup"');
+  });
+
+  it("records provider failure but keeps the live fixture refresh", async () => {
+    const now = new Date("2026-10-18T22:13:59.000Z");
+    const store = new MemoryStore([fixture1551706Match()]);
+    const provider = fixture1551706Provider();
+
+    const result = await runAt(store, provider, now, async () => {
+      provider.requestCount += 1;
+      throw new ProviderError("request-failed", "Provider request failed.");
+    });
+
+    expect(result.action).toBe("refreshed");
+    expect(store.matches[0]).toMatchObject({
+      status: "live",
+      elapsedMinute: 13,
+      lineupCaptureLastOutcome: "provider_failure",
+    });
+    expect(store.matches[0].lineupSnapshotAt).toBeUndefined();
+  });
+
+  it("runs final reconciliation after the live retry ceiling", async () => {
+    const now = new Date("2026-10-18T23:55:00.000Z");
+    const store = new MemoryStore([
+      fixture1551706Match({
+        liveLineupCaptureAttempts: 4,
+        lineupCaptureAttempts: 4,
+        lineupCaptureLastAttemptAt: "2026-10-18T23:30:00.000Z",
+      }),
+    ]);
+    const provider = new FixtureProvider({
+      ...fixture("finished"),
+      externalFixtureId: "1551706",
+      kickoffAt: "2026-10-18T22:00:00.000Z",
+      score: { home: 0, away: 1 },
+    });
+    const phases: string[] = [];
+
+    const result = await runAt(
+      store,
+      provider,
+      now,
+      async (_id, _at, phase) => {
+        phases.push(phase);
+        return { starters: 11, substitutes: 5, participated: 11 };
+      },
+    );
+
+    expect(phases).toEqual(["final"]);
+    expect(result.action).toBe("rating_ready");
   });
 
   it("makes no provider call when no match exists and discovery is fresh", async () => {

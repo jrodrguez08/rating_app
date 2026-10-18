@@ -63,6 +63,7 @@ function encode(value: unknown, key?: string): FirestoreValue {
     key === "kickoffAt" ||
     key === "lastProviderSyncAt" ||
     key === "lineupSnapshotAt" ||
+    key === "lineupCaptureLastAttemptAt" ||
     key === "participantSyncedAt" ||
     key === "ratingReadyAt" ||
     key === "votingOpensAt" ||
@@ -802,6 +803,21 @@ function preserveMatchLifecycle(
       : {}),
     ...(typeof existing.lineupSnapshotAt === "string"
       ? { lineupSnapshotAt: existing.lineupSnapshotAt }
+      : {}),
+    ...(typeof existing.lineupCaptureAttempts === "number"
+      ? { lineupCaptureAttempts: existing.lineupCaptureAttempts }
+      : {}),
+    ...(typeof existing.liveLineupCaptureAttempts === "number"
+      ? { liveLineupCaptureAttempts: existing.liveLineupCaptureAttempts }
+      : {}),
+    ...(typeof existing.lineupCaptureLastAttemptAt === "string"
+      ? { lineupCaptureLastAttemptAt: existing.lineupCaptureLastAttemptAt }
+      : {}),
+    ...(typeof existing.lineupCaptureLastOutcome === "string"
+      ? {
+          lineupCaptureLastOutcome:
+            existing.lineupCaptureLastOutcome as Match["lineupCaptureLastOutcome"],
+        }
       : {}),
     ...(typeof existing.ratingReadyAt === "string"
       ? { ratingReadyAt: existing.ratingReadyAt }
