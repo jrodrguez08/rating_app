@@ -107,6 +107,10 @@ export interface Match {
   goalEvents?: MatchGoalEvent[];
   lastProviderSyncAt?: string;
   lineupSnapshotAt?: string;
+  lineupCaptureAttempts?: number;
+  liveLineupCaptureAttempts?: number;
+  lineupCaptureLastAttemptAt?: string;
+  lineupCaptureLastOutcome?: LineupCaptureOutcome;
   participantSyncedAt?: string;
   finishedObservedAt?: string;
   lastLifecycleRequestedAt?: string;
@@ -133,6 +137,13 @@ export interface Match {
   createdAt: string;
   updatedAt: string;
 }
+export type LineupCaptureOutcome =
+  | "attempting"
+  | "complete"
+  | "unavailable"
+  | "incomplete"
+  | "provider_failure"
+  | "rejected";
 export interface FootballSyncMetadata {
   teamId: EntityId;
   lastFixtureDiscoveryAt?: string;

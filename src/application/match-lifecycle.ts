@@ -1,5 +1,10 @@
 import { preserveMonotonicMatchStatus } from "@/domain/match-status";
-import type { Match, RatingState, Team } from "@/domain/models";
+import type {
+  LineupCaptureOutcome,
+  Match,
+  RatingState,
+  Team,
+} from "@/domain/models";
 import type {
   FootballDataProvider,
   MatchLifecycleStore,
@@ -15,6 +20,10 @@ const HOUR = 60 * 60 * 1000;
 const VOTING_WINDOW_MS = 2 * HOUR;
 const DISCOVERY_INTERVAL_MS = 12 * HOUR;
 const LINEUP_CAPTURE_WINDOW_MS = HOUR;
+const LIVE_LINEUP_CAPTURE_COOLDOWN_MS = 15 * 60 * 1000;
+const LIVE_LINEUP_CAPTURE_MAX_ATTEMPTS = 4;
+const LIVE_LINEUP_PROVIDER_REQUEST_BUDGET = 3;
+const LIVE_LINEUP_CAPTURE_REQUIRED_REQUEST_COUNT = 1;
 const MINIMUM_RATEABLE_PARTICIPANTS = 11;
 
 export type LifecycleAction =
@@ -244,22 +253,160 @@ async function executeMatchLifecycle({
     return retryable(provider, match.id, error);
   }
 
-  if (shouldCaptureLineup(refreshed, currentTime)) {
-    emitOperationalLog(log, "lifecycle.phase", {
-      phase: "pre_match_lineup_capture",
+  let lineupCapture: LineupCaptureDecision;
+  try {
+    lineupCapture = await decideLineupCapture(
+      refreshed,
+      currentTime,
+      provider.requestCount,
+      store,
+    );
+  } catch (error) {
+    emitOperationalLog(log, "lifecycle.lineup_capture", {
+      phase: "skipped",
       matchId: refreshed.id,
-      status: refreshed.status,
-      ratingState: refreshed.ratingState,
+      reason: "verified-lineup-invalid",
+      providerRequests: provider.requestCount,
+    });
+    return retryable(provider, refreshed.id, error, "refreshed");
+  }
+  if (lineupCapture.action === "skip") {
+    const providerRequestBudget = lineupCaptureProviderRequestBudget(
+      lineupCapture.mode,
+      provider.requestCount,
+    );
+    emitOperationalLog(log, "lifecycle.lineup_capture", {
+      phase: "skipped",
+      matchId: refreshed.id,
+      mode: lineupCapture.mode,
+      reason: lineupCapture.reason,
+      liveAttempts: refreshed.liveLineupCaptureAttempts ?? 0,
+      attemptCeiling: LIVE_LINEUP_CAPTURE_MAX_ATTEMPTS,
+      providerRequestBudget,
+      providerRequests: provider.requestCount,
+      remainingProviderRequests: Math.max(
+        0,
+        providerRequestBudget - provider.requestCount,
+      ),
+      ...(lineupCapture.nextEligibleAt === undefined
+        ? {}
+        : { nextEligibleAt: lineupCapture.nextEligibleAt }),
+    });
+  }
+  if (lineupCapture.action === "attempt") {
+    const providerRequestBudget = lineupCaptureProviderRequestBudget(
+      lineupCapture.mode,
+      provider.requestCount,
+    );
+    const attempt = (refreshed.lineupCaptureAttempts ?? 0) + 1;
+    const liveAttempt =
+      (refreshed.liveLineupCaptureAttempts ?? 0) +
+      (lineupCapture.mode === "live_retry" ? 1 : 0);
+    const attempted: Match = {
+      ...refreshed,
+      lineupCaptureAttempts: attempt,
+      liveLineupCaptureAttempts: liveAttempt,
+      lineupCaptureLastAttemptAt: currentTime.toISOString(),
+      lineupCaptureLastOutcome: "attempting",
+      updatedAt: currentTime.toISOString(),
+    };
+    await store.updateMatchLifecycle(attempted);
+    refreshed = attempted;
+    emitOperationalLog(log, "lifecycle.lineup_capture", {
+      phase: "attempted",
+      matchId: refreshed.id,
+      mode: lineupCapture.mode,
+      attempt,
+      liveAttempt,
+      attemptCeiling: LIVE_LINEUP_CAPTURE_MAX_ATTEMPTS,
+      providerRequestBudget,
+      providerRequests: provider.requestCount,
+      remainingProviderRequests: Math.max(
+        0,
+        providerRequestBudget - provider.requestCount,
+      ),
     });
     try {
-      await syncParticipants(refreshed.id, currentTime, "lineup");
+      const summary = await syncParticipants(
+        refreshed.id,
+        currentTime,
+        "lineup",
+      );
+      if (
+        summary === undefined ||
+        summary.starters !== 11 ||
+        summary.substitutes <= 0
+      ) {
+        refreshed = await persistLineupCaptureOutcome(
+          store,
+          refreshed,
+          "incomplete",
+          currentTime,
+        );
+        emitOperationalLog(log, "lifecycle.lineup_capture", {
+          phase: "completed",
+          matchId: refreshed.id,
+          mode: lineupCapture.mode,
+          outcome: "incomplete",
+          starters: summary?.starters ?? "unavailable",
+          substitutes: summary?.substitutes ?? "unavailable",
+          providerRequestBudget,
+          providerRequests: provider.requestCount,
+          remainingProviderRequests: Math.max(
+            0,
+            providerRequestBudget - provider.requestCount,
+          ),
+        });
+        return {
+          action: "refreshed",
+          matchId: refreshed.id,
+          providerRequests: provider.requestCount,
+          reason: "Lineup capture returned incomplete evidence.",
+        };
+      }
       refreshed = {
         ...refreshed,
         lineupSnapshotAt: currentTime.toISOString(),
+        lineupCaptureLastOutcome: "complete",
         updatedAt: currentTime.toISOString(),
       };
       await store.updateMatchLifecycle(refreshed);
+      emitOperationalLog(log, "lifecycle.lineup_capture", {
+        phase: "completed",
+        matchId: refreshed.id,
+        mode: lineupCapture.mode,
+        outcome: "complete",
+        starters: summary.starters,
+        substitutes: summary.substitutes,
+        participated: summary.participated,
+        providerRequestBudget,
+        providerRequests: provider.requestCount,
+        remainingProviderRequests: Math.max(
+          0,
+          providerRequestBudget - provider.requestCount,
+        ),
+      });
     } catch (error) {
+      const outcome = captureFailureOutcome(error);
+      refreshed = await persistLineupCaptureOutcome(
+        store,
+        refreshed,
+        outcome,
+        currentTime,
+      );
+      emitOperationalLog(log, "lifecycle.lineup_capture", {
+        phase: "completed",
+        matchId: refreshed.id,
+        mode: lineupCapture.mode,
+        outcome,
+        reason: operationalErrorReason(error),
+        providerRequestBudget,
+        providerRequests: provider.requestCount,
+        remainingProviderRequests: Math.max(
+          0,
+          providerRequestBudget - provider.requestCount,
+        ),
+      });
       return retryable(provider, refreshed.id, error, "refreshed");
     }
   }
@@ -581,14 +728,144 @@ function shouldRefreshMatch(match: Match, now: Date): boolean {
   return due(match, now, 15 * 60 * 1000);
 }
 
-function shouldCaptureLineup(match: Match, now: Date): boolean {
+type LineupCaptureMode = "pre_match" | "live_retry";
+
+type LineupCaptureDecision =
+  | { action: "none" }
+  | { action: "attempt"; mode: LineupCaptureMode }
+  | {
+      action: "skip";
+      mode: LineupCaptureMode;
+      reason:
+        | "snapshot-complete"
+        | "verified-lineup"
+        | "cooldown"
+        | "retry-ceiling"
+        | "provider-budget";
+      nextEligibleAt?: string;
+    };
+
+function lineupCaptureProviderRequestBudget(
+  mode: LineupCaptureMode,
+  providerRequests: number,
+): number {
+  return mode === "live_retry"
+    ? LIVE_LINEUP_PROVIDER_REQUEST_BUDGET
+    : providerRequests + 1;
+}
+
+async function decideLineupCapture(
+  match: Match,
+  now: Date,
+  providerRequests: number,
+  store: MatchLifecycleStore,
+): Promise<LineupCaptureDecision> {
+  if (match.status !== "scheduled" && match.status !== "live") {
+    return { action: "none" };
+  }
+  const mode: LineupCaptureMode =
+    match.status === "live" ? "live_retry" : "pre_match";
+  if (match.lineupSnapshotAt !== undefined) {
+    return { action: "skip", mode, reason: "snapshot-complete" };
+  }
   const untilKickoff = new Date(match.kickoffAt).getTime() - now.getTime();
-  return (
+  if (
     match.status === "scheduled" &&
-    match.lineupSnapshotAt === undefined &&
-    untilKickoff <= LINEUP_CAPTURE_WINDOW_MS &&
-    untilKickoff >= 0
-  );
+    (untilKickoff > LINEUP_CAPTURE_WINDOW_MS || untilKickoff < 0)
+  ) {
+    return { action: "none" };
+  }
+  if (await hasVerifiedLineup(match, store)) {
+    return { action: "skip", mode, reason: "verified-lineup" };
+  }
+  if (mode === "pre_match") return { action: "attempt", mode };
+  const liveAttempts = match.liveLineupCaptureAttempts ?? 0;
+  if (liveAttempts >= LIVE_LINEUP_CAPTURE_MAX_ATTEMPTS) {
+    return { action: "skip", mode, reason: "retry-ceiling" };
+  }
+  if (match.lineupCaptureLastAttemptAt !== undefined) {
+    const nextEligibleAt = new Date(
+      new Date(match.lineupCaptureLastAttemptAt).getTime() +
+        LIVE_LINEUP_CAPTURE_COOLDOWN_MS,
+    );
+    if (now < nextEligibleAt) {
+      return {
+        action: "skip",
+        mode,
+        reason: "cooldown",
+        nextEligibleAt: nextEligibleAt.toISOString(),
+      };
+    }
+  }
+  if (providerRequests !== LIVE_LINEUP_CAPTURE_REQUIRED_REQUEST_COUNT) {
+    return { action: "skip", mode, reason: "provider-budget" };
+  }
+  return { action: "attempt", mode };
+}
+
+async function hasVerifiedLineup(
+  match: Match,
+  store: MatchLifecycleStore,
+): Promise<boolean> {
+  if (store.getVerifiedLineupSnapshot === undefined) return false;
+  const verified = await store.getVerifiedLineupSnapshot(match.id);
+  if (verified === null) return false;
+  const valid =
+    verified.matchId === match.id &&
+    verified.trackedTeamId === match.trackedTeamId &&
+    verified.externalProvider === match.externalProvider &&
+    verified.externalFixtureId === match.externalProviderFixtureId &&
+    verified.provenance === "operator_verified" &&
+    new Set(verified.participants.map((participant) => participant.playerId))
+      .size === verified.participants.length &&
+    verified.participants.length >= 11 &&
+    verified.participants.filter(
+      (participant) => participant.squadRole === "starter",
+    ).length === 11 &&
+    verified.participants.every((participant) =>
+      participant.squadRole === "starter"
+        ? participant.participationStatus === "confirmed_starter" &&
+          participant.participated
+        : (participant.participationStatus === "confirmed_substitute" &&
+            participant.participated) ||
+          (["unused_substitute", "unconfirmed"].includes(
+            participant.participationStatus,
+          ) &&
+            !participant.participated),
+    );
+  if (!valid) throw new Error("Verified lineup does not match the fixture.");
+  return true;
+}
+
+async function persistLineupCaptureOutcome(
+  store: MatchLifecycleStore,
+  match: Match,
+  outcome: LineupCaptureOutcome,
+  now: Date,
+): Promise<Match> {
+  const updated = {
+    ...match,
+    lineupCaptureLastOutcome: outcome,
+    updatedAt: now.toISOString(),
+  };
+  await store.updateMatchLifecycle(updated);
+  return updated;
+}
+
+function captureFailureOutcome(error: unknown): LineupCaptureOutcome {
+  const reason = operationalErrorReason(error);
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  if (reason === "lineup-unavailable") {
+    return message.includes("incomplete") ? "incomplete" : "unavailable";
+  }
+  if (
+    reason.includes("request") ||
+    reason.includes("rate-limit") ||
+    reason.includes("api-key")
+  ) {
+    return "provider_failure";
+  }
+  return "rejected";
 }
 
 function due(match: Match, now: Date, interval: number): boolean {

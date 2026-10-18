@@ -228,6 +228,178 @@ async function collectionData(collection: string) {
 }
 
 describe("football synchronization persistence", () => {
+  it("captures fixture 1551706 after kickoff and exposes canonical participants for admin reads", async () => {
+    const store = new EmulatorFootballSyncStore(emulatorHost, projectId);
+    const team = await store.getTeam("club-sport-herediano");
+    const kickoffAt = "2026-10-18T22:00:00.000Z";
+    const liveFixture: ProviderFixture = {
+      externalFixtureId: "1551706",
+      externalCompetitionId: "71",
+      providerSeason: 2026,
+      kickoffAt,
+      status: "live",
+      elapsedMinute: 13,
+      homeTeam: { externalProviderId: "2000", name: "Perez Zeledon" },
+      awayTeam: { externalProviderId: "1234", name: "Herediano" },
+      score: { home: 0, away: 0 },
+    };
+    await syncFootballData(team, new FixtureProvider([liveFixture]), store, {
+      now: new Date("2026-10-18T22:05:00.000Z"),
+    });
+    const persisted = (await store.listMatches(team.id)).find(
+      (value) => value.externalProviderFixtureId === "1551706",
+    );
+    expect(persisted).toBeDefined();
+    const participants = [
+      ...Array.from({ length: 11 }, (_, index) => ({
+        externalTeamId: "1234",
+        externalPlayerId: index === 0 ? "541314" : String(7000 + index),
+        name: `Starter ${index + 1}`,
+        squadRole: "starter" as const,
+        participated: true,
+      })),
+      {
+        externalTeamId: "1234",
+        externalPlayerId: "7999",
+        name: "Unused Substitute",
+        squadRole: "substitute" as const,
+        participated: false,
+      },
+    ];
+    const context: ProviderMatchContext = {
+      participants,
+      headCoach: {
+        externalTeamId: "1234",
+        externalCoachId: "900",
+        name: "Tracked Team Coach",
+      },
+    };
+    const unavailableProvider = new FixtureProvider(
+      [liveFixture],
+      seasons,
+      context,
+    );
+    unavailableProvider.getLineupContext = async () => {
+      unavailableProvider.requestCount += 1;
+      return null;
+    };
+    const firstAt = new Date("2026-10-18T22:13:59.000Z");
+
+    const unavailable = await runMatchLifecycle({
+      teamId: team.id,
+      provider: unavailableProvider,
+      store,
+      now: () => firstAt,
+      discoverFixtures: async () => undefined,
+      syncParticipants: async (matchId, currentTime, phase) =>
+        syncMatchParticipants(
+          matchId,
+          unavailableProvider,
+          store,
+          currentTime,
+          phase,
+        ),
+    });
+    expect(unavailable).toMatchObject({
+      action: "refreshed",
+      matchId: persisted!.id,
+      providerRequests: 2,
+    });
+    expect(await store.getMatch(persisted!.id)).toMatchObject({
+      lineupCaptureAttempts: 1,
+      liveLineupCaptureAttempts: 1,
+      lineupCaptureLastAttemptAt: firstAt.toISOString(),
+      lineupCaptureLastOutcome: "unavailable",
+    });
+
+    const resumedStore = new EmulatorFootballSyncStore(emulatorHost, projectId);
+    const cooldownProvider = new FixtureProvider(
+      [liveFixture],
+      seasons,
+      context,
+    );
+    await runMatchLifecycle({
+      teamId: team.id,
+      provider: cooldownProvider,
+      store: resumedStore,
+      now: () => new Date("2026-10-18T22:18:59.000Z"),
+      discoverFixtures: async () => undefined,
+      syncParticipants: async (matchId, currentTime, phase) =>
+        syncMatchParticipants(
+          matchId,
+          cooldownProvider,
+          resumedStore,
+          currentTime,
+          phase,
+        ),
+    });
+    expect(cooldownProvider.requestCount).toBe(1);
+    expect(
+      await collectionData(`matches/${persisted!.id}/participants`),
+    ).toEqual([]);
+
+    const provider = new FixtureProvider([liveFixture], seasons, context);
+    const capturedAt = new Date("2026-10-18T22:29:00.000Z");
+    const result = await runMatchLifecycle({
+      teamId: team.id,
+      provider,
+      store: resumedStore,
+      now: () => capturedAt,
+      discoverFixtures: async () => undefined,
+      syncParticipants: async (matchId, currentTime, phase) =>
+        syncMatchParticipants(
+          matchId,
+          provider,
+          resumedStore,
+          currentTime,
+          phase,
+        ),
+    });
+    const captured = await resumedStore.getMatch(persisted!.id);
+    const storedParticipants = await collectionData(
+      `matches/${persisted!.id}/participants`,
+    );
+    const canonicalLegacyPlayerId = providerEntityId(
+      "player",
+      "api-football",
+      "36237",
+    );
+
+    expect(result).toMatchObject({
+      action: "refreshed",
+      matchId: persisted!.id,
+      providerRequests: 2,
+    });
+    expect(captured).toMatchObject({
+      status: "live",
+      elapsedMinute: 13,
+      lineupSnapshotAt: capturedAt.toISOString(),
+      lineupCaptureAttempts: 2,
+      liveLineupCaptureAttempts: 2,
+      lineupCaptureLastOutcome: "complete",
+    });
+    expect(storedParticipants).toHaveLength(12);
+    expect(
+      storedParticipants.find(
+        (participant) => participant.externalProviderPlayerId === "541314",
+      ),
+    ).toMatchObject({
+      id: canonicalLegacyPlayerId,
+      playerId: canonicalLegacyPlayerId,
+      squadRole: "starter",
+      participated: true,
+    });
+    expect(
+      storedParticipants.find(
+        (participant) => participant.externalProviderPlayerId === "7999",
+      ),
+    ).toMatchObject({
+      squadRole: "substitute",
+      participated: false,
+      participationStatus: "unused_substitute",
+    });
+  });
+
   it("atomically replaces a valid standings snapshot and preserves it after an empty response", async () => {
     const store = new EmulatorFootballSyncStore(emulatorHost, projectId);
     const team = await store.getTeam("club-sport-herediano");

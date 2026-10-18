@@ -84,6 +84,37 @@ describe("participant synchronization identities", () => {
     expect(firstId).not.toBe(secondId);
   });
 
+  it("rejects an incomplete capture before persisting participant context", async () => {
+    const store = storeWith();
+    const provider = providerWith("unused");
+    provider.getLineupContext = vi.fn().mockResolvedValue({
+      participants: Array.from({ length: 10 }, (_, index) => ({
+        externalTeamId: "815",
+        externalPlayerId: String(8000 + index),
+        name: `Partial Starter ${index + 1}`,
+        squadRole: "starter" as const,
+        participated: true,
+      })),
+      headCoach: {
+        externalTeamId: "815",
+        externalCoachId: "coach-1",
+        name: "Coach",
+      },
+    });
+
+    await expect(
+      syncMatchParticipants(
+        match.id,
+        provider,
+        store,
+        new Date("2026-09-07T11:45:00.000Z"),
+        "lineup",
+      ),
+    ).rejects.toMatchObject({ code: "lineup-unavailable" });
+    expect(store.resolvePlayerProviderAliases).not.toHaveBeenCalled();
+    expect(store.replaceMatchParticipants).not.toHaveBeenCalled();
+  });
+
   it("recovers ambiguous coach identity with a fixture-bound verified assignment", async () => {
     const store = storeWith();
     const provider = providerWith("known-player");
