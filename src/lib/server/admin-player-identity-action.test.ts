@@ -16,6 +16,14 @@ const action: AdminPlayerIdentityAction = {
 };
 
 describe("admin Player identity action", () => {
+  it("ignores trusted service context outside the declared action", () => {
+    expect(
+      hashAdminPlayerIdentityAction({
+        ...action,
+        operatorId: "owner-one",
+      } as AdminPlayerIdentityAction),
+    ).toBe(hashAdminPlayerIdentityAction(action));
+  });
   it("uses an order-independent pair resource and review identity", () => {
     const reversed = {
       ...action,

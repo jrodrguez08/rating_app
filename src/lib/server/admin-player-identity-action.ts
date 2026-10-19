@@ -11,7 +11,17 @@ export interface AdminPlayerIdentityAction {
 export function hashAdminPlayerIdentityAction(
   action: AdminPlayerIdentityAction,
 ): string {
-  return createHash("sha256").update(JSON.stringify(action)).digest("hex");
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        firstPlayerId: action.firstPlayerId,
+        secondPlayerId: action.secondPlayerId,
+        canonicalPlayerId: action.canonicalPlayerId,
+        trackedTeamId: action.trackedTeamId,
+        decision: action.decision,
+      }),
+    )
+    .digest("hex");
 }
 
 export function adminPlayerIdentityResourceId(

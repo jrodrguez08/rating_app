@@ -29,6 +29,7 @@ import {
   mergeTeamPlayerMembership,
 } from "@/application/team-player-membership";
 import { validateBallotRatings } from "@/domain/ballot-validation";
+import { resolvePersistedCoachProviderAlias } from "@/domain/coach-identity";
 import { preserveMonotonicMatchStatus } from "@/domain/match-status";
 import { hasAuthoritativeFinalWhistle } from "@/domain/manual-voting";
 import { aggregateMatchResult } from "@/domain/result-aggregation";
@@ -40,6 +41,7 @@ import type {
   Ballot,
   Coach,
   CoachAssignment,
+  CoachProviderAlias,
   BallotContext,
   Competition,
   FootballSyncMetadata,
@@ -1888,6 +1890,23 @@ export class AdminFootballSyncStore
       });
     });
   }
+  async resolveCoachProviderAlias(
+    proposed: CoachProviderAlias,
+  ): Promise<CoachProviderAlias> {
+    const reference = this.database.doc(`coachProviderAliases/${proposed.id}`);
+    return this.database.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(reference);
+      const existing = snapshot.exists
+        ? fromDocument<CoachProviderAlias>(snapshot)
+        : undefined;
+      const resolved = resolvePersistedCoachProviderAlias(existing, proposed);
+      if (!existing) transaction.create(reference, toDocument(resolved));
+      else if (!isDeepStrictEqual(existing, resolved)) {
+        transaction.set(reference, toDocument(resolved));
+      }
+      return resolved;
+    });
+  }
   upsertMatchParticipants(matchId: string, values: MatchParticipant[]) {
     return this.upsert(
       `matches/${matchId}/participants`,
@@ -2291,23 +2310,40 @@ export class AdminFootballSyncStore
       const coachCandidate =
         existingCoach === undefined
           ? values.coach
-          : {
-              ...existingCoach,
-              ...values.coach,
-              createdAt: existingCoach.createdAt,
-            };
+          : existingCoach.identityProvenance === "operator_verified"
+            ? {
+                ...values.coach,
+                ...existingCoach,
+                externalProvider:
+                  existingCoach.externalProvider ??
+                  values.coach.externalProvider,
+                externalProviderId:
+                  existingCoach.externalProviderId ??
+                  values.coach.externalProviderId,
+                photoUrl: existingCoach.photoUrl ?? values.coach.photoUrl,
+                updatedAt: values.coach.updatedAt,
+              }
+            : {
+                ...existingCoach,
+                ...values.coach,
+                createdAt: existingCoach.createdAt,
+              };
       const coaches = writeCounts([existingCoach], [coachCandidate]);
       transaction.set(coachReference, toDocument(coachCandidate));
 
       const existingAssignment = assignmentSnapshot.exists
         ? fromDocument<CoachAssignment>(assignmentSnapshot)
         : undefined;
+      const normalizedAssignment = {
+        ...values.assignment,
+        coachName: coachCandidate.displayName,
+      };
       const assignmentCandidate =
         existingAssignment === undefined
-          ? values.assignment
+          ? normalizedAssignment
           : {
               ...existingAssignment,
-              ...values.assignment,
+              ...normalizedAssignment,
               createdAt: existingAssignment.createdAt,
             };
       const coachAssignments = writeCounts(
@@ -2725,7 +2761,8 @@ function isoTimestamp(value: unknown): unknown {
 function assertCompatibleCoach(existing: Coach, proposed: Coach): void {
   if (
     existing.id !== proposed.id ||
-    existing.displayName !== proposed.displayName ||
+    (existing.identityProvenance !== "operator_verified" &&
+      existing.displayName !== proposed.displayName) ||
     (existing.externalProvider !== undefined &&
       proposed.externalProvider !== undefined &&
       existing.externalProvider !== proposed.externalProvider) ||

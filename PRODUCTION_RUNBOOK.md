@@ -81,6 +81,8 @@ At pilot volume, one message per opened window should stay well below Resend's f
 
 Jugadores V1 adds the tracked-Team/kickoff match-history composite index and participant collection-group single-field index declared in `firestore.indexes.json`. Indexed public history also requires the declared `results.teamId` collection-group single-field index. Lifecycle readiness additionally requires the collection-scoped `participants(participated, teamId)` composite index used by `countRateableParticipants()`. Deploy all declared indexes with the explicit `firestore:indexes` command before relying on player pages, membership-backed admin search, or post-FT voting readiness in production.
 
+Coach identity reconciliation adds the declared `coachAssignments.coachId` and `verifiedCoachAssignments.coachId` collection-group single-field indexes. Deploy them and wait for both to report ready before opening the **Directores técnicos** identity view in production. Index deployment creates no aliases, reviews, Coach changes, or Match-history writes.
+
 ## Safe deployment and bootstrap order
 
 1. Complete the Firebase checklist.
@@ -422,6 +424,20 @@ This owner-only workflow is dormant until the reviewed application and the exist
 6. Require same-Player selection, wrong-Team selection, same-Match appearances, internal-only losing identity, conflicting or multi-hop aliases, and protected losing history to fail with a Spanish corrective message and zero writes. When one Player owns protected history, retain that Player and preview again. When both own protected history, stop and investigate with trusted read-only tooling. Never edit Player, participant, ballot, result, alias, review, or audit documents directly.
 
 Production smoke testing should use an actual unresolved pair only when the owner has independently established that both records represent the same person. For route and UI validation without such a case, use the emulator or an explicit development project. Roll back by redeploying the previous application; preserve aliases, reviews, audits, Players, memberships, drafts, and all Match history for investigation.
+
+## Coach identity reconciliation operation
+
+This owner-only workflow is dormant until the reviewed application is deployed and the `coachAssignments.coachId` and `verifiedCoachAssignments.coachId` collection-group indexes are ready. Deployment performs no Coach reconciliation, provider request, backfill, or production mutation.
+
+1. In the emulator or an explicit development project, open `/admin/player-identities`, select **Directores técnicos**, and require the exact empty states **Sin duplicados pendientes.** or **Esperando información de directores técnicos de API-Football.** as appropriate. Confirm **Seleccionar directores técnicos** remains available in either state.
+2. Review a suggestion for one operator-created and one provider Coach. Names and abbreviations are hints only; verify the displayed source, photo when available, and reliable Team/Match associations. Confirm no Coach ID, provider ID, token, hash, evidence URL, JSON plan, or typed technical confirmation is visible.
+3. Use manual search and pagination to select two distinct Coaches, choose the survivor, and preview **Son la misma persona** or **No son la misma persona**. Preview must create no alias, review, challenge, audit, or history write. Recoverable errors must retain both selections.
+4. For a confirmed same-person pair, enter the independent passphrase and select **Consolidar directores técnicos** once. Confirm the deterministic audit receipt, then retry the exact authorized action only to verify idempotent receipt recovery. Inspect the provider alias and selected Coach: an operator-created survivor may gain only its missing provider identity and photo, while its verified name and provenance remain unchanged.
+5. Run the normal trusted provider participant synchronization against the emulator with the same provider Coach identity. Require the reviewed canonical Coach and no new duplicate Coach document or replacement of an operator-verified fixture assignment.
+6. For a different-person decision, confirm a durable `coachIdentityReviews` nonmatch suppresses later suggestions and creates no alias. Both Coaches must remain available to manual search.
+7. Require the same Coach twice, a missing Coach, two provider identities, a conflicting alias, both identities on one fixture, and protected voting history on both identities to fail with a Spanish explanation and zero writes. Confirm every existing `coachAssignments`, `verifiedCoachAssignments`, ballot `coachRating.coachId`, voting timestamp, result, and statistic remains byte-for-byte unchanged.
+
+Production smoke testing should use an unresolved pair only after independent human identity review. Apply once, inspect the deterministic alias/review/audit, and wait for a real later provider synchronization to confirm canonical reuse; do not manufacture a production fixture or edit Firestore. No historical reference migration is required or permitted. Roll back application code through the normal deployment pipeline and preserve all alias, review, audit, Coach, Match, ballot, and result documents.
 
 ## Prompt lifecycle readiness operation
 

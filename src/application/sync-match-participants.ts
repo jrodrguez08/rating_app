@@ -13,7 +13,7 @@ import type {
   ProviderHeadCoach,
   SyncWriteCounts,
 } from "@/domain/ports";
-import { providerEntityId } from "@/domain/player-identity";
+import { proposedCoachProviderAlias } from "@/domain/coach-identity";
 import { compareVerifiedLineupEvidence } from "@/domain/verified-lineup-reconciliation";
 import {
   emitOperationalLog,
@@ -330,19 +330,24 @@ export async function syncMatchParticipants(
       updatedAt: timestamp,
     }),
   );
+  const providerCoachId =
+    verified === null ? requiredProviderCoachId(context.headCoach) : undefined;
+  const coachAlias =
+    providerCoachId !== undefined
+      ? await resolveCoachAlias(
+          store,
+          proposedCoachProviderAlias(provider.name, providerCoachId, timestamp),
+        )
+      : undefined;
   const coach: Coach =
     verified !== null
       ? { ...verified.coach, updatedAt: timestamp }
       : {
-          id: providerEntityId(
-            "coach",
-            provider.name,
-            requiredProviderCoachId(context.headCoach),
-          ),
+          id: coachAlias!.canonicalCoachId,
           displayName: context.headCoach.name,
           identityProvenance: "provider",
           externalProvider: provider.name,
-          externalProviderId: requiredProviderCoachId(context.headCoach),
+          externalProviderId: providerCoachId,
           ...(context.headCoach.photoUrl === undefined
             ? {}
             : { photoUrl: context.headCoach.photoUrl }),
@@ -702,4 +707,13 @@ function requiredProviderCoachId(coach: ResolvedSyncCoach): string {
     throw new Error("Provider coach identity is missing its provider ID.");
   }
   return coach.externalCoachId;
+}
+
+async function resolveCoachAlias(
+  store: FootballSyncStore,
+  proposed: ReturnType<typeof proposedCoachProviderAlias>,
+) {
+  return store.resolveCoachProviderAlias
+    ? store.resolveCoachProviderAlias(proposed)
+    : proposed;
 }

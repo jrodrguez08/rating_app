@@ -84,6 +84,35 @@ describe("participant synchronization identities", () => {
     expect(firstId).not.toBe(secondId);
   });
 
+  it("resolves a reviewed provider Coach alias for future assignments", async () => {
+    const store = storeWith();
+    store.resolveCoachProviderAlias = vi.fn(async (alias) => ({
+      ...alias,
+      canonicalCoachId: "coach-manual-reviewed",
+    }));
+
+    await syncMatchParticipants(
+      match.id,
+      providerWith("known-player"),
+      store,
+      new Date("2026-09-07T12:00:00.000Z"),
+    );
+
+    expect(store.resolveCoachProviderAlias).toHaveBeenCalledWith(
+      expect.objectContaining({
+        externalProvider: "api-football",
+        externalProviderCoachId: "coach-1",
+      }),
+    );
+    expect(store.upsertCoaches).toHaveBeenCalledWith([
+      expect.objectContaining({ id: "coach-manual-reviewed" }),
+    ]);
+    expect(store.upsertCoachAssignment).toHaveBeenCalledWith(
+      match.id,
+      expect.objectContaining({ coachId: "coach-manual-reviewed" }),
+    );
+  });
+
   it("rejects an incomplete capture before persisting participant context", async () => {
     const store = storeWith();
     const provider = providerWith("unused");

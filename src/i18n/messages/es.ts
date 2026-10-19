@@ -665,8 +665,8 @@ export const esMessages = {
     coachConflictError:
       "La asignación o identidad existente entra en conflicto con la propuesta.",
     reconciliation: "Conciliación con el proveedor",
-    identityReconciliation: "Conciliar jugadores",
-    identityReconciliationTitle: "Conciliar jugadores",
+    identityReconciliation: "Conciliar identidades",
+    identityReconciliationTitle: "Conciliar identidades",
     identityReconciliationHelp:
       "Revise duplicados sugeridos o seleccione dos jugadores. El sistema nunca los consolida automáticamente.",
     possibleDuplicates: "Posibles duplicados",
@@ -700,6 +700,42 @@ export const esMessages = {
     cancel: "Cancelar",
     identityComparison: "Comparación de identidades",
     identityReconciliationApplied: "La decisión de identidad fue aplicada.",
+    identityPlayersTab: "Jugadores",
+    identityCoachesTab: "Directores técnicos",
+    coachIdentityTitle: "Conciliar directores técnicos",
+    coachIdentityHelp:
+      "Compare sugerencias o seleccione dos directores técnicos. La decisión siempre es suya.",
+    coachPossibleDuplicatesHelp:
+      "API-Football publicó directores técnicos que podrían corresponder a registros creados manualmente.",
+    manualCoachSelection: "Seleccionar directores técnicos",
+    manualCoachSelectionHelp:
+      "Busque o recorra la lista y seleccione dos personas distintas.",
+    searchCoaches: "Buscar directores técnicos",
+    coachSearchError:
+      "No fue posible cargar los directores técnicos. Inténtelo de nuevo.",
+    waitingForProviderCoaches:
+      "Esperando información de directores técnicos de API-Football.",
+    chooseCanonicalCoach: "Elija el director técnico que desea conservar",
+    keepCoach: "Conservar este director técnico",
+    removeCoach: "Quitar director técnico",
+    consolidateCoaches: "Consolidar directores técnicos",
+    coachesDifferent: "Son diferentes",
+    confirmDifferentCoaches: "Confirmar que son directores técnicos diferentes",
+    loadMoreCoaches: "Cargar más directores técnicos",
+    searchingCoaches: "Buscando directores técnicos…",
+    coachMatches: "Partidos relacionados",
+    coachTeams: "Asociaciones confiables",
+    coachTeamAssociation: "Equipo verificado",
+    noCoachAssociation: "Sin asociación disponible",
+    coachVerifiedAssignments: "Asignaciones verificadas",
+    coachIdentityApplied:
+      "La decisión sobre los directores técnicos fue aplicada.",
+    alreadyLinkedCoaches: "Directores técnicos ya vinculados",
+    confirmedDifferentCoaches:
+      "Confirmados como directores técnicos diferentes",
+    conflictingCoachHistory: "Historial protegido en conflicto",
+    coachIdentityComparison: "Comparación de directores técnicos",
+    coachAvatar: "Foto de {coach}",
     reconciliationStatuses: {
       matched: "La evidencia del proveedor coincide",
       provider_missing: "El proveedor todavía no publicó la alineación",
