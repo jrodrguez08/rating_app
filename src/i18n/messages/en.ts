@@ -571,6 +571,8 @@ export const enMessages = {
         "The current match state does not allow lineup preparation.",
       invalidTeamBinding:
         "The Team or fixture does not match the selected match.",
+      trackedTeamProviderIdMissing:
+        "The selected Team is missing its provider identity.",
       playerNotFound:
         "The canonical identity for {player} was not found. Select the player again.",
       playerNameConflict:

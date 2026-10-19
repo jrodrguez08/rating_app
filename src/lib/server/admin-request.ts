@@ -374,6 +374,8 @@ function lineupErrorMessage(error: AdminLineupError, requestId: string) {
     LINEUP_MATCH_NOT_FOUND: values.matchNotFound,
     LINEUP_INVALID_MATCH_STATE: values.invalidMatchState,
     LINEUP_INVALID_TEAM_BINDING: values.invalidTeamBinding,
+    LINEUP_TRACKED_TEAM_PROVIDER_ID_MISSING:
+      values.trackedTeamProviderIdMissing,
     LINEUP_PLAYER_NOT_FOUND: values.playerNotFound.replace("{player}", player),
     LINEUP_PLAYER_NAME_CONFLICT: values.playerNameConflict.replace(
       "{player}",

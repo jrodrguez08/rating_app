@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { deleteApp, initializeApp } from "firebase-admin/app";
-import { getFirestore, Timestamp } from "firebase-admin/firestore";
+import { FieldValue, getFirestore, Timestamp } from "firebase-admin/firestore";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { runMatchLifecycle } from "@/application/match-lifecycle";
@@ -290,14 +290,46 @@ describe("verified lineup preparation persistence", () => {
     });
   });
 
-  it("previews fixture 1551706 with complete mixed participation evidence", async () => {
+  it("identifies a missing provider Team field without writing", async () => {
+    const matchId = "lineup-missing-team-provider-id";
+    const input = await seedScenario(matchId);
+    await database.doc(`matches/${matchId}`).update({
+      trackedTeamExternalProviderId: FieldValue.delete(),
+    });
+
+    await expect(service.preview(input)).rejects.toMatchObject({
+      code: "LINEUP_TRACKED_TEAM_PROVIDER_ID_MISSING",
+    });
+    expect(
+      (await database.collection(`matches/${matchId}/participants`).get())
+        .empty,
+    ).toBe(true);
+  });
+
+  it("previews and applies fixture 1551706 when the Match provider Team field is absent", async () => {
     const matchId = "match-10a50b08075ca1f0646e5b6d";
-    const input = await seedScenario(matchId, 20);
+    const input = await seedScenario(
+      matchId,
+      21,
+      false,
+      "club-sport-herediano",
+    );
     await database.doc(`matches/${matchId}`).update({
       externalProviderFixtureId: "1551706",
+      trackedTeamExternalProviderId: FieldValue.delete(),
+    });
+    await database.doc("teams/club-sport-herediano").set({
+      displayName: "Club Sport Herediano",
+      shortName: "Herediano",
+      countryName: "Costa Rica",
+      countryCode: "CR",
+      externalProviderId: "815",
+      brandingKey: "herediano",
+      createdAt: new Date(),
+      updatedAt: new Date(),
     });
     input.externalFixtureId = "1551706";
-    for (let index = 11; index < 16; index += 1) {
+    for (let index = 11; index < 15; index += 1) {
       input.participants[index] = {
         ...input.participants[index],
         participationStatus: "confirmed_substitute",
@@ -305,7 +337,7 @@ describe("verified lineup preparation persistence", () => {
       };
     }
     const playerId = `player-internal-${"d".repeat(32)}`;
-    input.participants[19] = {
+    input.participants[20] = {
       playerId,
       playerName: "D. Gonzalez",
       createInternalIdentity: true,
@@ -316,16 +348,81 @@ describe("verified lineup preparation persistence", () => {
         trackedTeamId: input.trackedTeamId,
       }),
       squadRole: "substitute",
-      participationStatus: "unused_substitute",
+      participationStatus: "confirmed_substitute",
+      enteredAtMinute: 78,
       shirtNumber: 42,
       position: "midfielder",
     };
+    const draftReference = database.doc(
+      `matches/${matchId}/lineupDrafts/${input.operatorId}`,
+    );
+    await draftReference.set({
+      matchId,
+      trackedTeamId: input.trackedTeamId,
+      externalFixtureId: input.externalFixtureId,
+      ownerId: input.operatorId,
+      version: 4,
+      contentHash: "fixture-1551706-draft",
+      participants: input.participants,
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    });
+    const coachReference = database.doc(
+      `matches/${matchId}/coachAssignments/head-coach`,
+    );
+    await coachReference.set({
+      matchId,
+      teamId: input.trackedTeamId,
+      coachId: "coach-verified",
+      coachName: "Entrenador verificado",
+      role: "head_coach",
+      provenance: "operator_verified",
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    });
 
     await expect(service.preview(input)).resolves.toMatchObject({
       matchId,
-      participantCreates: 20,
+      participantCreates: 21,
       internalPlayersCreated: [playerId],
     });
+    expect(
+      (await database.collection(`matches/${matchId}/participants`).get())
+        .empty,
+    ).toBe(true);
+    expect((await database.doc(`players/${playerId}`).get()).exists).toBe(
+      false,
+    );
+    expect((await draftReference.get()).data()?.participants).toHaveLength(21);
+    expect((await coachReference.get()).data()?.coachId).toBe("coach-verified");
+
+    const token = challengeToken(matchId);
+    await seedChallenge(input, token);
+    await expect(service.applyAuthorized(input, token)).resolves.toMatchObject({
+      disposition: "committed",
+      plan: { participantCreates: 21 },
+    });
+    const participants = await database
+      .collection(`matches/${matchId}/participants`)
+      .get();
+    expect(participants.size).toBe(21);
+    expect(
+      participants.docs.filter((item) => item.data().participated),
+    ).toHaveLength(16);
+    expect(
+      participants.docs.find((item) => item.id === playerId)?.data(),
+    ).toMatchObject({
+      playerName: "D. Gonzalez",
+      participationStatus: "confirmed_substitute",
+      enteredAtMinute: 78,
+      participated: true,
+      externalProviderTeamId: "815",
+    });
+    expect((await coachReference.get()).data()?.coachId).toBe("coach-verified");
+    expect((await draftReference.get()).exists).toBe(false);
+    const match = (await database.doc(`matches/${matchId}`).get()).data();
+    expect(match).not.toHaveProperty("votingOpensAt");
+    expect(match).not.toHaveProperty("trackedTeamExternalProviderId");
   });
 
   it("rotates every saved internal identity token without changing draft data", async () => {

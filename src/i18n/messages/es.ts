@@ -580,6 +580,8 @@ export const esMessages = {
         "El estado actual del partido no permite preparar la alineación.",
       invalidTeamBinding:
         "El equipo o el fixture no coincide con el partido seleccionado.",
+      trackedTeamProviderIdMissing:
+        "Falta la identidad de proveedor del equipo seleccionado.",
       playerNotFound:
         "No se encontró la identidad canónica de {player}. Vuelva a seleccionarla.",
       playerNameConflict:

@@ -9,6 +9,7 @@ import type {
   Match,
   MatchParticipant,
   Player,
+  Team,
   TeamPlayerMembership,
   VerifiedLineupParticipant,
   VerifiedLineupSnapshot,
@@ -245,6 +246,30 @@ export class AdminVerifiedLineupService {
           "LINEUP_INVALID_TEAM_BINDING",
         );
       }
+      let trackedTeamExternalProviderId = match.trackedTeamExternalProviderId;
+      if (trackedTeamExternalProviderId === undefined) {
+        const teamSnapshot = await transaction.get(
+          this.database.doc(`teams/${input.trackedTeamId}`),
+        );
+        trackedTeamExternalProviderId = teamSnapshot.exists
+          ? fromSnapshot<Team>(teamSnapshot).externalProviderId
+          : undefined;
+      }
+      if (!trackedTeamExternalProviderId) {
+        throw new AdminVerifiedLineupRejectedError(
+          "Tracked Team provider identity is missing.",
+          "LINEUP_TRACKED_TEAM_PROVIDER_ID_MISSING",
+        );
+      }
+      if (
+        match.homeTeam.externalProviderId !== trackedTeamExternalProviderId &&
+        match.awayTeam.externalProviderId !== trackedTeamExternalProviderId
+      ) {
+        throw new AdminVerifiedLineupRejectedError(
+          "The tracked Team provider identity conflicts with the fixture.",
+          "LINEUP_INVALID_TEAM_BINDING",
+        );
+      }
       if (
         !["scheduled", "live", "finished"].includes(match.status) ||
         !["not_ready", "preparing_rating"].includes(match.ratingState) ||
@@ -442,9 +467,7 @@ export class AdminVerifiedLineupService {
           ...(participant.externalProviderPlayerId
             ? { externalProvider: match.externalProvider }
             : {}),
-          externalProviderTeamId:
-            match.trackedTeamExternalProviderId ??
-            missingTrackedExternalTeamId(),
+          externalProviderTeamId: trackedTeamExternalProviderId,
           ...(participant.externalProviderPlayerId
             ? {
                 externalProviderPlayerId: participant.externalProviderPlayerId,
@@ -663,12 +686,6 @@ function validHttpsUrl(value: string): boolean {
   } catch {
     return false;
   }
-}
-
-function missingTrackedExternalTeamId(): never {
-  throw new AdminVerifiedLineupRejectedError(
-    "Tracked Team provider identity is missing from the Match.",
-  );
 }
 
 function participantSummary(participant: MatchParticipant) {
