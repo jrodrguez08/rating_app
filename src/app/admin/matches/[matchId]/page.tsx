@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 
+import { AdminDashboardLink } from "@/components/admin-dashboard-link";
 import { AdminLineupEditor } from "@/components/admin-lineup-editor";
 import { AdminMatchCoachPanel } from "@/components/admin-match-coach";
 import { AdminManualVotingPanel } from "@/components/admin-manual-voting";
@@ -48,6 +49,7 @@ export default async function AdminMatchPage({
         } as React.CSSProperties
       }
     >
+      <AdminDashboardLink label={messages.backToDashboard} />
       <header className="mb-8">
         <p className="eyebrow">{messages.eyebrow}</p>
         <h1 className="score-font mt-2 text-3xl">{messages.lineupTitle}</h1>

@@ -1,9 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 
-import { manualVotingStatusEligibility } from "@/domain/manual-voting";
+import { formatDate } from "@/i18n/format";
 import type { Messages } from "@/i18n/messages";
 import type { AdminMatchDetail } from "@/lib/firebase/admin-console";
 import type { AdminManualVotingAction } from "@/lib/server/admin-manual-voting-action";
@@ -26,21 +27,17 @@ export function AdminManualVotingPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [outcome, setOutcome] = useState("");
-  const mutable = ["not_ready", "preparing_rating"].includes(
-    detail.match.ratingState,
-  );
   const hasVerifiedLineup =
     detail.match.lineupProvenance === "operator_verified";
   const hasVerifiedCoach = detail.match.verification !== undefined;
   const hasConflict = detail.reconciliation?.status === "conflict";
-  const statusEligibility = manualVotingStatusEligibility(detail.match.status);
-  const ready =
-    mutable &&
-    statusEligibility.allowed &&
-    hasVerifiedLineup &&
-    detail.match.confirmedStarterCount === 11 &&
-    hasVerifiedCoach &&
-    !hasConflict;
+  const availability = detail.manualVotingAvailability;
+  const ready = availability.state === "available";
+  const availabilityMessages = messages.manualVotingStates[availability.state];
+  const availabilityDescription =
+    availability.state === "ineligible_status"
+      ? blockedStatusDescription(detail.match.status, messages)
+      : availabilityMessages.description;
   const action: AdminManualVotingAction = {
     matchId: detail.match.id,
     trackedTeamId: teamId,
@@ -117,29 +114,41 @@ export function AdminManualVotingPanel({
       <div>
         <p className="eyebrow">4 / 4</p>
         <h2 id="open-voting-title" className="score-font mt-2 text-xl">
-          {messages.manualVotingTitle}
+          {availabilityMessages.title}
         </h2>
-        <p className="text-muted mt-2 text-sm">{messages.manualVotingHelp}</p>
-      </div>
-      <ul className="game-inset grid gap-2 p-4 text-sm">
-        <Check
-          ok={hasVerifiedLineup && detail.match.confirmedStarterCount === 11}
-          text={`${messages.confirmedStarters}: ${detail.match.confirmedStarterCount}/11`}
-        />
-        <Check
-          ok={hasVerifiedLineup}
-          text={`${messages.confirmedSubstitutes}: ${detail.match.confirmedSubstituteCount}`}
-        />
-        <Check ok={hasVerifiedCoach} text={messages.verifiedCoachRequired} />
-        <Check ok={!hasConflict} text={messages.canonicalConflictStatus} />
-      </ul>
-      {!ready ? (
-        <p className="text-warning" role="status">
-          {statusEligibility.allowed
-            ? messages.manualVotingMissingEvidence
-            : messages.manualVotingStatusBlocked[statusEligibility.reason]}
+        <p className="text-muted mt-2 text-sm">
+          {ready
+            ? messages.manualVotingHelp
+            : ["voting_open", "voting_expired", "results_published"].includes(
+                  availability.state,
+                )
+              ? availabilityDescription
+              : messages.verificationStatus}
         </p>
+      </div>
+      {availability.state === "voting_open" ||
+      availability.state === "voting_expired" ||
+      availability.state === "results_published" ? (
+        <VotingSummary detail={detail} messages={messages} />
       ) : (
+        <ul className="game-inset grid gap-2 p-4 text-sm">
+          <Check
+            ok={availability.state !== "ineligible_status"}
+            text={`${messages.providerStatus}: ${messages.statuses[detail.match.status]}`}
+          />
+          <Check
+            ok={hasVerifiedLineup && detail.match.confirmedStarterCount === 11}
+            text={`${messages.confirmedStarters}: ${detail.match.confirmedStarterCount}/11`}
+          />
+          <Check
+            ok={hasVerifiedLineup}
+            text={`${messages.confirmedSubstitutes}: ${detail.match.confirmedSubstituteCount}`}
+          />
+          <Check ok={hasVerifiedCoach} text={messages.verifiedCoachRequired} />
+          <Check ok={!hasConflict} text={messages.canonicalConflictStatus} />
+        </ul>
+      )}
+      {ready ? (
         <form className="grid gap-4" onSubmit={openVoting}>
           <fieldset className="grid gap-3">
             <legend className="font-bold">{messages.votingDuration}</legend>
@@ -200,7 +209,15 @@ export function AdminManualVotingPanel({
             {busy ? messages.loading : messages.openVotingNow}
           </button>
         </form>
-      )}
+      ) : null}
+      {!ready &&
+      !["voting_open", "voting_expired", "results_published"].includes(
+        availability.state,
+      ) ? (
+        <p className="text-warning" role="status">
+          {availabilityDescription}
+        </p>
+      ) : null}
       {error ? (
         <p className="text-danger" role="alert">
           {error}
@@ -213,6 +230,89 @@ export function AdminManualVotingPanel({
       ) : null}
     </section>
   );
+}
+
+function blockedStatusDescription(
+  status: AdminMatchDetail["match"]["status"],
+  messages: AdminMessages,
+): string {
+  switch (status) {
+    case "postponed":
+    case "suspended":
+    case "cancelled":
+    case "abandoned":
+      return messages.manualVotingStatusBlocked[status];
+    default:
+      return messages.manualVotingStates.ineligible_status.description;
+  }
+}
+
+function VotingSummary({
+  detail,
+  messages,
+}: {
+  detail: AdminMatchDetail;
+  messages: AdminMessages;
+}) {
+  const match = detail.match;
+  const coachName =
+    match.assignment?.coachName ??
+    detail.coaches?.find((coach) => coach.id === match.verification?.coachId)
+      ?.name ??
+    messages.notMeasured;
+  return (
+    <div className="game-inset grid gap-2 p-4 text-sm">
+      <strong>
+        {match.homeTeamName} {messages.versus} {match.awayTeamName}
+      </strong>
+      <span>
+        {messages.confirmedStarters}: {match.confirmedStarterCount}/11
+      </span>
+      <span>
+        {messages.confirmedSubstitutes}: {match.confirmedSubstituteCount}
+      </span>
+      <span>
+        {messages.coach}: {coachName}
+      </span>
+      {match.effectiveVotingOpensAt ? (
+        <span>
+          {messages.votingOpenedAt}:{" "}
+          {formatCostaRica(match.effectiveVotingOpensAt)}
+        </span>
+      ) : null}
+      {match.effectiveVotingClosesAt ? (
+        <span>
+          {messages.votingClosesAt}:{" "}
+          {formatCostaRica(match.effectiveVotingClosesAt)}
+        </span>
+      ) : null}
+      {match.votingPresentation === "open" &&
+      match.votingRemainingMinutes !== undefined ? (
+        <span>
+          {messages.timeRemaining}:{" "}
+          {messages.minutes.replace(
+            "{count}",
+            String(match.votingRemainingMinutes),
+          )}
+        </span>
+      ) : null}
+      {match.votingPresentation === "published" ? (
+        <Link
+          className="button-secondary mt-2 inline-flex min-h-11 items-center justify-center px-4"
+          href={`/matches/${encodeURIComponent(match.id)}/results`}
+        >
+          {messages.viewResults}
+        </Link>
+      ) : null}
+    </div>
+  );
+}
+
+function formatCostaRica(value: string): string {
+  return `${formatDate(value, "es", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  })} (Costa Rica)`;
 }
 
 function Check({ ok, text }: { ok: boolean; text: string }) {

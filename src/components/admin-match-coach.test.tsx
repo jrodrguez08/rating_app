@@ -80,6 +80,7 @@ function detail(status: "scheduled" | "live"): AdminMatchDetail {
       awayTeamName: "Visitante",
       status,
       ratingState: "preparing_rating",
+      votingPresentation: "preparation",
       participantCount: 11,
       rateableParticipantCount: 11,
       confirmedStarterCount: 11,
@@ -90,6 +91,7 @@ function detail(status: "scheduled" | "live"): AdminMatchDetail {
     },
     participants: [],
     players: [],
+    manualVotingAvailability: { state: "available" },
     coaches: [
       {
         id: "coach-existing",

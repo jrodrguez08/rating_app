@@ -339,7 +339,9 @@ export function AdminConsole({
               </span>
               <span>
                 {messages.diagnostic}:{" "}
-                {messages.diagnostics[selectedMatch.diagnostic ?? "unknown"]}
+                {selectedMatch.diagnostic
+                  ? messages.diagnostics[selectedMatch.diagnostic]
+                  : messages.unrecognizedDiagnostic}
               </span>
               <span>
                 {messages.participants}: {selectedMatch.participantCount}
@@ -527,7 +529,9 @@ function AdminMatchSection({
                   {match.homeTeamName} {messages.versus} {match.awayTeamName}
                 </strong>
                 <span className="status-badge">
-                  {messages.statuses[match.status]}
+                  {match.votingPresentation === "preparation"
+                    ? messages.statuses[match.status]
+                    : messages.votingPresentation[match.votingPresentation]}
                 </span>
               </div>
               <span className="text-muted text-sm">
@@ -540,12 +544,24 @@ function AdminMatchSection({
                 {messages.fixture}: {match.externalFixtureId}
               </span>
               <span className="text-sm">
-                {messages.preparation}: {match.rateableParticipantCount}/11 ·{" "}
-                {match.assignment ? messages.coachReady : messages.coachPending}
+                {messages.preparation}: {match.confirmedStarterCount}/11 ·{" "}
+                {messages.confirmedSubstitutes}:{" "}
+                {match.confirmedSubstituteCount}
+                {" · "}
+                {match.assignment || match.verification
+                  ? messages.coachReady
+                  : messages.coachPending}
               </span>
-              {match.diagnostic ? (
+              {match.votingPresentation === "preparation" &&
+              match.diagnostic ? (
                 <span className="text-warning text-sm">
                   {messages.diagnostics[match.diagnostic]}
+                </span>
+              ) : null}
+              {match.votingPresentation === "preparation" &&
+              match.unrecognizedDiagnostic ? (
+                <span className="text-warning text-sm">
+                  {messages.unrecognizedDiagnostic}
                 </span>
               ) : null}
               <Link

@@ -255,7 +255,6 @@ export const enMessages = {
     lineupDescription:
       "Review starters, substitutes, and participation with fixture-specific evidence.",
     matchPreparation: "Match preparation",
-    manualVotingTitle: "Open voting now",
     manualVotingHelp:
       "Confirm the final whistle and review verified evidence before opening a manual window.",
     verificationStatus: "Required evidence status",
@@ -263,8 +262,6 @@ export const enMessages = {
     verifiedCoachRequired: "Operator verified head coach",
     canonicalConflictStatus: "No unresolved identity conflicts",
     currentVotingState: "Current state",
-    manualVotingMissingEvidence:
-      "Complete the verified lineup and head coach and resolve any conflict before continuing.",
     manualVotingStatusEligible: "Match status allows manual opening",
     manualVotingProviderDelay:
       "The provider has not confirmed full time. Manual opening requires independent confirmation that the actual match ended.",
@@ -290,6 +287,67 @@ export const enMessages = {
     effectiveDuration: "Effective duration",
     openVotingNow: "Open voting now",
     manualVotingOpened: "Voting was opened.",
+    manualVotingStates: {
+      available: {
+        title: "Open voting now",
+        description: "The verified preparation allows voting to be opened.",
+      },
+      voting_open: {
+        title: "Voting open",
+        description:
+          "The window is active. No additional opening or authorization is needed.",
+      },
+      voting_expired: {
+        title: "Voting closed",
+        description:
+          "The close time has passed. The lifecycle will publish results without changing the window.",
+      },
+      results_published: {
+        title: "Results published",
+        description: "Voting ended and the results are available.",
+      },
+      invalid_window: {
+        title: "Review voting window",
+        description:
+          "The match is marked as open, but its window times are invalid. Refresh the console and review the lifecycle.",
+      },
+      ineligible_status: {
+        title: "Opening unavailable",
+        description: "The current match status prevents voting from opening.",
+      },
+      missing_verified_lineup: {
+        title: "Confirm the lineup",
+        description:
+          "Confirm a verified lineup for this match before opening voting.",
+      },
+      invalid_starter_count: {
+        title: "Review the starters",
+        description:
+          "The verified lineup must have exactly 11 distinct starters.",
+      },
+      missing_verified_coach: {
+        title: "Confirm the head coach",
+        description: "Confirm this match's head coach before opening voting.",
+      },
+      reconciliation_conflict: {
+        title: "Evidence conflict",
+        description:
+          "Resolve the conflict between the verified lineup and provider evidence.",
+      },
+    },
+    votingPresentation: {
+      open: "Voting open",
+      expired: "Voting closed",
+      published: "Results published",
+      invalid: "Review window",
+    },
+    votingOpenedAt: "Opened",
+    votingClosesAt: "Closes",
+    timeRemaining: "Time remaining",
+    viewResults: "View results",
+    backToDashboard: "← Back to dashboard",
+    unrecognizedDiagnostic:
+      "The lifecycle requires review. Refresh the match to obtain the current reason.",
     email: "Email",
     password: "Password",
     signIn: "Sign in",

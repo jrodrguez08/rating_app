@@ -17,11 +17,31 @@ describe("manual voting admin panel", () => {
     const value = detail();
     value.match.confirmedStarterCount = 10;
     value.match.verification = undefined;
+    value.manualVotingAvailability = { state: "invalid_starter_count" };
     renderPanel(value);
 
     expect(
-      screen.getByText(messages.manualVotingMissingEvidence),
+      screen.getAllByText(
+        messages.manualVotingStates.invalid_starter_count.description,
+      )[0],
     ).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: messages.openVotingNow }),
+    ).not.toBeInTheDocument();
+  });
+
+  it.each([
+    "missing_verified_lineup",
+    "missing_verified_coach",
+    "reconciliation_conflict",
+  ] as const)("explains the exact %s blocker", (state) => {
+    const value = detail();
+    value.manualVotingAvailability = { state };
+    renderPanel(value);
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      messages.manualVotingStates[state].description,
+    );
     expect(
       screen.queryByRole("button", { name: messages.openVotingNow }),
     ).not.toBeInTheDocument();
@@ -32,6 +52,7 @@ describe("manual voting admin panel", () => {
     (status) => {
       const value = detail();
       value.match.status = status;
+      value.manualVotingAvailability = { state: "ineligible_status" };
       renderPanel(value);
       expect(
         screen.getByText(messages.manualVotingStatusBlocked[status]),
@@ -77,6 +98,64 @@ describe("manual voting admin panel", () => {
     await user.click(screen.getByLabelText(messages.customVotingClose));
     expect(screen.getByLabelText(messages.costaRicaCloseTime)).toBeVisible();
   });
+
+  it("shows the authoritative open window summary without another opening form", () => {
+    const value = detail();
+    value.match.ratingState = "rating_ready";
+    value.match.votingPresentation = "open";
+    value.match.effectiveVotingOpensAt = "2026-10-19T20:00:00.000Z";
+    value.match.effectiveVotingClosesAt = "2026-10-19T22:00:00.000Z";
+    value.match.votingRemainingMinutes = 73;
+    value.match.assignment = {
+      coachId: "coach-1",
+      coachName: "Jafet Soto",
+      provenance: "operator_verified",
+    };
+    value.manualVotingAvailability = { state: "voting_open" };
+    renderPanel(value);
+
+    expect(
+      screen.getByRole("heading", {
+        name: messages.manualVotingStates.voting_open.title,
+      }),
+    ).toBeVisible();
+    expect(screen.getByText(/Jafet Soto/)).toBeVisible();
+    expect(screen.getByText(/73 min/)).toBeVisible();
+    expect(screen.getAllByText(/Costa Rica/)).toHaveLength(2);
+    expect(
+      screen.queryByRole("button", { name: messages.openVotingNow }),
+    ).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["voting_expired", "expired"],
+    ["results_published", "published"],
+    ["invalid_window", "invalid"],
+  ] as const)(
+    "renders %s as a read-only lifecycle state",
+    (state, presentation) => {
+      const value = detail();
+      value.match.ratingState =
+        state === "results_published" ? "rating_closed" : "rating_ready";
+      value.match.votingPresentation = presentation;
+      value.manualVotingAvailability = { state };
+      renderPanel(value);
+
+      expect(
+        screen.getByRole("heading", {
+          name: messages.manualVotingStates[state].title,
+        }),
+      ).toBeVisible();
+      expect(
+        screen.queryByRole("button", { name: messages.openVotingNow }),
+      ).not.toBeInTheDocument();
+      if (state === "results_published") {
+        expect(
+          screen.getByRole("link", { name: messages.viewResults }),
+        ).toHaveAttribute("href", "/matches/match-manual/results");
+      }
+    },
+  );
 });
 
 function renderPanel(value: AdminMatchDetail) {
@@ -99,6 +178,7 @@ function detail(): AdminMatchDetail {
       awayTeamName: "Visitante",
       status: "live",
       ratingState: "preparing_rating",
+      votingPresentation: "preparation",
       participantCount: 21,
       rateableParticipantCount: 16,
       confirmedStarterCount: 11,
@@ -115,6 +195,7 @@ function detail(): AdminMatchDetail {
     },
     participants: [],
     players: [],
+    manualVotingAvailability: { state: "available" },
   };
 }
 

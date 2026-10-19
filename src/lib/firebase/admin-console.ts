@@ -12,6 +12,11 @@ import type {
   VerifiedLineupReconciliation,
   VerifiedLineupSnapshot,
 } from "@/domain/models";
+import { manualVotingStatusEligibility } from "@/domain/manual-voting";
+import {
+  getEffectiveVotingWindow,
+  getVotingWindowState,
+} from "@/domain/voting-window";
 import { getServerFirestore } from "@/lib/firebase/server";
 import {
   searchIndexedTeamPlayers,
@@ -31,6 +36,12 @@ export interface AdminMatchOperation {
   finishedObservedAt?: string;
   ratingReadyAt?: string;
   votingOpensAt?: string;
+  votingClosesAt?: string;
+  effectiveVotingOpensAt?: string;
+  effectiveVotingClosesAt?: string;
+  votingPresentation:
+    "preparation" | "open" | "expired" | "published" | "invalid";
+  votingRemainingMinutes?: number;
   lastProviderSyncAt?: string;
   lastLifecycleRequestedAt?: string;
   lastLifecycleStartedAt?: string;
@@ -39,6 +50,7 @@ export interface AdminMatchOperation {
   lastLifecycleAction?: string;
   lastLifecycleProviderRequests?: number;
   diagnostic?: Match["ratingBlockReason"];
+  unrecognizedDiagnostic?: boolean;
   diagnosticObservedAt?: string;
   participantCount: number;
   rateableParticipantCount: number;
@@ -108,12 +120,91 @@ export interface AdminMatchDetail {
   coaches?: AdminCoachOption[];
   draft?: AdminLineupDraft;
   reconciliation?: VerifiedLineupReconciliation;
+  manualVotingAvailability:
+    | { state: "available" }
+    | {
+        state:
+          | "voting_open"
+          | "voting_expired"
+          | "results_published"
+          | "invalid_window"
+          | "ineligible_status"
+          | "missing_verified_lineup"
+          | "invalid_starter_count"
+          | "missing_verified_coach"
+          | "reconciliation_conflict";
+      };
+}
+
+const ratingBlockReasons: ReadonlySet<NonNullable<Match["ratingBlockReason"]>> =
+  new Set([
+    "ambiguous_coach",
+    "missing_coach_evidence",
+    "missing_participant_evidence",
+    "provider_failure",
+  ]);
+
+function describeVotingPresentation(
+  match: Match,
+  now: Date,
+): AdminMatchOperation["votingPresentation"] {
+  if (match.ratingState === "rating_closed") return "published";
+  if (match.ratingState !== "rating_ready") return "preparation";
+  const window = getEffectiveVotingWindow(match);
+  if (window === null) return "invalid";
+  const windowState = getVotingWindowState(match, now);
+  if (windowState === "active") return "open";
+  if (windowState === "closed") return "expired";
+  return "invalid";
+}
+
+function currentDiagnostic(
+  value: Match["ratingBlockReason"],
+  votingPresentation: AdminMatchOperation["votingPresentation"],
+): Match["ratingBlockReason"] {
+  if (votingPresentation !== "preparation" || value === undefined) {
+    return undefined;
+  }
+  return ratingBlockReasons.has(value) ? value : undefined;
+}
+
+function manualVotingAvailability(
+  match: AdminMatchOperation,
+  reconciliation?: VerifiedLineupReconciliation,
+): AdminMatchDetail["manualVotingAvailability"] {
+  switch (match.votingPresentation) {
+    case "open":
+      return { state: "voting_open" };
+    case "expired":
+      return { state: "voting_expired" };
+    case "published":
+      return { state: "results_published" };
+    case "invalid":
+      return { state: "invalid_window" };
+  }
+  if (!manualVotingStatusEligibility(match.status).allowed) {
+    return { state: "ineligible_status" };
+  }
+  if (match.lineupProvenance !== "operator_verified") {
+    return { state: "missing_verified_lineup" };
+  }
+  if (match.confirmedStarterCount !== 11) {
+    return { state: "invalid_starter_count" };
+  }
+  if (match.verification === undefined) {
+    return { state: "missing_verified_coach" };
+  }
+  if (reconciliation?.status === "conflict") {
+    return { state: "reconciliation_conflict" };
+  }
+  return { state: "available" };
 }
 
 export class AdminConsoleService {
   constructor(
     private readonly database: Firestore = getServerFirestore(),
     private readonly observePlayerIndexRead?: TeamPlayerIndexObserver,
+    private readonly now: () => Date = () => new Date(),
   ) {}
 
   async overview(): Promise<AdminOverview> {
@@ -136,20 +227,25 @@ export class AdminConsoleService {
     const described = await Promise.all(
       matches.map((match) => this.describeMatch(match)),
     );
+    const preparationMatches = described.filter(
+      (match) => match.votingPresentation === "preparation",
+    );
     return {
-      upcomingLiveMatches: described
+      upcomingLiveMatches: preparationMatches
         .filter((match) => ["scheduled", "live"].includes(match.status))
         .slice(0, 10),
       attentionMatches: described
         .filter(
           (match) =>
-            match.status === "finished" &&
-            match.ratingState === "preparing_rating",
+            match.votingPresentation === "invalid" ||
+            (match.votingPresentation === "preparation" &&
+              match.status === "finished" &&
+              match.ratingState === "preparing_rating"),
         )
         .slice(0, 10),
       votingCompletedMatches: described
         .filter((match) =>
-          ["rating_ready", "rating_closed"].includes(match.ratingState),
+          ["open", "expired", "published"].includes(match.votingPresentation),
         )
         .slice(0, 10),
       coaches: coachesSnapshot.docs.map((snapshot) => {
@@ -364,6 +460,10 @@ export class AdminConsoleService {
       }),
       ...(draft ? { draft } : {}),
       ...(reconciliation ? { reconciliation } : {}),
+      manualVotingAvailability: manualVotingAvailability(
+        describedMatch,
+        reconciliation,
+      ),
     };
   }
 
@@ -438,6 +538,13 @@ export class AdminConsoleService {
       (participant) =>
         participant.participationStatus === "confirmed_substitute",
     ).length;
+    const now = this.now();
+    const votingPresentation = describeVotingPresentation(match, now);
+    const effectiveWindow = getEffectiveVotingWindow(match);
+    const diagnostic = currentDiagnostic(
+      match.ratingBlockReason,
+      votingPresentation,
+    );
     return {
       id: match.id,
       externalFixtureId: match.externalProviderFixtureId,
@@ -457,14 +564,39 @@ export class AdminConsoleService {
         : {}),
       ...(match.ratingReadyAt ? { ratingReadyAt: match.ratingReadyAt } : {}),
       ...(match.votingOpensAt ? { votingOpensAt: match.votingOpensAt } : {}),
+      ...(match.votingClosesAt ? { votingClosesAt: match.votingClosesAt } : {}),
+      ...(effectiveWindow
+        ? {
+            effectiveVotingOpensAt: effectiveWindow.opensAt,
+            effectiveVotingClosesAt: effectiveWindow.closesAt,
+          }
+        : {}),
+      votingPresentation,
+      ...(votingPresentation === "open" && effectiveWindow
+        ? {
+            votingRemainingMinutes: Math.max(
+              1,
+              Math.ceil(
+                (Date.parse(effectiveWindow.closesAt) - now.getTime()) / 60_000,
+              ),
+            ),
+          }
+        : {}),
       ...(match.lastProviderSyncAt
         ? { lastProviderSyncAt: match.lastProviderSyncAt }
         : {}),
       ...(match.lastLifecycleRequestedAt
         ? { lastLifecycleRequestedAt: match.lastLifecycleRequestedAt }
         : {}),
-      diagnostic: match.ratingBlockReason,
-      diagnosticObservedAt: match.ratingBlockObservedAt,
+      ...(diagnostic ? { diagnostic } : {}),
+      ...(diagnostic && match.ratingBlockObservedAt
+        ? { diagnosticObservedAt: match.ratingBlockObservedAt }
+        : {}),
+      ...(votingPresentation === "preparation" &&
+      match.ratingBlockReason !== undefined &&
+      diagnostic === undefined
+        ? { unrecognizedDiagnostic: true }
+        : {}),
       participantCount: participantValues.length,
       rateableParticipantCount: trackedParticipants.filter(
         (participant) => participant.participated,

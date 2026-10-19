@@ -47,6 +47,10 @@ describe("manual voting persistence", () => {
     );
     const before = await assignmentReference.get();
     expect(before.exists).toBe(false);
+    await database.doc(`matches/${input.matchId}`).update({
+      ratingBlockReason: "missing_coach_evidence",
+      ratingBlockObservedAt: Timestamp.now(),
+    });
 
     await expect(service.preview(input)).resolves.toMatchObject({
       verifiedStarterCount: 11,
@@ -73,6 +77,7 @@ describe("manual voting persistence", () => {
     ).toMatchObject({
       ratingState: "rating_ready",
       votingOpeningMode: "manual",
+      ratingBlockReason: "missing_coach_evidence",
     });
   });
 
