@@ -1,4 +1,4 @@
-import { FieldPath, Timestamp, type Firestore } from "firebase-admin/firestore";
+import { Timestamp, type Firestore } from "firebase-admin/firestore";
 
 import { initialClub } from "@/config/club";
 import type {
@@ -8,15 +8,13 @@ import type {
   Match,
   MatchParticipant,
   Player,
-  PlayerProviderAlias,
-  TeamPlayerMembership,
   VerifiedCoachAssignment,
   VerifiedLineupReconciliation,
   VerifiedLineupSnapshot,
 } from "@/domain/models";
-import { playerProviderAliasId } from "@/domain/player-identity";
 import { normalizePlayerSearch } from "@/domain/player-search";
 import { getServerFirestore } from "@/lib/firebase/server";
+import { discoverTeamPlayers } from "@/lib/firebase/team-player-discovery";
 
 export interface AdminMatchOperation {
   id: string;
@@ -354,115 +352,32 @@ export class AdminConsoleService {
     if (cursor && (cursor.length > 200 || cursor.includes("/"))) {
       throw new Error("Player search cursor is invalid.");
     }
-    const membershipCollection = this.database.collection(
-      `teams/${initialClub.teamId}/playerMemberships`,
+    const discovery = await discoverTeamPlayers(
+      this.database,
+      initialClub.teamId,
     );
-    let membershipQuery = (
-      normalizedQuery
-        ? membershipCollection
-            .where("searchPrefixes", "array-contains", normalizedQuery)
-            .orderBy(FieldPath.documentId())
-        : membershipCollection.orderBy(FieldPath.documentId())
-    ).limit(21);
-    if (cursor) membershipQuery = membershipQuery.startAfter(cursor);
-    const membershipSnapshot = await membershipQuery.get();
-    const pageDocuments = membershipSnapshot.docs.slice(0, 20);
-    const memberships = pageDocuments
-      .map((document) => fromSnapshot<TeamPlayerMembership>(document))
-      .filter((membership) => membership.teamId === initialClub.teamId);
-    const observedSnapshots =
-      memberships.length === 0
-        ? []
-        : await this.database.getAll(
-            ...memberships.map((membership) =>
-              this.database.doc(`players/${membership.playerId}`),
-            ),
-          );
-    const observedPlayers = observedSnapshots
-      .filter((document) => document.exists)
-      .map((document) => fromSnapshot<Player>(document));
-    const providerPlayers = observedPlayers.filter(
-      (player) => player.externalProvider && player.externalProviderId,
+    const matching = discovery.players.filter(
+      ({ player, searchPrefixes }) =>
+        (!normalizedQuery || searchPrefixes.includes(normalizedQuery)) &&
+        (!cursor || player.id > cursor),
     );
-    const aliasSnapshots =
-      providerPlayers.length === 0
-        ? []
-        : await this.database.getAll(
-            ...providerPlayers.map((player) =>
-              this.database.doc(
-                `playerProviderAliases/${playerProviderAliasId(
-                  player.externalProvider!,
-                  player.externalProviderId!,
-                )}`,
-              ),
-            ),
-          );
-    const aliases = new Map<string, PlayerProviderAlias>();
-    aliasSnapshots.forEach((aliasSnapshot, index) => {
-      if (aliasSnapshot.exists) {
-        aliases.set(
-          providerPlayers[index].id,
-          fromSnapshot<PlayerProviderAlias>(aliasSnapshot),
-        );
-      }
-    });
-    const canonicalIds = new Set(
-      aliases.values().map(({ canonicalPlayerId }) => canonicalPlayerId),
-    );
-    const players = new Map(
-      observedPlayers.map((player) => [player.id, player] as const),
-    );
-    const missingCanonicalIds = [...canonicalIds].filter(
-      (playerId) => !players.has(playerId),
-    );
-    if (missingCanonicalIds.length > 0) {
-      const canonicalSnapshots = await this.database.getAll(
-        ...missingCanonicalIds.map((playerId) =>
-          this.database.doc(`players/${playerId}`),
-        ),
-      );
-      for (const canonicalSnapshot of canonicalSnapshots) {
-        if (canonicalSnapshot.exists) {
-          const player = fromSnapshot<Player>(canonicalSnapshot);
-          players.set(player.id, player);
-        }
-      }
-    }
-    const membershipByPlayer = new Map(
-      memberships.map((membership) => [membership.playerId, membership]),
-    );
-    const resolved = new Map<
-      string,
-      { player: Player; membership: TeamPlayerMembership }
-    >();
-    for (const observed of observedPlayers) {
-      const canonicalId =
-        aliases.get(observed.id)?.canonicalPlayerId ?? observed.id;
-      const canonical = players.get(canonicalId);
-      const membership = membershipByPlayer.get(observed.id);
-      if (!canonical || !membership) continue;
-      resolved.set(canonical.id, { player: canonical, membership });
-    }
-    const playersPage = [...resolved.values()]
-      .sort((left, right) =>
-        left.player.displayName.localeCompare(right.player.displayName, "es"),
-      )
-      .map(({ player, membership }) => ({
-        id: player.id,
-        name: player.displayName,
-        ...(player.position ? { position: player.position } : {}),
-        ...(player.photoUrl ? { photoUrl: player.photoUrl } : {}),
-        ...(membership.shirtNumber === undefined
-          ? {}
-          : { shirtNumber: membership.shirtNumber }),
-        identityProvenance:
-          player.identityProvenance ??
-          (player.externalProviderId ? "provider" : "operator_verified"),
-      }));
+    const page = matching.slice(0, 20);
+    const players = page.map(({ player, membership }) => ({
+      id: player.id,
+      name: player.displayName,
+      ...(player.position ? { position: player.position } : {}),
+      ...(player.photoUrl ? { photoUrl: player.photoUrl } : {}),
+      ...(membership.shirtNumber === undefined
+        ? {}
+        : { shirtNumber: membership.shirtNumber }),
+      identityProvenance:
+        player.identityProvenance ??
+        (player.externalProviderId ? "provider" : "operator_verified"),
+    }));
     return {
-      players: playersPage,
-      ...(membershipSnapshot.size > 20 && pageDocuments.at(-1)
-        ? { nextCursor: pageDocuments.at(-1)!.id }
+      players,
+      ...(matching.length > 20 && page.at(-1)
+        ? { nextCursor: page.at(-1)!.player.id }
         : {}),
     };
   }
