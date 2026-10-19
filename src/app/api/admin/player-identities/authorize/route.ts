@@ -9,6 +9,7 @@ import {
   ADMIN_PLAYER_IDENTITY_ACTION_COOKIE,
   readAdminIdentityConfig,
 } from "@/lib/server/admin-auth";
+import { adminPlayerIdentityResourceId } from "@/lib/server/admin-player-identity-action";
 import {
   adminError,
   adminJson,
@@ -36,7 +37,7 @@ export async function POST(request: NextRequest) {
     }
     audit = {
       uid: identity.uid,
-      resourceId: `${action.canonicalPlayerId}:${action.externalProvider}:${action.externalProviderPlayerId}`,
+      resourceId: adminPlayerIdentityResourceId(action),
     };
     const challenge = await security.authorizeAction({
       operatorUid: identity.uid,

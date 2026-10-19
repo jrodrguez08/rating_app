@@ -38,6 +38,7 @@ export default async function AdminPlayerIdentityPage() {
       <AdminPlayerIdentityReconciliation
         messages={messages}
         teamId={initialClub.teamId}
+        teamName={initialClub.displayName}
       />
     </main>
   );

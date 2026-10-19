@@ -203,10 +203,13 @@ export interface PlayerProviderAlias {
 }
 export interface PlayerIdentityReview {
   id: EntityId;
+  firstPlayerId: EntityId;
+  secondPlayerId: EntityId;
+  trackedTeamId: EntityId;
   canonicalPlayerId: EntityId;
-  providerPlayerId: EntityId;
-  externalProvider: string;
-  externalProviderPlayerId: string;
+  providerPlayerId?: EntityId;
+  externalProvider?: string;
+  externalProviderPlayerId?: string;
   decision: "nonmatch";
   status: "active" | "corrected";
   verificationSource: string;
