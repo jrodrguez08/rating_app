@@ -347,6 +347,8 @@ Monitor rejected admin audits, lockouts, unexpected owner token revocations, and
 
 Before deployment confirm: the exact production project in Web and Admin configuration; no emulator hosts or `demo-*` IDs; Email/Password enabled; owner email verified; exact UID and origin configured; scrypt digest present; HTTPS active; Firestore rules still recursively deny admin collections; `npm run verify` and `npm run test:firebase` pass; and no raw password, passphrase, ID token, cookie, Admin key, or voter data appears in logs or source. Deployment activates the route but performs no data mutation. Each actual assignment still requires preview, passphrase, exact typed target, and a fresh server transaction that also consumes the challenge and creates the success audit. Review that deterministic `adminAudit` record afterward.
 
+In a non-production smoke test, exercise lifecycle, verified lineup, coach assignment, and Player identity authorization with delayed network responses. Require one request while the authorization button is disabled, a visible Spanish success status and empty passphrase field after success, and the exact-confirmation control before apply. Reject an incorrect passphrase and require a visible error with the submit control restored. Inspect the response body, application logs, `adminSecurity`, `adminActionChallenges`, and `adminAudit`; none may contain the plaintext passphrase. Do not repeat this wiring test against production data.
+
 ## Verified lineup preparation operation
 
 The visual preload, roster search, and drag-and-drop workflow described here is available only after its reviewed release is deployed through the normal pipeline. Do not treat this runbook text or a Preview deployment as evidence that production has changed.

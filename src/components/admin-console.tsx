@@ -124,6 +124,7 @@ export function AdminConsole({
   const [confirmation, setConfirmation] = useState("");
   const [error, setError] = useState("");
   const [outcome, setOutcome] = useState("");
+  const [busy, setBusy] = useState(false);
   const selectedMatch = coachMatches.find((match) => match.id === matchId);
   const action = useMemo<AdminCoachAction | null>(() => {
     if (!selectedMatch) return null;
@@ -189,6 +190,7 @@ export function AdminConsole({
   async function createPreview(event: FormEvent) {
     event.preventDefault();
     if (!action) return;
+    setBusy(true);
     try {
       const result = await post("/api/admin/coach-assignment/preview", action);
       setPreview(result.plan as Record<string, unknown>);
@@ -199,32 +201,37 @@ export function AdminConsole({
       setError(
         caught instanceof Error ? caught.message : messages.genericError,
       );
+    } finally {
+      setBusy(false);
     }
   }
 
   async function authorize(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!action) return;
+    const form = event.currentTarget;
+    setBusy(true);
     try {
-      const passphrase = String(
-        new FormData(event.currentTarget).get("passphrase"),
-      );
+      const passphrase = String(new FormData(form).get("passphrase"));
       await post("/api/admin/coach-assignment/authorize", {
         action,
         previewToken,
         passphrase,
       });
-      event.currentTarget.reset();
+      form.reset();
       setAuthorized(true);
     } catch (caught) {
       setError(
         caught instanceof Error ? caught.message : messages.genericError,
       );
+    } finally {
+      setBusy(false);
     }
   }
 
   async function apply() {
     if (!action) return;
+    setBusy(true);
     try {
       const result = await post("/api/admin/coach-assignment/apply", {
         action,
@@ -238,6 +245,8 @@ export function AdminConsole({
       setError(
         caught instanceof Error ? caught.message : messages.genericError,
       );
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -412,6 +421,7 @@ export function AdminConsole({
           <button
             className="min-h-11 bg-accent px-4 font-bold text-black"
             type="submit"
+            disabled={busy}
           >
             {messages.preview}
           </button>
@@ -442,12 +452,16 @@ export function AdminConsole({
             <button
               className="min-h-11 bg-accent px-4 font-bold text-black"
               type="submit"
+              disabled={busy}
             >
               {messages.authorize}
             </button>
           </form>
           {authorized ? (
             <div className="grid gap-3">
+              <p className="text-success" role="status">
+                {messages.authorizationSuccess}
+              </p>
               <label className="grid gap-2">
                 <span>{messages.confirmation}</span>
                 <input
@@ -459,6 +473,7 @@ export function AdminConsole({
               </label>
               <button
                 className="min-h-11 bg-brand px-4 font-bold"
+                disabled={busy}
                 onClick={apply}
               >
                 {messages.apply}

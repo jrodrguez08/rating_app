@@ -94,14 +94,15 @@ export function AdminLifecycleActionPanel({
 
   async function authorize(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const form = event.currentTarget;
     setBusy(true);
     try {
       await post("/api/admin/lifecycle/authorize", {
         action,
         previewToken,
-        passphrase: String(new FormData(event.currentTarget).get("passphrase")),
+        passphrase: String(new FormData(form).get("passphrase")),
       });
-      event.currentTarget.reset();
+      form.reset();
       setAuthorized(true);
     } catch (caught) {
       setError(
@@ -286,6 +287,9 @@ export function AdminLifecycleActionPanel({
           </form>
           {authorized ? (
             <div className="grid gap-3">
+              <p className="text-success" role="status">
+                {messages.authorizationSuccess}
+              </p>
               <label className="grid gap-2">
                 <span>{messages.confirmation}</span>
                 <input

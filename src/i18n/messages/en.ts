@@ -390,6 +390,8 @@ export const enMessages = {
     notSelected: "Not selected",
     passphrase: "Authorization passphrase",
     authorize: "Authorize operation",
+    authorizationSuccess:
+      "Operation authorized. Complete the exact confirmation to continue.",
     confirmation: "Exact confirmation",
     apply: "Apply assignment",
     refresh: "Refresh",

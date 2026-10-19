@@ -1,4 +1,10 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -416,6 +422,64 @@ describe("admin lineup editor", () => {
     ).toBeVisible();
     expect(screen.getByText(messages.draftStatuses.saved)).toBeVisible();
   });
+
+  it("clears the passphrase and reveals exact confirmation after authorization", async () => {
+    const user = userEvent.setup();
+    let resolveAuthorization:
+      | ((value: { ok: boolean; json: () => Promise<unknown> }) => void)
+      | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const path = String(input);
+        if (path.includes("/api/admin/players?")) {
+          return Promise.resolve(jsonResponse({ players: [] }));
+        }
+        if (path.endsWith("/preview")) {
+          return Promise.resolve(
+            jsonResponse({
+              previewToken: "lineup-preview",
+              plan: {
+                participantCreates: 0,
+                participantUpdates: 0,
+                participantDeletes: 0,
+              },
+            }),
+          );
+        }
+        if (path.endsWith("/authorize")) {
+          return new Promise((resolve) => {
+            resolveAuthorization = resolve;
+          });
+        }
+        throw new Error(`Unexpected request: ${path}`);
+      }),
+    );
+    renderEditor(detail("preparing_rating"));
+
+    await user.click(screen.getByText(messages.confirmVerifiedLineup));
+    fireEvent.change(screen.getByLabelText(messages.evidence), {
+      target: { value: "https://evidence.example.test/lineup" },
+    });
+    fireEvent.change(screen.getByLabelText(messages.reason), {
+      target: {
+        value: "Evidencia independiente revisada para este partido.",
+      },
+    });
+    await user.click(screen.getByRole("button", { name: messages.preview }));
+    const passphrase = await screen.findByLabelText(messages.passphrase);
+    fireEvent.change(passphrase, {
+      target: { value: "independent-secret" },
+    });
+    await user.click(screen.getByRole("button", { name: messages.authorize }));
+    resolveAuthorization?.(jsonResponse({ authorized: true }));
+
+    expect(
+      await screen.findByText(messages.authorizationSuccess),
+    ).toBeVisible();
+    expect(passphrase).toHaveValue("");
+    expect(screen.getByLabelText(messages.confirmation)).toBeVisible();
+  });
 });
 
 function renderEditor(matchDetail: AdminMatchDetail) {
@@ -480,4 +544,8 @@ function detail(
       identityProvenance: "provider",
     })),
   };
+}
+
+function jsonResponse(body: unknown) {
+  return { ok: true, json: async () => body };
 }
