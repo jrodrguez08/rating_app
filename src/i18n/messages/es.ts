@@ -261,6 +261,33 @@ export const esMessages = {
     lineupTitle: "Preparación verificada del partido",
     lineupDescription:
       "Revise titulares, suplentes y participación con evidencia específica del fixture.",
+    matchPreparation: "Preparación del partido",
+    manualVotingTitle: "Abrir votación ahora",
+    manualVotingHelp:
+      "Confirme el pitazo final y revise la evidencia verificada antes de abrir una ventana manual.",
+    verificationStatus: "Estado de la evidencia requerida",
+    authoritativeLineupRequired: "Alineación verificada por el operador",
+    verifiedCoachRequired: "Director técnico verificado por el operador",
+    canonicalConflictStatus: "Sin conflictos de identidad pendientes",
+    currentVotingState: "Estado actual",
+    manualVotingMissingEvidence:
+      "Complete la alineación y el director técnico verificados y resuelva cualquier conflicto antes de continuar.",
+    votingDuration: "Cierre de la votación",
+    defaultVotingClose: "Dos horas desde la apertura",
+    customVotingClose: "Fecha y hora personalizadas",
+    costaRicaCloseTime: "Cierre en hora de Costa Rica",
+    customCloseError:
+      "La hora de cierre ya pasó o no es válida. Elija una nueva fecha y hora de Costa Rica.",
+    finalWhistleEvidence: "Enlace HTTPS de evidencia del pitazo final",
+    finalWhistleAttestation:
+      "Confirmo que el partido terminó y que esta evidencia corresponde al fixture indicado.",
+    manualVotingPreview: "Vista previa de la apertura",
+    providerStatus: "Estado del proveedor",
+    proposedOpening: "Apertura propuesta",
+    proposedClosing: "Cierre propuesto",
+    effectiveDuration: "Duración efectiva",
+    openVotingNow: "Abrir votación ahora",
+    manualVotingOpened: "La votación fue abierta.",
     email: "Correo electrónico",
     password: "Contraseña",
     signIn: "Ingresar",
@@ -275,6 +302,8 @@ export const esMessages = {
     votingCompleted: "Votación y partidos completados",
     sectionEmpty: "No hay partidos en esta sección.",
     coachRecovery: "Recuperación de director técnico",
+    coachAssignmentLocked:
+      "La asignación del director técnico está bloqueada para este estado.",
     prepareMatch: "Inspeccionar y preparar",
     inspect: "Inspeccionar",
     preparation: "Preparación",

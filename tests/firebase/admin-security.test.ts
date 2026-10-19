@@ -9,6 +9,7 @@ import {
   adminChallengeDocumentId,
   type AdminCoachAction,
 } from "@/lib/server/admin-coach-action";
+import type { AdminManualVotingAction } from "@/lib/server/admin-manual-voting-action";
 
 const projectId = process.env.GCLOUD_PROJECT ?? "demo-rating-app-local";
 const app = initializeApp({ projectId }, `admin-security-${Date.now()}`);
@@ -32,6 +33,36 @@ afterAll(async () => {
 });
 
 describe("admin action security", () => {
+  it("binds manual opening authorization to final-whistle evidence and close choice", async () => {
+    const action: AdminManualVotingAction = {
+      matchId: "match-manual-security",
+      trackedTeamId: "club-sport-herediano",
+      externalFixtureId: "fixture-manual-security",
+      finalWhistleConfirmed: true,
+      verificationSource: "https://example.com/final",
+      verificationReason: "Pitazo final confirmado en acta.",
+      closeMode: "default",
+    };
+    const preview = await store.issuePreview("owner-manual", action);
+    const challenge = await store.authorizeAction({
+      operatorUid: "owner-manual",
+      action,
+      previewToken: preview.token,
+      passphrase,
+    });
+    expect(
+      (
+        await database
+          .doc(
+            `adminActionChallenges/${adminChallengeDocumentId(challenge.token)}`,
+          )
+          .get()
+      ).data(),
+    ).toMatchObject({
+      operatorUid: "owner-manual",
+      matchId: action.matchId,
+    });
+  });
   it("binds one-use challenges to an owner, match, and exact preview", async () => {
     const action = coachAction("match-admin-security");
     const preview = await store.issuePreview("owner-security", action);

@@ -4,6 +4,7 @@ import type { NextRequest } from "next/server";
 import { getMessages } from "@/i18n/messages";
 import type { AdminCoachAction } from "@/lib/server/admin-coach-action";
 import type { AdminLifecycleAction } from "@/lib/server/admin-lifecycle-action";
+import type { AdminManualVotingAction } from "@/lib/server/admin-manual-voting-action";
 import type { AdminLineupDraftAction } from "@/lib/server/admin-lineup-draft-action";
 import type { AdminPlayerIdentityAction } from "@/lib/server/admin-player-identity-action";
 import type {
@@ -140,6 +141,33 @@ export function parseAdminLifecycleAction(
   };
 }
 
+export function parseAdminManualVotingAction(
+  value: unknown,
+): AdminManualVotingAction {
+  if (!isRecord(value)) throw new AdminAuthorizationError(403);
+  for (const key of [
+    "matchId",
+    "trackedTeamId",
+    "externalFixtureId",
+    "verificationSource",
+    "verificationReason",
+    "closeMode",
+  ] as const) {
+    if (typeof value[key] !== "string") throw new AdminAuthorizationError(403);
+  }
+  if (
+    value.finalWhistleConfirmed !== true ||
+    !["default", "custom"].includes(String(value.closeMode)) ||
+    (value.closeMode === "custom" &&
+      typeof value.customClosesAtLocal !== "string") ||
+    (value.customClosesAtLocal !== undefined &&
+      typeof value.customClosesAtLocal !== "string")
+  ) {
+    throw new AdminAuthorizationError(403);
+  }
+  return value as unknown as AdminManualVotingAction;
+}
+
 export function parseAdminPlayerIdentityAction(
   value: unknown,
 ): AdminPlayerIdentityAction {
@@ -239,6 +267,9 @@ export function adminError(error: unknown): NextResponse {
       value.includes("provider identity mapping")
     ) {
       return adminJson({ error: messages.inputError }, 400);
+    }
+    if (value.includes("invalid or expired")) {
+      return adminJson({ error: messages.customCloseError }, 400);
     }
     if (value.includes("team or fixture")) {
       return adminJson({ error: messages.bindingError }, 409);

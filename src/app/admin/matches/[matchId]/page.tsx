@@ -4,6 +4,8 @@ import { notFound, redirect } from "next/navigation";
 
 import { AdminLineupEditor } from "@/components/admin-lineup-editor";
 import { AdminLifecycleActionPanel } from "@/components/admin-lifecycle-action";
+import { AdminMatchCoachPanel } from "@/components/admin-match-coach";
+import { AdminManualVotingPanel } from "@/components/admin-manual-voting";
 import { initialClub } from "@/config/club";
 import { getMessages } from "@/i18n/messages";
 import { AdminConsoleService } from "@/lib/firebase/admin-console";
@@ -55,6 +57,16 @@ export default async function AdminMatchPage({
         </p>
       </header>
       <div className="grid gap-6">
+        <AdminMatchCoachPanel
+          detail={detail}
+          messages={messages}
+          teamId={initialClub.teamId}
+        />
+        <AdminManualVotingPanel
+          detail={detail}
+          messages={messages}
+          teamId={initialClub.teamId}
+        />
         <AdminLifecycleActionPanel
           match={detail.match}
           messages={messages}

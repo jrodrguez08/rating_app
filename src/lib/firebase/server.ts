@@ -30,6 +30,7 @@ import {
 } from "@/application/team-player-membership";
 import { validateBallotRatings } from "@/domain/ballot-validation";
 import { preserveMonotonicMatchStatus } from "@/domain/match-status";
+import { hasAuthoritativeFinalWhistle } from "@/domain/manual-voting";
 import { aggregateMatchResult } from "@/domain/result-aggregation";
 import {
   compareVoteWithResult,
@@ -102,6 +103,8 @@ const TIMESTAMP_FIELDS = new Set([
   "finishedObservedAt",
   "lastLifecycleRequestedAt",
   "ratingReadyAt",
+  "manualFinalWhistleAttestedAt",
+  "attestedAt",
   "votingOpensAt",
   "votingClosesAt",
   "votingReopenedAt",
@@ -649,7 +652,7 @@ export class AdminVotingWindowService {
       const trustedAt = matchSnapshot.readTime.toDate();
       const window = requireAuditableWindow(match);
       if (
-        match.status !== "finished" ||
+        !hasAuthoritativeFinalWhistle(match) ||
         match.ratingState !== "rating_closed"
       ) {
         throw new Error(
@@ -755,7 +758,7 @@ export class AdminVotingWindowService {
       const trustedAt = matchSnapshot.readTime.toDate();
       requireAuditableWindow(match);
       if (
-        match.status !== "finished" ||
+        !hasAuthoritativeFinalWhistle(match) ||
         getVotingWindowState(match, trustedAt) !== "active"
       ) {
         throw new Error("Only an active finished rating window can be closed.");
@@ -1090,7 +1093,7 @@ export class AdminVerifiedCoachService {
         );
       }
       if (
-        match.status !== "finished" ||
+        !["scheduled", "live", "finished"].includes(match.status) ||
         !["not_ready", "preparing_rating"].includes(match.ratingState) ||
         resultSnapshot.exists ||
         !ballots.empty ||
@@ -1283,7 +1286,7 @@ export class AdminVotingWindowNotificationStore implements VotingWindowNotificat
       const windowSequence = match.votingReopenCount ?? 0;
       const window = getEffectiveVotingWindow(match);
       if (
-        match.status !== "finished" ||
+        !hasAuthoritativeFinalWhistle(match) ||
         window === null ||
         getVotingWindowState(match, trustedAt) !== "active"
       ) {
@@ -1506,7 +1509,7 @@ export class AdminFootballSyncStore
       }
       const window = getEffectiveVotingWindow(match);
       if (
-        match.status !== "finished" ||
+        !hasAuthoritativeFinalWhistle(match) ||
         match.ratingState !== "rating_ready" ||
         window === null ||
         (closeEarly
@@ -2760,6 +2763,14 @@ function preserveMatchLifecycle(existing: Match, incoming: Match): Match {
     ...(existing.votingClosesAt === undefined
       ? {}
       : { votingClosesAt: existing.votingClosesAt }),
+    ...(existing.votingOpeningMode === undefined
+      ? {}
+      : { votingOpeningMode: existing.votingOpeningMode }),
+    ...(existing.manualFinalWhistleAttestedAt === undefined
+      ? {}
+      : {
+          manualFinalWhistleAttestedAt: existing.manualFinalWhistleAttestedAt,
+        }),
     ...(existing.votingReopenedAt === undefined
       ? {}
       : { votingReopenedAt: existing.votingReopenedAt }),

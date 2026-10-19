@@ -5,6 +5,10 @@ import {
   type AdminLifecycleAction,
 } from "@/lib/server/admin-lifecycle-action";
 import {
+  hashAdminManualVotingAction,
+  type AdminManualVotingAction,
+} from "@/lib/server/admin-manual-voting-action";
+import {
   FieldValue,
   Timestamp,
   type Firestore,
@@ -42,12 +46,15 @@ export type AdminAuditAction =
   | "player_identity_passphrase"
   | "player_identity_apply"
   | "lifecycle_request_passphrase"
-  | "lifecycle_request_apply";
+  | "lifecycle_request_apply"
+  | "manual_voting_passphrase"
+  | "manual_voting_apply";
 
 type AdminSensitiveAction =
   | AdminCoachAction
   | AdminLineupAction
   | AdminLifecycleAction
+  | AdminManualVotingAction
   | AdminPlayerIdentityAction;
 
 export class AdminSecurityError extends Error {
@@ -278,6 +285,8 @@ function hashAdminSensitiveAction(action: AdminSensitiveAction): string {
   if ("decision" in action) return hashAdminPlayerIdentityAction(action);
   if ("participants" in action) return hashAdminLineupAction(action);
   if ("coachId" in action) return hashAdminCoachAction(action);
+  if ("finalWhistleConfirmed" in action)
+    return hashAdminManualVotingAction(action);
   return hashAdminLifecycleAction(action);
 }
 

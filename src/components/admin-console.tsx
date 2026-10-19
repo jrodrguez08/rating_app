@@ -111,7 +111,13 @@ export function AdminConsole({
   messages: AdminMessages;
   teamId: string;
 }) {
-  const coachMatches = overview.attentionMatches;
+  const coachMatches = [
+    ...overview.upcomingLiveMatches,
+    ...overview.attentionMatches,
+  ].filter(
+    (match, index, matches) =>
+      matches.findIndex((candidate) => candidate.id === match.id) === index,
+  );
   const [matchId, setMatchId] = useState(coachMatches[0]?.id ?? "");
   const [coachId, setCoachId] = useState("");
   const [coachName, setCoachName] = useState("");

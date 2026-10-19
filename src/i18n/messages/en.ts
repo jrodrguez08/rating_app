@@ -254,6 +254,33 @@ export const enMessages = {
     lineupTitle: "Verified match preparation",
     lineupDescription:
       "Review starters, substitutes, and participation with fixture-specific evidence.",
+    matchPreparation: "Match preparation",
+    manualVotingTitle: "Open voting now",
+    manualVotingHelp:
+      "Confirm the final whistle and review verified evidence before opening a manual window.",
+    verificationStatus: "Required evidence status",
+    authoritativeLineupRequired: "Operator verified lineup",
+    verifiedCoachRequired: "Operator verified head coach",
+    canonicalConflictStatus: "No unresolved identity conflicts",
+    currentVotingState: "Current state",
+    manualVotingMissingEvidence:
+      "Complete the verified lineup and head coach and resolve any conflict before continuing.",
+    votingDuration: "Voting close",
+    defaultVotingClose: "Two hours after opening",
+    customVotingClose: "Custom date and time",
+    costaRicaCloseTime: "Close time in Costa Rica",
+    customCloseError:
+      "The close time has passed or is invalid. Choose a new Costa Rica date and time.",
+    finalWhistleEvidence: "Final whistle HTTPS evidence link",
+    finalWhistleAttestation:
+      "I confirm the match ended and this evidence belongs to the specified fixture.",
+    manualVotingPreview: "Opening preview",
+    providerStatus: "Provider status",
+    proposedOpening: "Proposed opening",
+    proposedClosing: "Proposed closing",
+    effectiveDuration: "Effective duration",
+    openVotingNow: "Open voting now",
+    manualVotingOpened: "Voting was opened.",
     email: "Email",
     password: "Password",
     signIn: "Sign in",
@@ -268,6 +295,8 @@ export const enMessages = {
     votingCompleted: "Voting and completed matches",
     sectionEmpty: "There are no matches in this section.",
     coachRecovery: "Head coach recovery",
+    coachAssignmentLocked:
+      "The head coach assignment is locked for this state.",
     prepareMatch: "Inspect and prepare",
     inspect: "Inspect",
     preparation: "Preparation",

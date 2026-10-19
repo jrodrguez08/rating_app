@@ -1,4 +1,5 @@
 import { selectRelevantMatch } from "@/application/match-lifecycle";
+import { hasAuthoritativeFinalWhistle } from "@/domain/manual-voting";
 import type { Match } from "@/domain/models";
 
 export interface MatchArchiveItem {
@@ -29,14 +30,14 @@ export function buildMatchArchive(
   return {
     relevant,
     recent: remainingItems
-      .filter(({ match }) => match.status === "finished")
+      .filter(({ match }) => hasAuthoritativeFinalWhistle(match))
       .sort(
         (left, right) =>
           new Date(right.match.kickoffAt).getTime() -
           new Date(left.match.kickoffAt).getTime(),
       ),
     upcoming: remainingItems
-      .filter(({ match }) => match.status !== "finished")
+      .filter(({ match }) => !hasAuthoritativeFinalWhistle(match))
       .sort(
         (left, right) =>
           new Date(left.match.kickoffAt).getTime() -

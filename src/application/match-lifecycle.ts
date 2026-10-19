@@ -505,6 +505,7 @@ async function executeMatchLifecycle({
       ratingReadyAt: synced.ratingReadyAt ?? currentTime.toISOString(),
       votingOpensAt: opensAt,
       votingClosesAt: closesAt,
+      votingOpeningMode: synced.votingOpeningMode ?? "provider",
       votingOpenNotificationWindow: 0,
       votingOpenNotificationStatus: "pending",
       updatedAt: currentTime.toISOString(),
