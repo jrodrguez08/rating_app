@@ -1,7 +1,10 @@
+import { randomUUID } from "node:crypto";
+
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 import { getMessages } from "@/i18n/messages";
+import { emitOperationalLog } from "@/lib/operational-log";
 import type { AdminCoachAction } from "@/lib/server/admin-coach-action";
 import type { AdminLifecycleAction } from "@/lib/server/admin-lifecycle-action";
 import type { AdminManualVotingAction } from "@/lib/server/admin-manual-voting-action";
@@ -11,6 +14,11 @@ import type {
   AdminLineupAction,
   AdminLineupParticipantAction,
 } from "@/lib/server/admin-lineup-action";
+import {
+  AdminLineupError,
+  type AdminLineupErrorCode,
+  InternalPlayerIdentityConfigurationError,
+} from "@/lib/server/admin-lineup-error";
 import {
   ADMIN_CSRF_COOKIE,
   ADMIN_SESSION_COOKIE,
@@ -72,7 +80,10 @@ export function parseAdminCoachAction(value: unknown): AdminCoachAction {
 
 export function parseAdminLineupAction(value: unknown): AdminLineupAction {
   if (!isRecord(value) || !Array.isArray(value.participants)) {
-    throw new AdminAuthorizationError(403);
+    throw new AdminLineupError(
+      "LINEUP_INVALID_INPUT",
+      "Lineup request input is invalid.",
+    );
   }
   const required = [
     "matchId",
@@ -82,7 +93,12 @@ export function parseAdminLineupAction(value: unknown): AdminLineupAction {
     "verificationReason",
   ] as const;
   for (const key of required) {
-    if (typeof value[key] !== "string") throw new AdminAuthorizationError(403);
+    if (typeof value[key] !== "string") {
+      throw new AdminLineupError(
+        "LINEUP_INVALID_INPUT",
+        "Lineup request input is invalid.",
+      );
+    }
   }
   return {
     matchId: value.matchId as string,
@@ -216,7 +232,10 @@ function parseLineupParticipant(value: unknown): AdminLineupParticipantAction {
     (value.enteredAtMinute !== undefined &&
       typeof value.enteredAtMinute !== "number")
   ) {
-    throw new AdminAuthorizationError(403);
+    throw new AdminLineupError(
+      "LINEUP_INVALID_INPUT",
+      "Lineup participant input is invalid.",
+    );
   }
   return {
     playerId: value.playerId,
@@ -291,6 +310,97 @@ export function adminError(error: unknown): NextResponse {
     }
   }
   return adminJson({ error: messages.operationError }, 400);
+}
+
+export function adminLineupError(
+  error: unknown,
+  context: {
+    operation: "preview" | "authorize" | "apply" | "allocate" | "recover";
+    matchId?: string;
+  },
+): NextResponse {
+  if (error instanceof AdminAuthorizationError) return adminError(error);
+  const requestId = randomUUID();
+  const lineupError =
+    error instanceof AdminLineupError
+      ? error
+      : error instanceof InternalPlayerIdentityConfigurationError
+        ? new AdminLineupError(
+            "LINEUP_INTERNAL_IDENTITY_CONFIGURATION_ERROR",
+            error.message,
+          )
+        : new AdminLineupError(
+            "LINEUP_PREVIEW_UNAVAILABLE",
+            "Unexpected lineup operation failure.",
+          );
+  const status = lineupErrorStatus(lineupError.code);
+  emitOperationalLog(
+    status >= 500 ? console.error : console.warn,
+    "admin_lineup_operation_failed",
+    {
+      requestId,
+      operation: context.operation,
+      code: lineupError.code,
+      status,
+      matchId: safeLogIdentifier(context.matchId),
+    },
+  );
+  const response = adminJson(
+    {
+      error: lineupErrorMessage(lineupError, requestId),
+      code: lineupError.code,
+      requestId,
+    },
+    status,
+  );
+  response.headers.set("X-Request-ID", requestId);
+  return response;
+}
+
+function lineupErrorStatus(code: AdminLineupErrorCode): number {
+  if (code === "LINEUP_INVALID_INPUT") return 400;
+  if (code === "LINEUP_MATCH_NOT_FOUND") return 404;
+  if (code === "LINEUP_PLAYER_NOT_FOUND") return 404;
+  if (code === "LINEUP_INTERNAL_IDENTITY_CONFIGURATION_ERROR") return 503;
+  if (code === "LINEUP_PREVIEW_UNAVAILABLE") return 500;
+  return 409;
+}
+
+function lineupErrorMessage(error: AdminLineupError, requestId: string) {
+  const values = messages.lineupErrors;
+  const player = error.participantName ?? "el jugador seleccionado";
+  const byCode: Record<AdminLineupErrorCode, string> = {
+    LINEUP_INVALID_INPUT: values.invalidInput,
+    LINEUP_MATCH_NOT_FOUND: values.matchNotFound,
+    LINEUP_INVALID_MATCH_STATE: values.invalidMatchState,
+    LINEUP_INVALID_TEAM_BINDING: values.invalidTeamBinding,
+    LINEUP_PLAYER_NOT_FOUND: values.playerNotFound.replace("{player}", player),
+    LINEUP_PLAYER_NAME_CONFLICT: values.playerNameConflict.replace(
+      "{player}",
+      player,
+    ),
+    LINEUP_PLAYER_MEMBERSHIP_CONFLICT: values.playerMembershipConflict.replace(
+      "{player}",
+      player,
+    ),
+    LINEUP_PLAYER_ALIAS_CONFLICT: values.playerAliasConflict.replace(
+      "{player}",
+      player,
+    ),
+    LINEUP_INTERNAL_IDENTITY_INVALID: values.internalIdentityInvalid,
+    LINEUP_INTERNAL_IDENTITY_CONFIGURATION_ERROR:
+      values.internalIdentityConfiguration,
+    LINEUP_DRAFT_STALE: values.draftStale,
+    LINEUP_PREVIEW_UNAVAILABLE: values.previewUnavailable.replace(
+      "{requestId}",
+      requestId,
+    ),
+  };
+  return byCode[error.code];
+}
+
+function safeLogIdentifier(value: string | undefined): string | null {
+  return value && /^[A-Za-z0-9_-]{1,128}$/.test(value) ? value : null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

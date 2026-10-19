@@ -572,6 +572,35 @@ export const esMessages = {
     credentialsError: "Credenciales inválidas.",
     operationError:
       "No fue posible completar la operación. Revise los datos e inténtelo de nuevo.",
+    lineupErrors: {
+      invalidInput:
+        "Revise los titulares, suplentes, minutos y la evidencia ingresada.",
+      matchNotFound: "El partido seleccionado ya no existe.",
+      invalidMatchState:
+        "El estado actual del partido no permite preparar la alineación.",
+      invalidTeamBinding:
+        "El equipo o el fixture no coincide con el partido seleccionado.",
+      playerNotFound:
+        "No se encontró la identidad canónica de {player}. Vuelva a seleccionarla.",
+      playerNameConflict:
+        "El nombre de {player} no coincide con su identidad canónica. Vuelva a seleccionar al jugador.",
+      playerMembershipConflict:
+        "No hay evidencia de que {player} pertenezca al equipo seleccionado.",
+      playerAliasConflict:
+        "La identidad de proveedor de {player} está vinculada a otro jugador y requiere revisión.",
+      internalIdentityInvalid:
+        "La asignación del jugador nuevo ya no es válida. Renueve la asignación sin borrar el borrador.",
+      internalIdentityConfiguration:
+        "La firma de jugadores nuevos no está configurada. Contacte al administrador del despliegue.",
+      draftStale:
+        "El borrador cambió en otra sesión. Recargue el partido antes de continuar.",
+      previewUnavailable:
+        "La vista previa no está disponible temporalmente. Inténtelo de nuevo con el código de solicitud {requestId}.",
+    },
+    recoverInternalIdentities: "Renovar asignaciones de jugadores nuevos",
+    recoveringInternalIdentities: "Renovando asignaciones…",
+    internalIdentitiesRecovered:
+      "Las asignaciones se renovaron y el borrador se conservó.",
     attemptsError: "Demasiados intentos. Espere antes de volver a intentar.",
     passphraseError: "La frase de autorización o la vista previa no es válida.",
     matchMissingError: "El partido ya no existe.",

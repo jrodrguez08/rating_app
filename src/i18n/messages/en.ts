@@ -563,6 +563,35 @@ export const enMessages = {
     credentialsError: "Invalid credentials.",
     operationError:
       "The operation could not be completed. Review the data and try again.",
+    lineupErrors: {
+      invalidInput:
+        "Review the starters, substitutes, minutes, and submitted evidence.",
+      matchNotFound: "The selected match no longer exists.",
+      invalidMatchState:
+        "The current match state does not allow lineup preparation.",
+      invalidTeamBinding:
+        "The Team or fixture does not match the selected match.",
+      playerNotFound:
+        "The canonical identity for {player} was not found. Select the player again.",
+      playerNameConflict:
+        "The name for {player} does not match its canonical identity. Select the player again.",
+      playerMembershipConflict:
+        "There is no evidence that {player} belongs to the selected Team.",
+      playerAliasConflict:
+        "The provider identity for {player} belongs to another player and requires review.",
+      internalIdentityInvalid:
+        "The new Player allocation is no longer valid. Renew it without deleting the draft.",
+      internalIdentityConfiguration:
+        "New Player signing is not configured. Contact the deployment administrator.",
+      draftStale:
+        "The draft changed in another session. Reload the match before continuing.",
+      previewUnavailable:
+        "The preview is temporarily unavailable. Try again with request code {requestId}.",
+    },
+    recoverInternalIdentities: "Renew new Player allocations",
+    recoveringInternalIdentities: "Renewing allocations…",
+    internalIdentitiesRecovered:
+      "The allocations were renewed and the draft was preserved.",
     attemptsError: "Too many attempts. Wait before trying again.",
     passphraseError: "The authorization passphrase or preview is invalid.",
     matchMissingError: "The match no longer exists.",
