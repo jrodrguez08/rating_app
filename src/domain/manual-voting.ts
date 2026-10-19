@@ -1,6 +1,28 @@
-import type { Match } from "./models";
+import type { Match, MatchStatus } from "./models";
 
 export const DEFAULT_VOTING_WINDOW_MS = 2 * 60 * 60 * 1000;
+
+export type ManualVotingStatusBlockReason =
+  "postponed" | "suspended" | "cancelled" | "abandoned";
+
+export type ManualVotingStatusEligibility =
+  { allowed: true } | { allowed: false; reason: ManualVotingStatusBlockReason };
+
+export function manualVotingStatusEligibility(
+  status: MatchStatus,
+): ManualVotingStatusEligibility {
+  switch (status) {
+    case "scheduled":
+    case "live":
+    case "finished":
+      return { allowed: true };
+    case "postponed":
+    case "suspended":
+    case "cancelled":
+    case "abandoned":
+      return { allowed: false, reason: status };
+  }
+}
 
 export function parseCostaRicaDateTime(value: string): Date | null {
   const parts = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value);

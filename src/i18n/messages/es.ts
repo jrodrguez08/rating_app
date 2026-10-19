@@ -272,6 +272,15 @@ export const esMessages = {
     currentVotingState: "Estado actual",
     manualVotingMissingEvidence:
       "Complete la alineación y el director técnico verificados y resuelva cualquier conflicto antes de continuar.",
+    manualVotingStatusEligible: "Estado del partido apto para apertura manual",
+    manualVotingProviderDelay:
+      "El proveedor aún no confirma el final. La apertura manual requiere confirmar de forma independiente que el partido real terminó.",
+    manualVotingStatusBlocked: {
+      postponed: "El partido está pospuesto y no puede abrir votaciones.",
+      suspended: "El partido está suspendido y requiere revisión.",
+      cancelled: "El partido fue cancelado.",
+      abandoned: "El partido fue abandonado.",
+    },
     votingDuration: "Cierre de la votación",
     defaultVotingClose: "Dos horas desde la apertura",
     customVotingClose: "Fecha y hora personalizadas",

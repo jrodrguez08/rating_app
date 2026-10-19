@@ -265,6 +265,15 @@ export const enMessages = {
     currentVotingState: "Current state",
     manualVotingMissingEvidence:
       "Complete the verified lineup and head coach and resolve any conflict before continuing.",
+    manualVotingStatusEligible: "Match status allows manual opening",
+    manualVotingProviderDelay:
+      "The provider has not confirmed full time. Manual opening requires independent confirmation that the actual match ended.",
+    manualVotingStatusBlocked: {
+      postponed: "The match is postponed and voting cannot be opened.",
+      suspended: "The match is suspended and requires review.",
+      cancelled: "The match was cancelled.",
+      abandoned: "The match was abandoned.",
+    },
     votingDuration: "Voting close",
     defaultVotingClose: "Two hours after opening",
     customVotingClose: "Custom date and time",

@@ -2308,6 +2308,29 @@ export class AdminFootballSyncStore
     const counts = { created: 0, updated: 0, unchanged: 0 };
     for (const incoming of values) {
       const reference = this.database.doc(`${collection}/${incoming.id}`);
+      if (preserveLifecycle) {
+        const disposition = await this.database.runTransaction(
+          async (transaction) => {
+            const snapshot = await transaction.get(reference);
+            if (!snapshot.exists) {
+              transaction.create(reference, toDocument(incoming));
+              return "created" as const;
+            }
+            const existing = fromDocument<T>(snapshot);
+            const merged = preserveMatchLifecycle(
+              existing as unknown as Match,
+              incoming as unknown as Match,
+            ) as unknown as T;
+            if (comparable(existing) === comparable(merged)) {
+              return "unchanged" as const;
+            }
+            transaction.set(reference, toDocument(merged));
+            return "updated" as const;
+          },
+        );
+        counts[disposition] += 1;
+        continue;
+      }
       const snapshot = await reference.get();
       if (!snapshot.exists) {
         await reference.create(toDocument(incoming));
@@ -2315,12 +2338,11 @@ export class AdminFootballSyncStore
         continue;
       }
       const existing = fromDocument<T>(snapshot);
-      const merged = preserveLifecycle
-        ? (preserveMatchLifecycle(
-            existing as unknown as Match,
-            incoming as unknown as Match,
-          ) as unknown as T)
-        : ({ ...existing, ...incoming, createdAt: existing.createdAt } as T);
+      const merged = {
+        ...existing,
+        ...incoming,
+        createdAt: existing.createdAt,
+      } as T;
       if (comparable(existing) === comparable(merged)) counts.unchanged += 1;
       else {
         await reference.set(toDocument(merged));

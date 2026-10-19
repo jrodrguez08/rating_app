@@ -30,6 +30,42 @@ describe("manual voting admin panel", () => {
     ).not.toBeInTheDocument();
   });
 
+  it.each([
+    ["postponed", messages.manualVotingStatusBlocked.postponed],
+    ["suspended", messages.manualVotingStatusBlocked.suspended],
+    ["cancelled", messages.manualVotingStatusBlocked.cancelled],
+    ["abandoned", messages.manualVotingStatusBlocked.abandoned],
+  ] as const)("explains why %s cannot open voting", (status, explanation) => {
+    renderPanel({
+      ...detail(),
+      match: { ...detail().match, status },
+    });
+
+    expect(screen.getByText(explanation)).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: messages.preview }),
+    ).not.toBeInTheDocument();
+  });
+
+  it.each(["scheduled", "live"] as const)(
+    "explains independent final-whistle confirmation for %s",
+    async (status) => {
+      const user = userEvent.setup();
+      renderPanel({
+        ...detail(),
+        match: { ...detail().match, status },
+      });
+
+      expect(
+        screen.getByText(messages.manualVotingProviderDelay),
+      ).toBeVisible();
+      await user.click(screen.getByLabelText(messages.finalWhistleAttestation));
+      expect(
+        screen.getByRole("button", { name: messages.preview }),
+      ).toBeEnabled();
+    },
+  );
+
   it("previews, authorizes, and applies only after exact confirmation", async () => {
     const user = userEvent.setup();
     const fetchMock = vi

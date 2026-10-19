@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 
+import { manualVotingStatusEligibility } from "@/domain/manual-voting";
 import type { Messages } from "@/i18n/messages";
 import type { AdminMatchDetail } from "@/lib/firebase/admin-console";
 import type { AdminManualVotingAction } from "@/lib/server/admin-manual-voting-action";
@@ -61,8 +62,10 @@ export function AdminManualVotingPanel({
     detail.match.verification !== undefined &&
     detail.match.assignment?.provenance === "operator_verified";
   const hasConflict = detail.reconciliation?.status === "conflict";
+  const statusEligibility = manualVotingStatusEligibility(detail.match.status);
   const ready =
     mutable &&
+    statusEligibility.allowed &&
     hasVerifiedLineup &&
     detail.match.confirmedStarterCount === 11 &&
     hasVerifiedCoach &&
@@ -191,6 +194,10 @@ export function AdminManualVotingPanel({
           ok={mutable}
           text={`${messages.currentVotingState}: ${messages.ratingStates[detail.match.ratingState]}`}
         />
+        <Check
+          ok={statusEligibility.allowed}
+          text={messages.manualVotingStatusEligible}
+        />
         <li>
           {messages.confirmedSubstitutes}:{" "}
           {detail.match.confirmedSubstituteCount}
@@ -203,11 +210,24 @@ export function AdminManualVotingPanel({
           {messages.fixture}: {detail.match.externalFixtureId} · {teamId}
         </li>
       </ul>
+      {statusEligibility.allowed &&
+      ["scheduled", "live"].includes(detail.match.status) ? (
+        <p className="text-warning" role="status">
+          {messages.manualVotingProviderDelay}
+        </p>
+      ) : null}
+      {!statusEligibility.allowed ? (
+        <p className="text-warning" role="status">
+          {messages.manualVotingStatusBlocked[statusEligibility.reason]}
+        </p>
+      ) : null}
       {!ready ? (
         <div className="grid gap-2">
-          <p className="text-warning" role="status">
-            {messages.manualVotingMissingEvidence}
-          </p>
+          {statusEligibility.allowed ? (
+            <p className="text-warning" role="status">
+              {messages.manualVotingMissingEvidence}
+            </p>
+          ) : null}
           {!hasVerifiedCoach ? (
             <a
               className="button-secondary inline-flex min-h-11 items-center justify-center px-4"

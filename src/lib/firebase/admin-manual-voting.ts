@@ -1,6 +1,9 @@
 import { Timestamp, type Firestore } from "firebase-admin/firestore";
 
-import { manualVotingClosesAt } from "@/domain/manual-voting";
+import {
+  manualVotingClosesAt,
+  manualVotingStatusEligibility,
+} from "@/domain/manual-voting";
 import type {
   CoachAssignment,
   ManualFinalWhistleAttestation,
@@ -195,6 +198,12 @@ export class AdminManualVotingService {
         match.externalProviderFixtureId !== input.externalFixtureId
       ) {
         throw new AdminManualVotingRejectedError("Match binding is invalid.");
+      }
+      const statusEligibility = manualVotingStatusEligibility(match.status);
+      if (!statusEligibility.allowed) {
+        throw new AdminManualVotingRejectedError(
+          `Manual voting cannot be opened for a ${statusEligibility.reason} match.`,
+        );
       }
       if (
         !["not_ready", "preparing_rating"].includes(match.ratingState) ||

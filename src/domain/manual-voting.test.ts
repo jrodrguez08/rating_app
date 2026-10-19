@@ -3,11 +3,29 @@ import { describe, expect, it } from "vitest";
 import {
   hasAuthoritativeFinalWhistle,
   manualVotingClosesAt,
+  manualVotingStatusEligibility,
   parseCostaRicaDateTime,
 } from "./manual-voting";
 import type { Match } from "./models";
 
 describe("manual voting timing", () => {
+  it.each(["scheduled", "live", "finished"] as const)(
+    "allows independently attested manual opening from %s",
+    (status) => {
+      expect(manualVotingStatusEligibility(status)).toEqual({ allowed: true });
+    },
+  );
+
+  it.each(["postponed", "suspended", "cancelled", "abandoned"] as const)(
+    "rejects manual opening from %s",
+    (status) => {
+      expect(manualVotingStatusEligibility(status)).toEqual({
+        allowed: false,
+        reason: status,
+      });
+    },
+  );
+
   it("uses an exact two-hour default window", () => {
     expect(
       manualVotingClosesAt(

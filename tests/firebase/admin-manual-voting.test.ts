@@ -4,6 +4,7 @@ import { deleteApp, initializeApp } from "firebase-admin/app";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import type { MatchStatus } from "@/domain/models";
 import {
   AdminManualVotingRejectedError,
   AdminManualVotingService,
@@ -29,7 +30,7 @@ beforeAll(() => {
 afterAll(() => deleteApp(app));
 
 describe("manual voting persistence", () => {
-  it.each(["scheduled", "live"] as const)(
+  it.each(["scheduled", "live", "finished"] as const)(
     "opens atomically from %s without provider evidence and preserves eligibility",
     async (status) => {
       const input = await seed(`manual-open-${status}`, status);
@@ -112,12 +113,174 @@ describe("manual voting persistence", () => {
         await database.doc(`matches/${input.matchId}`).get()
       ).data();
       expect(refreshed).toMatchObject({
+        status,
         ratingState: "rating_ready",
         votingOpeningMode: "manual",
       });
       expect(refreshed?.votingOpensAt.toMillis()).toBe(originalOpening);
+
+      await new AdminFootballSyncStore(database).upsertMatches([
+        {
+          id: input.matchId,
+          trackedTeamId: input.trackedTeamId,
+          trackedTeamExternalProviderId: "815",
+          competitionId: "competition-1",
+          seasonId: "season-1",
+          homeTeam: { externalProviderId: "815", name: "Local" },
+          awayTeam: { externalProviderId: "900", name: "Visitante" },
+          kickoffAt: new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString(),
+          status: "finished",
+          ratingState: "not_ready",
+          score: { home: 2, away: 1 },
+          externalProvider: "api-football",
+          externalProviderFixtureId: input.externalFixtureId,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      ]);
+      const finishedRefresh = (
+        await database.doc(`matches/${input.matchId}`).get()
+      ).data();
+      expect(finishedRefresh).toMatchObject({
+        status,
+        ratingState: "rating_ready",
+        votingOpeningMode: "manual",
+      });
+      expect(finishedRefresh?.votingOpensAt.toMillis()).toBe(originalOpening);
+      expect(
+        (await database.doc(`matches/${input.matchId}/results/summary`).get())
+          .exists,
+      ).toBe(false);
     },
   );
+
+  it.each(["postponed", "suspended", "cancelled", "abandoned"] as const)(
+    "rejects a %s match without writing an attestation or window",
+    async (status) => {
+      const input = await seed(`manual-status-${status}`, status);
+      const token = await seedChallenge(input);
+
+      await expect(service.preview(input)).rejects.toThrow(status);
+      await expect(service.applyAuthorized(input, token)).rejects.toThrow(
+        status,
+      );
+      const match = (
+        await database.doc(`matches/${input.matchId}`).get()
+      ).data();
+      expect(match).toMatchObject({
+        status,
+        ratingState: "preparing_rating",
+      });
+      expect(match?.votingOpensAt).toBeUndefined();
+      expect(
+        (
+          await database
+            .doc(`matches/${input.matchId}/finalWhistleAttestations/manual`)
+            .get()
+        ).exists,
+      ).toBe(false);
+    },
+  );
+
+  it.each(["cancelled", "abandoned"] as const)(
+    "rechecks authoritative status when it becomes %s after preview",
+    async (status) => {
+      const input = await seed(`manual-race-${status}`, "live");
+      const token = await seedChallenge(input);
+      await expect(service.preview(input)).resolves.toMatchObject({
+        providerStatus: "live",
+      });
+
+      await database.doc(`matches/${input.matchId}`).update({ status });
+
+      await expect(service.applyAuthorized(input, token)).rejects.toThrow(
+        status,
+      );
+      const match = (
+        await database.doc(`matches/${input.matchId}`).get()
+      ).data();
+      expect(match?.votingOpensAt).toBeUndefined();
+      expect(match?.ratingState).toBe("preparing_rating");
+    },
+  );
+
+  it("serializes a concurrent lifecycle cancellation and manual apply safely", async () => {
+    const input = await seed("manual-concurrent-cancel", "live");
+    const token = await seedChallenge(input);
+    const lifecycleWrite = new AdminFootballSyncStore(database).upsertMatches([
+      {
+        id: input.matchId,
+        trackedTeamId: input.trackedTeamId,
+        trackedTeamExternalProviderId: "815",
+        competitionId: "competition-1",
+        seasonId: "season-1",
+        homeTeam: { externalProviderId: "815", name: "Local" },
+        awayTeam: { externalProviderId: "900", name: "Visitante" },
+        kickoffAt: new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString(),
+        status: "cancelled",
+        ratingState: "not_ready",
+        score: { home: null, away: null },
+        externalProvider: "api-football",
+        externalProviderFixtureId: input.externalFixtureId,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    ]);
+
+    const [lifecycle, apply] = await Promise.allSettled([
+      lifecycleWrite,
+      service.applyAuthorized(input, token),
+    ]);
+    expect(lifecycle.status).toBe("fulfilled");
+    const match = (await database.doc(`matches/${input.matchId}`).get()).data();
+
+    if (match?.status === "cancelled") {
+      expect(apply.status).toBe("rejected");
+      expect(match?.votingOpensAt).toBeUndefined();
+      expect(match?.ratingState).toBe("preparing_rating");
+    } else {
+      expect(apply.status).toBe("fulfilled");
+      expect(match).toMatchObject({
+        status: "live",
+        ratingState: "rating_ready",
+        votingOpeningMode: "manual",
+      });
+    }
+  });
+
+  it("requires an explicit final-whistle attestation", async () => {
+    const input = await seed("manual-missing-attestation", "live");
+
+    await expect(
+      service.preview({
+        ...input,
+        finalWhistleConfirmed: false,
+      } as unknown as AdminManualVotingInput),
+    ).rejects.toThrow(/input is invalid/);
+  });
+
+  it("does not let a different action reuse an authorization challenge", async () => {
+    const input = await seed("manual-action-reuse", "live");
+    const token = await seedChallenge(input);
+
+    await expect(
+      service.applyAuthorized(
+        {
+          ...input,
+          verificationReason:
+            "Una razón diferente con evidencia independiente.",
+        },
+        token,
+      ),
+    ).rejects.toThrow(/Invalid challenge/);
+    expect(
+      (
+        await database
+          .doc(`matches/${input.matchId}/finalWhistleAttestations/manual`)
+          .get()
+      ).exists,
+    ).toBe(false);
+  });
 
   it("revalidates a custom Costa Rica close at trusted apply time", async () => {
     const input = await seed("manual-custom-expired", "live", {
@@ -134,6 +297,7 @@ describe("manual voting persistence", () => {
     ["missing canonical player", { missingPlayer: true }],
     ["conflicting coach identity", { conflictingCoach: true }],
     ["wrong fixture binding", { wrongBinding: true }],
+    ["wrong Team binding", { wrongTeamBinding: true }],
   ] as const)("rejects %s without opening voting", async (_, options) => {
     const input = await seed(
       `manual-reject-${_.replaceAll(" ", "-")}`,
@@ -187,7 +351,7 @@ describe("manual voting persistence", () => {
 
 async function seed(
   matchId: string,
-  status: "scheduled" | "live",
+  status: MatchStatus,
   override: Partial<AdminManualVotingInput> = {},
   options: {
     omitCoach?: boolean;
@@ -196,13 +360,14 @@ async function seed(
     wrongBinding?: boolean;
     missingPlayer?: boolean;
     conflictingCoach?: boolean;
+    wrongTeamBinding?: boolean;
   } = {},
 ): Promise<AdminManualVotingInput> {
   const teamId = "team-manual";
   const fixtureId = `fixture-${matchId}`;
   const now = Timestamp.now();
   await database.doc(`matches/${matchId}`).set({
-    trackedTeamId: teamId,
+    trackedTeamId: options.wrongTeamBinding ? "wrong-team" : teamId,
     trackedTeamExternalProviderId: "815",
     competitionId: "competition-1",
     seasonId: "season-1",
