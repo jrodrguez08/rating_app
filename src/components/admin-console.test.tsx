@@ -1,9 +1,12 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getMessages } from "@/i18n/messages";
-import type { AdminMatchOperation } from "@/lib/firebase/admin-console";
+import type {
+  AdminMatchOperation,
+  AdminOverview,
+} from "@/lib/firebase/admin-console";
 
 import { AdminConsole, AdminLogin } from "./admin-console";
 
@@ -107,74 +110,29 @@ describe("admin console", () => {
     expect(mocks.signOut).toHaveBeenCalledTimes(1);
   });
 
-  it("requires an explicit coach selection and shows persisted diagnostics", () => {
-    render(
-      <AdminConsole
-        messages={messages}
-        teamId="club-sport-herediano"
-        overview={{
-          upcomingLiveMatches: [],
-          attentionMatches: [
-            {
-              id: "match-1",
-              externalFixtureId: "fixture-1",
-              kickoffAt: "2026-10-18T20:00:00.000Z",
-              homeTeamName: "Equipo local",
-              awayTeamName: "Equipo visitante",
-              status: "finished",
-              ratingState: "preparing_rating",
-              votingPresentation: "preparation",
-              diagnostic: "ambiguous_coach",
-              participantCount: 22,
-              rateableParticipantCount: 11,
-              confirmedStarterCount: 11,
-              confirmedSubstituteCount: 0,
-              unconfirmedOrUnusedCount: 11,
-              headCoachReady: false,
-              lineupProvenance: "unavailable",
-            },
-          ],
-          votingCompletedMatches: [],
-          coaches: [
-            {
-              id: "coach-1",
-              name: "Director verificado",
-              provenance: "operator_verified",
-            },
-          ],
-        }}
-      />,
-    );
-    expect(
-      screen.getAllByText(/Identidad del director ambigua/),
-    ).not.toHaveLength(0);
-    expect(screen.getByLabelText(messages.manualCoachId)).toHaveValue("");
-    expect(
-      screen.getByRole("button", { name: messages.preview }),
-    ).toBeEnabled();
-    expect(
-      screen.getByRole("button", { name: messages.signOut }),
-    ).toBeEnabled();
-  });
+  it("removes the legacy coach form and groups every authoritative match state", () => {
+    render(<AdminConsole messages={messages} overview={dashboardOverview()} />);
 
-  it("prioritizes open, expired, and published states over stale diagnostics", () => {
-    render(
-      <AdminConsole
-        messages={messages}
-        teamId="club-sport-herediano"
-        overview={{
-          upcomingLiveMatches: [],
-          attentionMatches: [],
-          votingCompletedMatches: [
-            operation("open", "rating_ready", "voting-open"),
-            operation("expired", "rating_ready", "voting-expired"),
-            operation("published", "rating_closed", "voting-published"),
-          ],
-          coaches: [],
-        }}
-      />,
-    );
+    expect(
+      screen.queryByText("Recuperación de director técnico"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByLabelText("ID interno del director"),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/Plan de cambios/)).not.toBeInTheDocument();
 
+    expect(
+      screen.getByRole("heading", { name: messages.openVotingSection }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("heading", { name: messages.preparationSection }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("heading", { name: messages.reviewSection }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("heading", { name: messages.closedVotingSection }),
+    ).toBeVisible();
     expect(screen.getByText(messages.votingPresentation.open)).toBeVisible();
     expect(screen.getByText(messages.votingPresentation.expired)).toBeVisible();
     expect(
@@ -185,145 +143,177 @@ describe("admin console", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("shows a safe actionable message for an unrecognized current diagnostic", () => {
-    const current = operation("preparation", "preparing_rating", "current");
-    current.diagnostic = undefined;
-    current.unrecognizedDiagnostic = true;
-    render(
-      <AdminConsole
-        messages={messages}
-        teamId="club-sport-herediano"
-        overview={{
-          upcomingLiveMatches: [],
-          attentionMatches: [current],
-          votingCompletedMatches: [],
-          coaches: [],
-        }}
-      />,
-    );
+  it("shows readable match details without technical identifiers", () => {
+    render(<AdminConsole messages={messages} overview={dashboardOverview()} />);
 
-    expect(screen.getByText(messages.unrecognizedDiagnostic)).toBeVisible();
-    expect(
-      screen.queryByText(messages.diagnostics.unknown),
-    ).not.toBeInTheDocument();
+    const upcoming = matchCard("Cartaginés");
+    expect(upcoming).not.toBeNull();
+    const card = within(upcoming!);
+    expect(card.getByText(/CS Herediano.*Cartaginés/)).toBeVisible();
+    expect(card.getByText(/Titulares confirmados: 11\/11/)).toBeVisible();
+    expect(card.getByText(/Suplentes que ingresaron: 3/)).toBeVisible();
+    expect(card.getByText(/Director técnico: Jafet Soto/)).toBeVisible();
+    expect(card.getByRole("time")).toHaveAttribute(
+      "datetime",
+      "2026-10-20T02:00:00.000Z",
+    );
+    expect(screen.queryByText(/fixture-/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/match-/)).not.toBeInTheDocument();
   });
 
-  it("clears the coach passphrase and prevents duplicate authorization", async () => {
+  it("uses one valid context-specific destination for each match", () => {
+    render(<AdminConsole messages={messages} overview={dashboardOverview()} />);
+
+    expect(matchLink("Cartaginés", messages.prepareMatch)).toHaveAttribute(
+      "href",
+      "/admin/matches/upcoming",
+    );
+    expect(matchLink("Pérez Zeledón", messages.viewVoting)).toHaveAttribute(
+      "href",
+      "/matches/open/rate",
+    );
+    expect(matchLink("Saprissa", messages.inspect)).toHaveAttribute(
+      "href",
+      "/admin/matches/expired",
+    );
+    expect(matchLink("Alajuelense", messages.viewResults)).toHaveAttribute(
+      "href",
+      "/matches/published/results",
+    );
+    expect(matchLink("Liberia", messages.inspect)).toHaveAttribute(
+      "href",
+      "/admin/matches/invalid",
+    );
+  });
+
+  it("keeps reconciliation, refresh, and sign out accessible by keyboard", async () => {
     const user = userEvent.setup();
-    let resolveAuthorization:
-      | ((value: { ok: boolean; json: () => Promise<unknown> }) => void)
-      | undefined;
-    const fetchMock = vi.fn((input: string | URL | Request) => {
-      const path = String(input);
-      if (path.endsWith("/preview")) {
-        return Promise.resolve(
-          response({ plan: { coachId: "coach-1" }, previewToken: "preview" }),
-        );
-      }
-      if (path.endsWith("/authorize")) {
-        return new Promise((resolve) => {
-          resolveAuthorization = resolve;
-        });
-      }
-      throw new Error(`Unexpected request: ${path}`);
-    });
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
     vi.stubGlobal("fetch", fetchMock);
-    render(
-      <AdminConsole
-        messages={messages}
-        teamId="club-sport-herediano"
-        overview={{
-          upcomingLiveMatches: [],
-          attentionMatches: [
-            {
-              id: "match-1",
-              externalFixtureId: "fixture-1",
-              kickoffAt: "2026-10-18T20:00:00.000Z",
-              homeTeamName: "Equipo local",
-              awayTeamName: "Equipo visitante",
-              status: "finished",
-              ratingState: "preparing_rating",
-              votingPresentation: "preparation",
-              diagnostic: "ambiguous_coach",
-              participantCount: 11,
-              rateableParticipantCount: 11,
-              confirmedStarterCount: 11,
-              confirmedSubstituteCount: 0,
-              unconfirmedOrUnusedCount: 0,
-              headCoachReady: false,
-              lineupProvenance: "provider",
-            },
-          ],
-          votingCompletedMatches: [],
-          coaches: [
-            {
-              id: "coach-1",
-              name: "Director verificado",
-              provenance: "operator_verified",
-            },
-          ],
-        }}
-      />,
-    );
+    render(<AdminConsole messages={messages} overview={emptyOverview()} />);
 
-    await user.selectOptions(
-      screen.getByLabelText(messages.existingCoach),
-      "coach-1",
-    );
-    await user.type(
-      screen.getByLabelText(messages.evidence),
-      "https://evidence.example.test/coach",
-    );
-    await user.type(
-      screen.getByLabelText(messages.reason),
-      "Evidencia independiente revisada para este partido.",
-    );
-    await user.click(screen.getByRole("button", { name: messages.preview }));
-    const passphrase = await screen.findByLabelText(messages.passphrase);
-    await user.type(passphrase, "independent-secret");
-    const authorize = screen.getByRole("button", { name: messages.authorize });
-    await user.click(authorize);
-    await user.click(authorize);
-
-    expect(authorize).toBeDisabled();
+    const toolbar = screen.getByRole("navigation", {
+      name: messages.adminActions,
+    });
     expect(
-      fetchMock.mock.calls.filter(([input]) =>
-        String(input).endsWith("/authorize"),
+      within(toolbar).getByRole("link", {
+        name: messages.identityReconciliation,
+      }),
+    ).toHaveAttribute("href", "/admin/player-identities");
+
+    await user.tab();
+    expect(
+      within(toolbar).getByRole("link", {
+        name: messages.identityReconciliation,
+      }),
+    ).toHaveFocus();
+    await user.tab();
+    expect(
+      within(toolbar).getByRole("button", { name: messages.refresh }),
+    ).toHaveFocus();
+    await user.keyboard("{Enter}");
+    expect(mocks.refresh).toHaveBeenCalledTimes(1);
+
+    await user.tab();
+    const logout = within(toolbar).getByRole("button", {
+      name: messages.signOut,
+    });
+    expect(logout).toHaveFocus();
+    await user.keyboard("{Enter}");
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/admin/session/logout",
+        expect.objectContaining({ method: "POST" }),
       ),
-    ).toHaveLength(1);
-    resolveAuthorization?.(response({ authorized: true }));
+    );
+    expect(mocks.refresh).toHaveBeenCalledTimes(2);
+  });
+
+  it("renders read-only navigation without issuing a request", () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AdminConsole messages={messages} overview={dashboardOverview()} />);
 
     expect(
-      await screen.findByText(messages.authorizationSuccess),
-    ).toBeVisible();
-    expect(passphrase).toHaveValue("");
-    expect(screen.getByLabelText(messages.confirmation)).toBeVisible();
+      screen.getByRole("link", { name: messages.viewVoting }),
+    ).toHaveAttribute("href", "/matches/open/rate");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 
-function response(body: unknown) {
-  return { ok: true, json: async () => body };
+function matchLink(teamName: string, actionName: string) {
+  const card = matchCard(teamName);
+  expect(card).not.toBeNull();
+  expect(within(card!).getAllByRole("link")).toHaveLength(1);
+  return within(card!).getByRole("link", { name: actionName });
+}
+
+function matchCard(teamName: string) {
+  return screen
+    .getByText(
+      (_, element) =>
+        element?.tagName === "STRONG" &&
+        element.textContent?.includes(teamName) === true,
+    )
+    .closest("li");
+}
+
+function dashboardOverview(): AdminOverview {
+  return {
+    upcomingLiveMatches: [
+      operation("preparation", "not_ready", "upcoming", {
+        awayTeamName: "Cartaginés",
+        status: "scheduled",
+        confirmedSubstituteCount: 3,
+      }),
+    ],
+    attentionMatches: [
+      operation("invalid", "rating_ready", "invalid", {
+        awayTeamName: "Liberia",
+      }),
+    ],
+    votingCompletedMatches: [
+      operation("open", "rating_ready", "open", {
+        awayTeamName: "Pérez Zeledón",
+      }),
+      operation("expired", "rating_ready", "expired", {
+        awayTeamName: "Saprissa",
+      }),
+      operation("published", "rating_closed", "published", {
+        awayTeamName: "Alajuelense",
+      }),
+    ],
+  };
+}
+
+function emptyOverview(): AdminOverview {
+  return {
+    upcomingLiveMatches: [],
+    attentionMatches: [],
+    votingCompletedMatches: [],
+  };
 }
 
 function operation(
   votingPresentation: AdminMatchOperation["votingPresentation"],
   ratingState: AdminMatchOperation["ratingState"],
   id: string,
+  overrides: Partial<AdminMatchOperation> = {},
 ): AdminMatchOperation {
   return {
     id,
     externalFixtureId: `fixture-${id}`,
-    kickoffAt: "2026-10-19T20:00:00.000Z",
-    homeTeamName: "Pérez Zeledón",
-    awayTeamName: "CS Herediano",
+    kickoffAt: "2026-10-20T02:00:00.000Z",
+    homeTeamName: "CS Herediano",
+    awayTeamName: "Rival",
     status: "finished",
     ratingState,
     votingPresentation,
     diagnostic: "unknown",
-    participantCount: 21,
-    rateableParticipantCount: 16,
+    participantCount: 19,
+    rateableParticipantCount: 14,
     confirmedStarterCount: 11,
-    confirmedSubstituteCount: 5,
+    confirmedSubstituteCount: 3,
     unconfirmedOrUnusedCount: 5,
     headCoachReady: true,
     lineupProvenance: "operator_verified",
@@ -332,5 +322,6 @@ function operation(
       coachName: "Jafet Soto",
       provenance: "operator_verified",
     },
+    ...overrides,
   };
 }

@@ -348,7 +348,7 @@ describe("admin lineup editor", () => {
     renderEditor(detail("rating_ready"));
     expect(screen.getByText(messages.historicalReadOnly)).toBeVisible();
     expect(
-      screen.queryByRole("button", { name: messages.preview }),
+      screen.queryByRole("button", { name: /Generar vista previa/i }),
     ).not.toBeInTheDocument();
   });
 
@@ -493,7 +493,9 @@ describe("admin lineup editor", () => {
     vi.stubGlobal("fetch", fetchMock);
     renderEditor(detail("preparing_rating"));
 
-    expect(screen.queryByLabelText(messages.evidence)).not.toBeInTheDocument();
+    expect(
+      screen.queryByLabelText(/enlace HTTPS de evidencia/i),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByLabelText(messages.confirmation),
     ).not.toBeInTheDocument();

@@ -81,7 +81,6 @@ export interface AdminOverview {
   upcomingLiveMatches: AdminMatchOperation[];
   attentionMatches: AdminMatchOperation[];
   votingCompletedMatches: AdminMatchOperation[];
-  coaches: AdminCoachOption[];
 }
 
 export interface AdminPlayerOption {
@@ -208,19 +207,12 @@ export class AdminConsoleService {
   ) {}
 
   async overview(): Promise<AdminOverview> {
-    const [matchesSnapshot, coachesSnapshot] = await Promise.all([
-      this.database
-        .collection("matches")
-        .where("trackedTeamId", "==", initialClub.teamId)
-        .orderBy("kickoffAt", "desc")
-        .limit(30)
-        .get(),
-      this.database
-        .collection("coaches")
-        .orderBy("updatedAt", "desc")
-        .limit(100)
-        .get(),
-    ]);
+    const matchesSnapshot = await this.database
+      .collection("matches")
+      .where("trackedTeamId", "==", initialClub.teamId)
+      .orderBy("kickoffAt", "desc")
+      .limit(30)
+      .get();
     const matches = matchesSnapshot.docs.map((snapshot) =>
       fromSnapshot<Match>(snapshot),
     );
@@ -248,17 +240,6 @@ export class AdminConsoleService {
           ["open", "expired", "published"].includes(match.votingPresentation),
         )
         .slice(0, 10),
-      coaches: coachesSnapshot.docs.map((snapshot) => {
-        const coach = fromSnapshot<Coach>(snapshot);
-        return {
-          id: coach.id,
-          name: coach.displayName,
-          provenance: coach.identityProvenance,
-          ...(coach.externalProviderId
-            ? { externalProviderId: coach.externalProviderId }
-            : {}),
-        };
-      }),
     };
   }
 

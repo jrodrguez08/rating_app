@@ -48,10 +48,10 @@ describe("match-specific verified coach panel", () => {
         "coach-existing",
       );
       expect(
-        screen.queryByLabelText(messages.manualCoachId),
+        screen.queryByLabelText(/ID interno del director/i),
       ).not.toBeInTheDocument();
       expect(
-        screen.queryByLabelText(messages.evidence),
+        screen.queryByLabelText(/enlace HTTPS de evidencia/i),
       ).not.toBeInTheDocument();
       await user.type(
         screen.getByLabelText(messages.passphrase),

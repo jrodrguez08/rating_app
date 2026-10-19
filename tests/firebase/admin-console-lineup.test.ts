@@ -49,6 +49,9 @@ describe("admin console lineup reads", () => {
       votingClosesAt: Timestamp.fromDate(new Date("2026-10-19T22:00:00.000Z")),
     });
     const readService = new AdminConsoleService(database, undefined, () => now);
+    const persistedBefore = (
+      await database.doc(`matches/${matchId}`).get()
+    ).data();
 
     const detail = await readService.detail(matchId);
     const overview = await readService.overview();
@@ -73,9 +76,9 @@ describe("admin console lineup reads", () => {
     expect(overview.attentionMatches.some(({ id }) => id === matchId)).toBe(
       false,
     );
-    expect(
-      (await database.doc(`matches/${matchId}`).get()).data(),
-    ).toMatchObject({ ratingBlockReason: "unknown" });
+    expect((await database.doc(`matches/${matchId}`).get()).data()).toEqual(
+      persistedBefore,
+    );
   });
 
   it("distinguishes expired windows, published results, and current diagnostics", async () => {

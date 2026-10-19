@@ -46,11 +46,7 @@ export default async function AdminPage() {
         <p className="text-muted mt-3 max-w-2xl">{messages.description}</p>
       </header>
       {overview ? (
-        <AdminConsole
-          overview={overview}
-          messages={messages}
-          teamId={initialClub.teamId}
-        />
+        <AdminConsole overview={overview} messages={messages} />
       ) : (
         <AdminLogin messages={messages} />
       )}
