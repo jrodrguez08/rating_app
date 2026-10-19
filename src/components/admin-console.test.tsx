@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getMessages } from "@/i18n/messages";
+import type { AdminMatchOperation } from "@/lib/firebase/admin-console";
 
 import { AdminConsole, AdminLogin } from "./admin-console";
 
@@ -122,6 +123,7 @@ describe("admin console", () => {
               awayTeamName: "Equipo visitante",
               status: "finished",
               ratingState: "preparing_rating",
+              votingPresentation: "preparation",
               diagnostic: "ambiguous_coach",
               participantCount: 22,
               rateableParticipantCount: 11,
@@ -153,6 +155,57 @@ describe("admin console", () => {
     expect(
       screen.getByRole("button", { name: messages.signOut }),
     ).toBeEnabled();
+  });
+
+  it("prioritizes open, expired, and published states over stale diagnostics", () => {
+    render(
+      <AdminConsole
+        messages={messages}
+        teamId="club-sport-herediano"
+        overview={{
+          upcomingLiveMatches: [],
+          attentionMatches: [],
+          votingCompletedMatches: [
+            operation("open", "rating_ready", "voting-open"),
+            operation("expired", "rating_ready", "voting-expired"),
+            operation("published", "rating_closed", "voting-published"),
+          ],
+          coaches: [],
+        }}
+      />,
+    );
+
+    expect(screen.getByText(messages.votingPresentation.open)).toBeVisible();
+    expect(screen.getByText(messages.votingPresentation.expired)).toBeVisible();
+    expect(
+      screen.getByText(messages.votingPresentation.published),
+    ).toBeVisible();
+    expect(
+      screen.queryByText(messages.diagnostics.unknown),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows a safe actionable message for an unrecognized current diagnostic", () => {
+    const current = operation("preparation", "preparing_rating", "current");
+    current.diagnostic = undefined;
+    current.unrecognizedDiagnostic = true;
+    render(
+      <AdminConsole
+        messages={messages}
+        teamId="club-sport-herediano"
+        overview={{
+          upcomingLiveMatches: [],
+          attentionMatches: [current],
+          votingCompletedMatches: [],
+          coaches: [],
+        }}
+      />,
+    );
+
+    expect(screen.getByText(messages.unrecognizedDiagnostic)).toBeVisible();
+    expect(
+      screen.queryByText(messages.diagnostics.unknown),
+    ).not.toBeInTheDocument();
   });
 
   it("clears the coach passphrase and prevents duplicate authorization", async () => {
@@ -190,6 +243,7 @@ describe("admin console", () => {
               awayTeamName: "Equipo visitante",
               status: "finished",
               ratingState: "preparing_rating",
+              votingPresentation: "preparation",
               diagnostic: "ambiguous_coach",
               participantCount: 11,
               rateableParticipantCount: 11,
@@ -249,4 +303,34 @@ describe("admin console", () => {
 
 function response(body: unknown) {
   return { ok: true, json: async () => body };
+}
+
+function operation(
+  votingPresentation: AdminMatchOperation["votingPresentation"],
+  ratingState: AdminMatchOperation["ratingState"],
+  id: string,
+): AdminMatchOperation {
+  return {
+    id,
+    externalFixtureId: `fixture-${id}`,
+    kickoffAt: "2026-10-19T20:00:00.000Z",
+    homeTeamName: "Pérez Zeledón",
+    awayTeamName: "CS Herediano",
+    status: "finished",
+    ratingState,
+    votingPresentation,
+    diagnostic: "unknown",
+    participantCount: 21,
+    rateableParticipantCount: 16,
+    confirmedStarterCount: 11,
+    confirmedSubstituteCount: 5,
+    unconfirmedOrUnusedCount: 5,
+    headCoachReady: true,
+    lineupProvenance: "operator_verified",
+    assignment: {
+      coachId: "coach-1",
+      coachName: "Jafet Soto",
+      provenance: "operator_verified",
+    },
+  };
 }

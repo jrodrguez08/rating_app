@@ -24,6 +24,7 @@ describe("admin lifecycle readiness", () => {
           awayTeamName: "Visitante",
           status: "finished",
           ratingState: "preparing_rating",
+          votingPresentation: "preparation",
           finishedObservedAt: "2026-10-18T20:00:00.000Z",
           participantSyncedAt: "2026-10-18T20:03:00.000Z",
           ratingReadyAt: "2026-10-18T20:04:00.000Z",
@@ -70,6 +71,12 @@ describe("admin lifecycle readiness", () => {
             awayTeamName: "Visitante",
             status,
             ratingState,
+            votingPresentation:
+              ratingState === "rating_ready"
+                ? "open"
+                : ratingState === "rating_closed"
+                  ? "published"
+                  : "preparation",
             participantCount: 0,
             rateableParticipantCount: 0,
             confirmedStarterCount: 0,
@@ -103,6 +110,7 @@ describe("admin lifecycle readiness", () => {
             awayTeamName: "Visitante",
             status,
             ratingState: "preparing_rating",
+            votingPresentation: "preparation",
             participantCount: 11,
             rateableParticipantCount: 11,
             confirmedStarterCount: 11,
@@ -217,6 +225,7 @@ function renderEligiblePanel() {
         awayTeamName: "Visitante",
         status: "live",
         ratingState: "preparing_rating",
+        votingPresentation: "preparation",
         participantCount: 11,
         rateableParticipantCount: 11,
         confirmedStarterCount: 11,

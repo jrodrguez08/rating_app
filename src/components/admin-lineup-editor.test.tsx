@@ -554,6 +554,12 @@ function detail(
       awayTeamName: "Visitante",
       status: "finished",
       ratingState,
+      votingPresentation:
+        ratingState === "rating_ready"
+          ? "open"
+          : ratingState === "rating_closed"
+            ? "published"
+            : "preparation",
       lineupSnapshotAt: "2026-10-18T19:00:00.000Z",
       participantCount: participants.length,
       rateableParticipantCount: 12,
@@ -571,6 +577,7 @@ function detail(
         participant.position === "goalkeeper" ? "goalkeeper" : "midfielder",
       identityProvenance: "provider",
     })),
+    manualVotingAvailability: { state: "available" },
   };
 }
 

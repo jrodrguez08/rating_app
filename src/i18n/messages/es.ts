@@ -262,7 +262,6 @@ export const esMessages = {
     lineupDescription:
       "Revise titulares, suplentes y participación con evidencia específica del fixture.",
     matchPreparation: "Preparación del partido",
-    manualVotingTitle: "Abrir votación ahora",
     manualVotingHelp:
       "Confirme el pitazo final y revise la evidencia verificada antes de abrir una ventana manual.",
     verificationStatus: "Estado de la evidencia requerida",
@@ -270,8 +269,6 @@ export const esMessages = {
     verifiedCoachRequired: "Director técnico verificado por el operador",
     canonicalConflictStatus: "Sin conflictos de identidad pendientes",
     currentVotingState: "Estado actual",
-    manualVotingMissingEvidence:
-      "Complete la alineación y el director técnico verificados y resuelva cualquier conflicto antes de continuar.",
     manualVotingStatusEligible: "Estado del partido apto para apertura manual",
     manualVotingProviderDelay:
       "El proveedor aún no confirma el final. La apertura manual requiere confirmar de forma independiente que el partido real terminó.",
@@ -297,6 +294,69 @@ export const esMessages = {
     effectiveDuration: "Duración efectiva",
     openVotingNow: "Abrir votación ahora",
     manualVotingOpened: "La votación fue abierta.",
+    manualVotingStates: {
+      available: {
+        title: "Abrir votación ahora",
+        description: "La preparación verificada permite abrir la votación.",
+      },
+      voting_open: {
+        title: "Votación abierta",
+        description:
+          "La ventana está activa. No se requiere otra apertura ni autorización.",
+      },
+      voting_expired: {
+        title: "Votación cerrada",
+        description:
+          "La hora de cierre ya pasó. El ciclo publicará los resultados sin cambiar la ventana.",
+      },
+      results_published: {
+        title: "Resultados publicados",
+        description:
+          "La votación finalizó y los resultados ya están disponibles.",
+      },
+      invalid_window: {
+        title: "Revisar ventana de votación",
+        description:
+          "El partido figura con votación abierta, pero sus horarios no son válidos. Actualice la consola y revise el ciclo.",
+      },
+      ineligible_status: {
+        title: "Apertura no disponible",
+        description: "El estado actual del partido impide abrir la votación.",
+      },
+      missing_verified_lineup: {
+        title: "Falta confirmar la alineación",
+        description:
+          "Confirme una alineación verificada para este partido antes de abrir la votación.",
+      },
+      invalid_starter_count: {
+        title: "Revise los titulares",
+        description:
+          "La alineación verificada debe tener exactamente 11 titulares distintos.",
+      },
+      missing_verified_coach: {
+        title: "Falta confirmar el director técnico",
+        description:
+          "Confirme el director técnico de este partido antes de abrir la votación.",
+      },
+      reconciliation_conflict: {
+        title: "Conflicto de evidencia",
+        description:
+          "Resuelva el conflicto entre la alineación verificada y la evidencia del proveedor.",
+      },
+    },
+    votingPresentation: {
+      open: "Votación abierta",
+      expired: "Votación cerrada",
+      published: "Resultados publicados",
+      invalid: "Revisar ventana",
+    },
+    votingOpenedAt: "Apertura",
+    votingClosesAt: "Cierre",
+    timeRemaining: "Tiempo restante",
+    viewResults: "Ver resultados",
+    backToDashboard: "← Volver al dashboard",
+    unrecognizedDiagnostic:
+      "El ciclo requiere revisión. Actualice el partido para obtener el motivo actual.",
     email: "Correo electrónico",
     password: "Contraseña",
     signIn: "Ingresar",

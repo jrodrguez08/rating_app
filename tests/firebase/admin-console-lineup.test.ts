@@ -34,6 +34,103 @@ beforeAll(async () => {
 afterAll(() => deleteApp(app));
 
 describe("admin console lineup reads", () => {
+  it("suppresses stale diagnostics after manual opening and classifies the trusted window", async () => {
+    const matchId = "admin-view-match-10a50b08075ca1f0646e5b6d";
+    const now = new Date("2026-10-19T20:30:00.000Z");
+    await seedMatch(matchId);
+    await database.doc(`matches/${matchId}`).update({
+      ratingState: "rating_ready",
+      ratingBlockReason: "unknown",
+      ratingBlockObservedAt: Timestamp.fromDate(
+        new Date("2026-10-19T19:00:00.000Z"),
+      ),
+      votingOpeningMode: "manual",
+      votingOpensAt: Timestamp.fromDate(new Date("2026-10-19T20:00:00.000Z")),
+      votingClosesAt: Timestamp.fromDate(new Date("2026-10-19T22:00:00.000Z")),
+    });
+    const readService = new AdminConsoleService(database, undefined, () => now);
+
+    const detail = await readService.detail(matchId);
+    const overview = await readService.overview();
+
+    expect(detail?.match).toMatchObject({
+      externalFixtureId: `${matchId}-fixture`,
+      ratingState: "rating_ready",
+      votingPresentation: "open",
+      effectiveVotingOpensAt: "2026-10-19T20:00:00.000Z",
+      effectiveVotingClosesAt: "2026-10-19T22:00:00.000Z",
+      votingRemainingMinutes: 90,
+    });
+    expect(detail?.match.diagnostic).toBeUndefined();
+    expect(detail?.match.unrecognizedDiagnostic).toBeUndefined();
+    expect(detail?.manualVotingAvailability).toEqual({ state: "voting_open" });
+    expect(
+      overview.votingCompletedMatches.find(({ id }) => id === matchId),
+    ).toMatchObject({ votingPresentation: "open" });
+    expect(overview.upcomingLiveMatches.some(({ id }) => id === matchId)).toBe(
+      false,
+    );
+    expect(overview.attentionMatches.some(({ id }) => id === matchId)).toBe(
+      false,
+    );
+    expect(
+      (await database.doc(`matches/${matchId}`).get()).data(),
+    ).toMatchObject({ ratingBlockReason: "unknown" });
+  });
+
+  it("distinguishes expired windows, published results, and current diagnostics", async () => {
+    const now = new Date("2026-10-19T23:00:00.000Z");
+    const expiredId = `admin-expired-${Date.now()}`;
+    const publishedId = `admin-published-${Date.now()}`;
+    const blockedId = `admin-blocked-${Date.now()}`;
+    await Promise.all([
+      seedMatch(expiredId),
+      seedMatch(publishedId),
+      seedMatch(blockedId),
+    ]);
+    await Promise.all([
+      database.doc(`matches/${expiredId}`).update({
+        ratingState: "rating_ready",
+        ratingBlockReason: "missing_participant_evidence",
+        votingOpensAt: Timestamp.fromDate(new Date("2026-10-19T20:00:00.000Z")),
+        votingClosesAt: Timestamp.fromDate(
+          new Date("2026-10-19T22:00:00.000Z"),
+        ),
+      }),
+      database.doc(`matches/${publishedId}`).update({
+        ratingState: "rating_closed",
+        ratingBlockReason: "missing_coach_evidence",
+      }),
+      database.doc(`matches/${blockedId}`).update({
+        ratingBlockReason: "provider_failure",
+      }),
+    ]);
+    const readService = new AdminConsoleService(database, undefined, () => now);
+
+    const [expired, published, blocked] = await Promise.all([
+      readService.detail(expiredId),
+      readService.detail(publishedId),
+      readService.detail(blockedId),
+    ]);
+
+    expect(expired?.match).toMatchObject({ votingPresentation: "expired" });
+    expect(expired?.match.diagnostic).toBeUndefined();
+    expect(expired?.manualVotingAvailability).toEqual({
+      state: "voting_expired",
+    });
+    expect(published?.match).toMatchObject({
+      votingPresentation: "published",
+    });
+    expect(published?.match.diagnostic).toBeUndefined();
+    expect(published?.manualVotingAvailability).toEqual({
+      state: "results_published",
+    });
+    expect(blocked?.match).toMatchObject({
+      votingPresentation: "preparation",
+      diagnostic: "provider_failure",
+    });
+  });
+
   it("preloads persisted provider starters and bench without confirming entry", async () => {
     const matchId = `admin-provider-${Date.now()}`;
     await seedMatch(matchId);
