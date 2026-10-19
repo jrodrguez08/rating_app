@@ -146,12 +146,14 @@ export function mergePlayers(
 ): AdminPlayerOption[] {
   const players = new Map(current.map((player) => [player.id, player]));
   for (const player of incoming) players.set(player.id, player);
-  return [...players.values()];
+  return [...players.values()].sort((left, right) =>
+    left.name.localeCompare(right.name, "es"),
+  );
 }
 
 export function isPlayerSearchResponse(
   value: unknown,
-): value is { players: AdminPlayerOption[] } {
+): value is { players: AdminPlayerOption[]; nextCursor?: string } {
   return (
     typeof value === "object" &&
     value !== null &&
@@ -169,7 +171,8 @@ export function isPlayerSearchResponse(
         ["provider", "operator_verified"].includes(
           String(player.identityProvenance),
         ),
-    )
+    ) &&
+    (!("nextCursor" in value) || typeof value.nextCursor === "string")
   );
 }
 

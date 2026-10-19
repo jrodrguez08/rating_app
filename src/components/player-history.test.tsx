@@ -14,7 +14,6 @@ describe("player history UI", () => {
       <PlayerCatalogView
         catalog={{
           rankingMinimumMatches: 2,
-          historyMatchLimit: 100,
           players: [
             player(),
             player({
@@ -44,7 +43,6 @@ describe("player history UI", () => {
       <PlayerCatalogView
         catalog={{
           rankingMinimumMatches: 2,
-          historyMatchLimit: 100,
           players: [
             player({
               playerName: "John Smith",

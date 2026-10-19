@@ -20,9 +20,7 @@ import {
 } from "@/application/match-archive";
 import {
   buildPlayerCatalog,
-  PLAYER_HISTORY_MATCH_LIMIT,
   type PlayerCatalog,
-  type PlayerIdentity,
 } from "@/application/player-history";
 import {
   membershipFromParticipant,
@@ -72,6 +70,13 @@ import {
   playerProviderAliasId,
   providerEntityId,
 } from "@/domain/player-identity";
+import {
+  readIndexedTeamPlayers,
+  readPublishedTeamHistory,
+  resolveIndexedCanonicalPlayerIds,
+  TeamPlayerMembershipIndexIncompleteError,
+  type TeamPlayerIndexObserver,
+} from "@/lib/firebase/team-player-membership-index";
 import { selectDurableVerifiedLineupReconciliation } from "@/domain/verified-lineup-reconciliation";
 import {
   getEffectiveVotingWindow,
@@ -316,110 +321,67 @@ export class AdminMatchArchiveService {
 }
 
 export class AdminPlayerHistoryService {
-  constructor(private readonly database = getServerFirestore()) {}
+  constructor(
+    private readonly database = getServerFirestore(),
+    private readonly observePlayerIndexRead?: TeamPlayerIndexObserver,
+  ) {}
 
   async list(teamId: string): Promise<PlayerCatalog> {
     const store = new AdminFootballSyncStore(this.database);
-    const [team, matchSnapshot, participantSnapshot] = await Promise.all([
+    const [team, indexed, history] = await Promise.all([
       store.getTeam(teamId),
-      this.database
-        .collection("matches")
-        .where("trackedTeamId", "==", teamId)
-        .orderBy("kickoffAt", "desc")
-        .limit(PLAYER_HISTORY_MATCH_LIMIT)
-        .get(),
-      this.database
-        .collectionGroup("participants")
-        .where("teamId", "==", teamId)
-        .limit(500)
-        .get(),
+      readIndexedTeamPlayers(
+        this.database,
+        teamId,
+        this.observePlayerIndexRead,
+      ),
+      readPublishedTeamHistory(
+        this.database,
+        teamId,
+        this.observePlayerIndexRead,
+      ),
     ]);
     if (team.externalProviderId === undefined)
       throw new Error(`Tracked Team ${teamId} has no provider mapping.`);
-    const matches = matchSnapshot.docs.map((snapshot) =>
-      fromDocument<Match>(snapshot),
+    const matches = history.matches.sort(
+      (left, right) =>
+        new Date(right.kickoffAt).getTime() -
+          new Date(left.kickoffAt).getTime() || left.id.localeCompare(right.id),
     );
-    const resultSnapshots =
-      matches.length === 0
-        ? []
-        : await this.database.getAll(
-            ...matches.map((match) =>
-              this.database.doc(`matches/${match.id}/results/summary`),
-            ),
-          );
-    const results = resultSnapshots
-      .filter((snapshot) => snapshot.exists)
-      .map((snapshot) => fromDocument<MatchResult>(snapshot));
-    const participants = participantSnapshot.docs.map((snapshot) =>
-      fromDocument<MatchParticipant>(snapshot),
-    );
-    const participantIdentities = participants.map((participant) => ({
-      id: participant.playerId,
-      name: participant.playerName,
-    }));
-    const aliasIds = [
+    const resultPlayerIds = [
       ...new Set(
-        participants
-          .filter(
-            (participant) =>
-              participant.externalProvider !== undefined &&
-              participant.externalProviderPlayerId !== undefined,
-          )
-          .map((participant) =>
-            playerProviderAliasId(
-              participant.externalProvider!,
-              participant.externalProviderPlayerId!,
-            ),
-          ),
+        history.results.flatMap((result) => Object.keys(result.playerResults)),
       ),
     ];
-    const aliasSnapshots =
-      aliasIds.length === 0
-        ? []
-        : await this.database.getAll(
-            ...aliasIds.map((id) =>
-              this.database.doc(`playerProviderAliases/${id}`),
-            ),
-          );
-    const aliases = aliasSnapshots
-      .filter((snapshot) => snapshot.exists)
-      .map((snapshot) => fromDocument<PlayerProviderAlias>(snapshot));
-    const canonicalPlayerIds = canonicalPlayerIdMap(aliases);
-    const playerIds = [
-      ...new Set([
-        ...participantIdentities.map(({ id }) => id),
-        ...results.flatMap((result) => Object.keys(result.playerResults)),
-        ...aliases.map(({ canonicalPlayerId }) => canonicalPlayerId),
-      ]),
-    ];
-    const playerSnapshots =
-      playerIds.length === 0
-        ? []
-        : await this.database.getAll(
-            ...playerIds.map((id) => this.database.doc(`players/${id}`)),
-          );
-    const persistedIdentities = playerSnapshots
-      .filter((snapshot) => snapshot.exists)
-      .map((snapshot) => {
-        const player = fromDocument<Player>(snapshot);
-        return {
-          id: player.id,
-          name: player.displayName,
-          ...(player.position === undefined
-            ? {}
-            : { position: player.position }),
-          ...(player.photoUrl === undefined
-            ? {}
-            : { photoUrl: player.photoUrl }),
-        };
-      });
+    const resultCanonicalIds = await resolveIndexedCanonicalPlayerIds(
+      this.database,
+      resultPlayerIds,
+      this.observePlayerIndexRead,
+    );
+    const canonicalPlayerIds = new Map(indexed.canonicalPlayerIds);
+    resultCanonicalIds.forEach((canonicalId, playerId) =>
+      canonicalPlayerIds.set(playerId, canonicalId),
+    );
+    const indexedPlayerIds = new Set(
+      indexed.players.map(({ player }) => player.id),
+    );
+    if (
+      resultPlayerIds.some(
+        (playerId) =>
+          !indexedPlayerIds.has(canonicalPlayerIds.get(playerId) ?? playerId),
+      )
+    ) {
+      throw new TeamPlayerMembershipIndexIncompleteError(teamId);
+    }
     return buildPlayerCatalog({
-      identities: mergePlayerIdentities(
-        participantIdentities,
-        persistedIdentities,
-      ),
+      identities: indexed.players.map(({ player }) => ({
+        id: player.id,
+        name: player.displayName,
+        ...(player.position === undefined ? {} : { position: player.position }),
+        ...(player.photoUrl === undefined ? {} : { photoUrl: player.photoUrl }),
+      })),
       matches,
-      results,
+      results: history.results,
       trackedTeamExternalProviderId: team.externalProviderId,
       canonicalPlayerIds,
     });
@@ -2713,15 +2675,6 @@ function preserveVerifiedParticipants(
 
 function isoTimestamp(value: unknown): unknown {
   return value instanceof Timestamp ? value.toDate().toISOString() : value;
-}
-
-function mergePlayerIdentities(
-  snapshots: PlayerIdentity[],
-  persisted: PlayerIdentity[],
-) {
-  const identities = new Map(snapshots.map((value) => [value.id, value]));
-  for (const value of persisted) identities.set(value.id, value);
-  return [...identities.values()];
 }
 
 function assertCompatibleCoach(existing: Coach, proposed: Coach): void {

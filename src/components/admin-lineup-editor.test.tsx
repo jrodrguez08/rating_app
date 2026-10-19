@@ -159,6 +159,42 @@ describe("admin lineup editor", () => {
     ).toBeDisabled();
   });
 
+  it("progressively loads and de-duplicates canonical roster pages", async () => {
+    const user = userEvent.setup();
+    const first = {
+      id: "paged-one",
+      name: "Jugador Primera Página",
+      identityProvenance: "provider",
+    } as const;
+    const second = {
+      id: "paged-two",
+      name: "Jugador Segunda Página",
+      identityProvenance: "provider",
+    } as const;
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ players: [first], nextCursor: "page-one" }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ players: [first, second] }),
+        }),
+    );
+    renderEditor(detail("preparing_rating"));
+
+    expect(await screen.findByText(first.name)).toBeVisible();
+    await user.click(
+      screen.getByRole("button", { name: messages.loadMorePlayers }),
+    );
+
+    expect(await screen.findByText(second.name)).toBeVisible();
+    expect(screen.getAllByText(first.name)).toHaveLength(1);
+  });
+
   it("keeps internal identity creation secondary and explicitly verified", async () => {
     const user = userEvent.setup();
     const matchDetail = detail("preparing_rating");

@@ -200,6 +200,14 @@ export interface TeamPlayerMembership {
   createdAt: string;
   updatedAt: string;
 }
+export interface TeamPlayerMembershipIndex {
+  teamId: EntityId;
+  status: "complete" | "incomplete";
+  schemaVersion: 1;
+  baselineMembershipCount: number;
+  blockingIssueCount: number;
+  auditedAt: string;
+}
 export type SquadRole = "starter" | "substitute";
 export type ParticipationStatus =
   | "confirmed_starter"

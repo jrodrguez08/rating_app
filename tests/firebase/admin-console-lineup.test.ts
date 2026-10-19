@@ -15,10 +15,20 @@ const app = initializeApp({ projectId }, `admin-console-lineup-${Date.now()}`);
 const database = getFirestore(app);
 const service = new AdminConsoleService(database);
 
-beforeAll(() => {
+beforeAll(async () => {
   if (!process.env.FIRESTORE_EMULATOR_HOST) {
     throw new Error("FIRESTORE_EMULATOR_HOST is required.");
   }
+  await database
+    .doc(`teams/${initialClub.teamId}/playerMembershipIndex/state`)
+    .set({
+      teamId: initialClub.teamId,
+      status: "complete",
+      schemaVersion: 1,
+      baselineMembershipCount: 0,
+      blockingIssueCount: 0,
+      auditedAt: Timestamp.now(),
+    });
 });
 
 afterAll(() => deleteApp(app));
@@ -128,7 +138,7 @@ describe("admin console lineup reads", () => {
         .set(membership(`search-team-${suffix}`, "Álvaro Canónico")),
     ]);
 
-    const results = await service.searchPlayers("alvaro");
+    const { players: results } = await service.searchPlayers("alvaro");
 
     expect(results).toContainEqual(
       expect.objectContaining({
@@ -184,11 +194,13 @@ describe("admin console lineup reads", () => {
         }),
     ]);
 
-    const results = await service.searchPlayers("Histórico");
+    const { players: results } = await service.searchPlayers("Histórico");
 
-    expect(results).toEqual([
+    expect(results).toContainEqual(
       expect.objectContaining({ id: canonicalId, name: "Nombre Canónico" }),
-    ]);
+    );
+    expect(results.filter(({ id }) => id === canonicalId)).toHaveLength(1);
+    expect(results.some(({ id }) => id === legacyId)).toBe(false);
   });
 
   it("finds historical and transferred Players beyond 150 records without opponent leakage", async () => {
@@ -225,7 +237,7 @@ describe("admin console lineup reads", () => {
     );
     await batch.commit();
 
-    const results = await service.searchPlayers("oscar transf");
+    const { players: results } = await service.searchPlayers("oscar transf");
 
     expect(results).toEqual([
       expect.objectContaining({
@@ -234,6 +246,40 @@ describe("admin console lineup reads", () => {
       }),
     ]);
     expect(results.length).toBeLessThanOrEqual(20);
+  });
+
+  it("makes every matching membership reachable across bounded pages", async () => {
+    const suffix = Date.now();
+    const batch = database.batch();
+    for (let index = 0; index < 55; index += 1) {
+      const playerId = `paged-${suffix}-${String(index).padStart(2, "0")}`;
+      const displayName = `Paginado Único ${index}`;
+      batch.set(database.doc(`players/${playerId}`), {
+        displayName,
+        currentTeamId: initialClub.teamId,
+        identityProvenance: "provider",
+        createdAt: Timestamp.now(),
+        updatedAt: Timestamp.now(),
+      });
+      batch.set(
+        database.doc(
+          `teams/${initialClub.teamId}/playerMemberships/${playerId}`,
+        ),
+        membership(playerId, displayName),
+      );
+    }
+    await batch.commit();
+
+    const players = [];
+    let cursor: string | undefined;
+    do {
+      const page = await service.searchPlayers("paginado unico", cursor);
+      players.push(...page.players);
+      cursor = page.nextCursor;
+    } while (cursor);
+
+    expect(new Set(players.map(({ id }) => id)).size).toBe(55);
+    expect(players).toHaveLength(55);
   });
 });
 

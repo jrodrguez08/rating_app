@@ -416,6 +416,7 @@ export const esMessages = {
     searchPlayersHelp:
       "Jugadores actuales e históricos del equipo. Escriba para filtrar por nombre.",
     searchingPlayers: "Buscando jugadores…",
+    loadMorePlayers: "Cargar más jugadores",
     playerSearchError: "No fue posible buscar jugadores en este momento.",
     noPlayers: "No hay jugadores disponibles con esa búsqueda.",
     canonicalIdentity: "Identidad canónica existente",

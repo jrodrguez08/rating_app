@@ -2,34 +2,66 @@ import { pathToFileURL } from "node:url";
 
 import { cert, deleteApp, initializeApp } from "firebase-admin/app";
 import {
-  type DocumentData,
-  type Firestore,
   getFirestore,
   Timestamp,
+  type Firestore,
 } from "firebase-admin/firestore";
 
-import {
-  membershipFromParticipant,
-  membershipFromPlayer,
-  mergeTeamPlayerMembership,
-} from "../src/application/team-player-membership";
 import initialTeam from "../firebase/seed/initial-team.json";
 import type {
-  Match,
-  MatchParticipant,
-  Player,
   TeamPlayerMembership,
+  TeamPlayerMembershipIndex,
 } from "../src/domain/models";
+import {
+  changedMemberships,
+  discoverTeamPlayers,
+  readAllQueryPages,
+} from "../src/lib/firebase/team-player-discovery";
 import { readFirebaseAdminRuntimeConfig } from "../src/lib/server/environment";
 
-const MATCH_LIMIT = 100;
-const PLAYER_LIMIT = 1_000;
-const PARTICIPANT_LIMIT = 40;
+const DEFAULT_PAGE_SIZE = 100;
+const WRITE_BATCH_SIZE = 400;
 
 export interface MembershipBackfillArguments {
   projectId: string;
   teamId: string;
   apply: boolean;
+}
+
+export interface MembershipBackfillTelemetry {
+  playersScanned: number;
+  matchesScanned: number;
+  participantsScanned: number;
+  verifiedLineupsScanned: number;
+  aliasesScanned: number;
+  existingMemberships: number;
+  newMemberships: number;
+  updatedMemberships: number;
+  unchangedMemberships: number;
+  unresolvedIdentities: number;
+  skippedByReason: Record<string, number>;
+  pages: {
+    players: number;
+    matches: number;
+    participants: number;
+    verifiedLineups: number;
+    aliases: number;
+    memberships: number;
+    playerLookups: number;
+  };
+  finalUniqueMembershipCount: number;
+  indexStatusBefore: "missing" | "complete" | "stale";
+  indexStatusAfter: "complete" | "incomplete";
+  indexBlockingIssues: number;
+  indexWritePlanned: boolean;
+  indexWrites: number;
+  writes: number;
+  plannedChanges: Array<{
+    playerId: string;
+    displayName: string;
+    source: TeamPlayerMembership["source"];
+    disposition: "create" | "update";
+  }>;
 }
 
 export function parseMembershipBackfillArguments(
@@ -95,27 +127,18 @@ export async function main() {
     `team-player-membership-backfill-${Date.now()}`,
   );
   try {
-    const database = getFirestore(app);
-    const memberships = await collectMemberships(database, arguments_.teamId);
+    const telemetry = await runMembershipBackfill(
+      getFirestore(app),
+      arguments_.teamId,
+      arguments_.apply,
+    );
     console.log(
       JSON.stringify({
         operation: "team-player-membership-backfill",
         mode: arguments_.apply ? "apply" : "dry-run",
         projectId: arguments_.projectId,
         teamId: arguments_.teamId,
-        membershipCount: memberships.size,
-        matchLimit: MATCH_LIMIT,
-        playerLimit: PLAYER_LIMIT,
-        participantLimit: PARTICIPANT_LIMIT,
-      }),
-    );
-    if (!arguments_.apply) return;
-    await writeMemberships(database, arguments_.teamId, memberships);
-    console.log(
-      JSON.stringify({
-        operation: "team-player-membership-backfill",
-        status: "completed",
-        writes: memberships.size,
+        ...telemetry,
       }),
     );
   } finally {
@@ -123,107 +146,126 @@ export async function main() {
   }
 }
 
-async function collectMemberships(database: Firestore, teamId: string) {
-  const [playersSnapshot, matchesSnapshot, existingMembershipSnapshot] =
-    await Promise.all([
-      database
-        .collection("players")
-        .where("currentTeamId", "==", teamId)
-        .limit(PLAYER_LIMIT)
-        .get(),
-      database
-        .collection("matches")
-        .where("trackedTeamId", "==", teamId)
-        .orderBy("kickoffAt", "desc")
-        .limit(MATCH_LIMIT)
-        .get(),
-      database
-        .collection(`teams/${teamId}/playerMemberships`)
-        .limit(PLAYER_LIMIT)
-        .get(),
-    ]);
-  const memberships = new Map(
-    existingMembershipSnapshot.docs.map((snapshot) => {
-      const membership = fromDocument<TeamPlayerMembership>(
-        snapshot.id,
-        snapshot.data(),
-      );
-      return [membership.playerId, membership] as const;
-    }),
+export async function runMembershipBackfill(
+  database: Firestore,
+  teamId: string,
+  apply: boolean,
+  pageSize = DEFAULT_PAGE_SIZE,
+): Promise<MembershipBackfillTelemetry> {
+  const discovery = await discoverTeamPlayers(database, teamId, pageSize);
+  const { changed, created, updated, unchanged } =
+    changedMemberships(discovery);
+  const indexReference = database.doc(
+    `teams/${teamId}/playerMembershipIndex/state`,
   );
-  for (const snapshot of playersSnapshot.docs) {
-    const player = fromDocument<Player>(snapshot.id, snapshot.data());
-    const membership = membershipFromPlayer(player, player.updatedAt);
-    if (membership) {
-      memberships.set(
-        player.id,
-        mergeTeamPlayerMembership(memberships.get(player.id), membership),
-      );
+  const indexSnapshot = await indexReference.get();
+  const currentIndex = indexSnapshot.exists
+    ? fromIndexDocument(indexSnapshot.data() ?? {})
+    : undefined;
+  const indexStatusBefore = !currentIndex
+    ? "missing"
+    : currentIndex.teamId === teamId &&
+        currentIndex.status === "complete" &&
+        currentIndex.schemaVersion === 1 &&
+        currentIndex.baselineMembershipCount ===
+          discovery.proposedMemberships.size
+      ? "complete"
+      : "stale";
+  const indexBlockingIssues =
+    discovery.telemetry.unresolvedIdentities +
+    (discovery.telemetry.skippedByReason.wrong_team_membership ?? 0);
+  const indexStatusAfter =
+    indexBlockingIssues === 0 ? "complete" : "incomplete";
+  const indexWritePlanned =
+    !currentIndex ||
+    currentIndex.teamId !== teamId ||
+    currentIndex.schemaVersion !== 1 ||
+    currentIndex.status !== indexStatusAfter ||
+    currentIndex.baselineMembershipCount !==
+      discovery.proposedMemberships.size ||
+    currentIndex.blockingIssueCount !== indexBlockingIssues;
+  if (apply) {
+    await writeMemberships(database, teamId, changed);
+    if (indexWritePlanned) {
+      await indexReference.set({
+        teamId,
+        status: indexStatusAfter,
+        schemaVersion: 1,
+        baselineMembershipCount: discovery.proposedMemberships.size,
+        blockingIssueCount: indexBlockingIssues,
+        auditedAt: Timestamp.now(),
+      });
     }
   }
-  for (const matchSnapshot of matchesSnapshot.docs) {
-    const match = fromDocument<Match>(matchSnapshot.id, matchSnapshot.data());
-    const participantSnapshot = await database
-      .collection(`matches/${match.id}/participants`)
-      .where("teamId", "==", teamId)
-      .limit(PARTICIPANT_LIMIT)
-      .get();
-    for (const snapshot of participantSnapshot.docs) {
-      const participant = fromDocument<MatchParticipant>(
-        snapshot.id,
-        snapshot.data(),
-      );
-      const membership = membershipFromParticipant(participant);
-      memberships.set(
-        membership.playerId,
-        mergeTeamPlayerMembership(
-          memberships.get(membership.playerId),
-          membership,
-        ),
-      );
-    }
-  }
-  return memberships;
+  const indexWrites = apply && indexWritePlanned ? 1 : 0;
+  return {
+    ...discovery.telemetry,
+    newMemberships: created,
+    updatedMemberships: updated,
+    unchangedMemberships: unchanged,
+    finalUniqueMembershipCount: discovery.proposedMemberships.size,
+    indexStatusBefore,
+    indexStatusAfter,
+    indexBlockingIssues,
+    indexWritePlanned,
+    indexWrites,
+    writes: apply ? changed.length + indexWrites : 0,
+    plannedChanges: changed.map((membership) => ({
+      playerId: membership.playerId,
+      displayName: membership.displayName,
+      source: membership.source,
+      disposition: discovery.existingMemberships.has(membership.playerId)
+        ? "update"
+        : "create",
+    })),
+  };
 }
+
+function fromIndexDocument(
+  value: Record<string, unknown>,
+): TeamPlayerMembershipIndex {
+  return value as unknown as TeamPlayerMembershipIndex;
+}
+
+export { readAllQueryPages };
 
 async function writeMemberships(
   database: Firestore,
   teamId: string,
-  memberships: ReadonlyMap<string, TeamPlayerMembership>,
+  memberships: readonly TeamPlayerMembership[],
 ) {
-  const entries = [...memberships.values()];
-  for (let offset = 0; offset < entries.length; offset += 400) {
+  for (
+    let offset = 0;
+    offset < memberships.length;
+    offset += WRITE_BATCH_SIZE
+  ) {
     const batch = database.batch();
-    for (const membership of entries.slice(offset, offset + 400)) {
-      const reference = database.doc(
-        `teams/${teamId}/playerMemberships/${membership.playerId}`,
+    for (const membership of memberships.slice(
+      offset,
+      offset + WRITE_BATCH_SIZE,
+    )) {
+      batch.set(
+        database.doc(
+          `teams/${teamId}/playerMemberships/${membership.playerId}`,
+        ),
+        toDocument(membership),
+        { merge: true },
       );
-      batch.set(reference, toDocument(membership), { merge: true });
     }
     await batch.commit();
   }
 }
 
-function fromDocument<T>(id: string, data: DocumentData): T {
-  return {
-    ...Object.fromEntries(
-      Object.entries(data).map(([key, value]) => [
-        key,
-        value instanceof Timestamp ? value.toDate().toISOString() : value,
-      ]),
-    ),
-    id,
-  } as T;
-}
-
 function toDocument(value: TeamPlayerMembership): Record<string, unknown> {
   return Object.fromEntries(
-    Object.entries(value).map(([key, item]) => [
-      key,
-      key.endsWith("At") && typeof item === "string"
-        ? Timestamp.fromDate(new Date(item))
-        : item,
-    ]),
+    Object.entries(value)
+      .filter(([, item]) => item !== undefined)
+      .map(([key, item]) => [
+        key,
+        key.endsWith("At") && typeof item === "string"
+          ? Timestamp.fromDate(new Date(item))
+          : item,
+      ]),
   );
 }
 

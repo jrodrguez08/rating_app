@@ -7,6 +7,7 @@ import {
   providerEntityId,
 } from "@/domain/player-identity";
 import { AdminPlayerHistoryService } from "@/lib/firebase/server";
+import { runMembershipBackfill } from "../../scripts/backfill-team-player-memberships";
 
 const projectId = process.env.GCLOUD_PROJECT ?? "demo-rating-app-local";
 const app = initializeApp({ projectId }, `player-history-${Date.now()}`);
@@ -89,6 +90,7 @@ beforeAll(async () => {
     status: "final",
     generatedAt: timestamp,
   });
+  await runMembershipBackfill(database, teamId, true);
 });
 
 afterAll(() => deleteApp(app));
@@ -329,5 +331,6 @@ async function seedAliasedHistory(
       generatedAt: timestamp,
     });
   }
+  await runMembershipBackfill(database, teamId, true);
   return { canonicalId, legacyId };
 }

@@ -1,6 +1,5 @@
 import type { Match, MatchResult, PlayerPosition } from "@/domain/models";
 
-export const PLAYER_HISTORY_MATCH_LIMIT = 100;
 export const PLAYER_RANKING_MIN_MATCHES = 2;
 
 export interface PlayerIdentity {
@@ -36,7 +35,6 @@ export interface PlayerCatalogEntry {
 export interface PlayerCatalog {
   players: PlayerCatalogEntry[];
   rankingMinimumMatches: number;
-  historyMatchLimit: number;
 }
 
 export function buildPlayerCatalog({
@@ -167,7 +165,6 @@ export function buildPlayerCatalog({
   return {
     players,
     rankingMinimumMatches: PLAYER_RANKING_MIN_MATCHES,
-    historyMatchLimit: PLAYER_HISTORY_MATCH_LIMIT,
   };
 }
 
