@@ -340,6 +340,9 @@ export function AdminPlayerIdentityReconciliation({
           </form>
           {authorized ? (
             <div className="grid gap-3">
+              <p className="text-success" role="status">
+                {messages.authorizationSuccess}
+              </p>
               <label className="grid gap-2">
                 <span>{messages.confirmation}</span>
                 <input

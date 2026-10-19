@@ -97,10 +97,15 @@ describe("admin Player identity reconciliation", () => {
       screen.queryByRole("button", { name: messages.applyIdentityDecision }),
     ).not.toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText(messages.passphrase), {
+    const passphrase = screen.getByLabelText(messages.passphrase);
+    fireEvent.change(passphrase, {
       target: { value: "passphrase" },
     });
     await user.click(screen.getByRole("button", { name: messages.authorize }));
+    expect(
+      await screen.findByText(messages.authorizationSuccess),
+    ).toBeVisible();
+    expect(passphrase).toHaveValue("");
     const apply = await screen.findByRole("button", {
       name: messages.applyIdentityDecision,
     });

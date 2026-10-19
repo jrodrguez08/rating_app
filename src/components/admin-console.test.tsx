@@ -154,4 +154,99 @@ describe("admin console", () => {
       screen.getByRole("button", { name: messages.signOut }),
     ).toBeEnabled();
   });
+
+  it("clears the coach passphrase and prevents duplicate authorization", async () => {
+    const user = userEvent.setup();
+    let resolveAuthorization:
+      | ((value: { ok: boolean; json: () => Promise<unknown> }) => void)
+      | undefined;
+    const fetchMock = vi.fn((input: string | URL | Request) => {
+      const path = String(input);
+      if (path.endsWith("/preview")) {
+        return Promise.resolve(
+          response({ plan: { coachId: "coach-1" }, previewToken: "preview" }),
+        );
+      }
+      if (path.endsWith("/authorize")) {
+        return new Promise((resolve) => {
+          resolveAuthorization = resolve;
+        });
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <AdminConsole
+        messages={messages}
+        teamId="club-sport-herediano"
+        overview={{
+          upcomingLiveMatches: [],
+          attentionMatches: [
+            {
+              id: "match-1",
+              externalFixtureId: "fixture-1",
+              kickoffAt: "2026-10-18T20:00:00.000Z",
+              homeTeamName: "Equipo local",
+              awayTeamName: "Equipo visitante",
+              status: "finished",
+              ratingState: "preparing_rating",
+              diagnostic: "ambiguous_coach",
+              participantCount: 11,
+              rateableParticipantCount: 11,
+              confirmedStarterCount: 11,
+              confirmedSubstituteCount: 0,
+              unconfirmedOrUnusedCount: 0,
+              headCoachReady: false,
+              lineupProvenance: "provider",
+            },
+          ],
+          votingCompletedMatches: [],
+          coaches: [
+            {
+              id: "coach-1",
+              name: "Director verificado",
+              provenance: "operator_verified",
+            },
+          ],
+        }}
+      />,
+    );
+
+    await user.selectOptions(
+      screen.getByLabelText(messages.existingCoach),
+      "coach-1",
+    );
+    await user.type(
+      screen.getByLabelText(messages.evidence),
+      "https://evidence.example.test/coach",
+    );
+    await user.type(
+      screen.getByLabelText(messages.reason),
+      "Evidencia independiente revisada para este partido.",
+    );
+    await user.click(screen.getByRole("button", { name: messages.preview }));
+    const passphrase = await screen.findByLabelText(messages.passphrase);
+    await user.type(passphrase, "independent-secret");
+    const authorize = screen.getByRole("button", { name: messages.authorize });
+    await user.click(authorize);
+    await user.click(authorize);
+
+    expect(authorize).toBeDisabled();
+    expect(
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).endsWith("/authorize"),
+      ),
+    ).toHaveLength(1);
+    resolveAuthorization?.(response({ authorized: true }));
+
+    expect(
+      await screen.findByText(messages.authorizationSuccess),
+    ).toBeVisible();
+    expect(passphrase).toHaveValue("");
+    expect(screen.getByLabelText(messages.confirmation)).toBeVisible();
+  });
 });
+
+function response(body: unknown) {
+  return { ok: true, json: async () => body };
+}

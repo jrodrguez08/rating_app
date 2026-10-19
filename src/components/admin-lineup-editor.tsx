@@ -459,17 +459,16 @@ export function AdminLineupEditor({
 
   async function authorize(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const form = event.currentTarget;
     setBusy(true);
     try {
-      const passphrase = String(
-        new FormData(event.currentTarget).get("passphrase"),
-      );
+      const passphrase = String(new FormData(form).get("passphrase"));
       await post("/api/admin/lineup/authorize", {
         action,
         previewToken,
         passphrase,
       });
-      event.currentTarget.reset();
+      form.reset();
       setAuthorized(true);
     } catch (caught) {
       setError(
@@ -844,6 +843,9 @@ export function AdminLineupEditor({
           </form>
           {authorized ? (
             <div className="grid gap-3">
+              <p className="text-success" role="status">
+                {messages.authorizationSuccess}
+              </p>
               <label className="grid gap-2">
                 <span>{messages.confirmation}</span>
                 <input

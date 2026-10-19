@@ -398,6 +398,8 @@ export const esMessages = {
     notSelected: "No seleccionado",
     passphrase: "Frase de autorización",
     authorize: "Autorizar operación",
+    authorizationSuccess:
+      "Operación autorizada. Complete la confirmación exacta para continuar.",
     confirmation: "Confirmación exacta",
     apply: "Aplicar asignación",
     refresh: "Actualizar",

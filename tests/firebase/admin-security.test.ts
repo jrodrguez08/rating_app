@@ -72,6 +72,14 @@ describe("admin action security", () => {
       operatorUid: "owner-security",
       matchId: action.matchId,
     });
+    const persistedSecurityData = [
+      ...(await database.collection("adminActionChallenges").get()).docs,
+      ...(await database.collection("adminSecurity").get()).docs,
+      ...(await database.collection("adminAudit").get()).docs,
+    ].map((document) => document.data());
+    const serializedSecurityData = JSON.stringify(persistedSecurityData);
+    expect(serializedSecurityData).not.toContain(passphrase);
+    expect(serializedSecurityData).not.toContain("incorrect passphrase value");
   });
 
   it("locks repeated passphrase failures and persists audit evidence", async () => {

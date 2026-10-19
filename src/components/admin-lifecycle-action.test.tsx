@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { getMessages } from "@/i18n/messages";
 
@@ -8,6 +9,8 @@ import { AdminLifecycleActionPanel } from "./admin-lifecycle-action";
 const messages = getMessages("es").admin;
 
 describe("admin lifecycle readiness", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
   it("shows readiness evidence, measured delay, and the bounded owner action", () => {
     render(
       <AdminLifecycleActionPanel
@@ -116,4 +119,116 @@ describe("admin lifecycle readiness", () => {
       ).toBeEnabled();
     },
   );
+
+  it("clears the passphrase and reveals confirmation after delayed authorization", async () => {
+    const user = userEvent.setup();
+    let resolveAuthorization:
+      | ((value: { ok: boolean; json: () => Promise<unknown> }) => void)
+      | undefined;
+    const fetchMock = vi.fn((input: string | URL | Request) => {
+      const path = String(input);
+      if (path.endsWith("/preview")) {
+        return Promise.resolve(
+          response({
+            plan: { matchId: "match-live" },
+            previewToken: "preview",
+          }),
+        );
+      }
+      if (path.endsWith("/authorize")) {
+        return new Promise((resolve) => {
+          resolveAuthorization = resolve;
+        });
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderEligiblePanel();
+
+    await user.click(
+      screen.getByRole("button", { name: messages.requestLifecycle }),
+    );
+    const passphrase = await screen.findByLabelText(messages.passphrase);
+    await user.type(passphrase, "independent-secret");
+    const authorize = screen.getByRole("button", { name: messages.authorize });
+    await user.click(authorize);
+    await user.click(authorize);
+
+    expect(authorize).toBeDisabled();
+    expect(
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).endsWith("/authorize"),
+      ),
+    ).toHaveLength(1);
+    resolveAuthorization?.(response({ authorized: true }));
+
+    expect(
+      await screen.findByText(messages.authorizationSuccess),
+    ).toBeVisible();
+    expect(passphrase).toHaveValue("");
+    expect(screen.getByLabelText(messages.confirmation)).toBeVisible();
+  });
+
+  it("reports rejected authorization and restores submission without confirmation", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) =>
+        String(input).endsWith("/preview")
+          ? Promise.resolve(response({ plan: {}, previewToken: "preview" }))
+          : Promise.resolve({
+              ok: false,
+              json: async () => ({ error: "La autorización fue rechazada." }),
+            }),
+      ),
+    );
+    renderEligiblePanel();
+
+    await user.click(
+      screen.getByRole("button", { name: messages.requestLifecycle }),
+    );
+    const passphrase = await screen.findByLabelText(messages.passphrase);
+    await user.type(passphrase, "wrong-secret");
+    await user.click(screen.getByRole("button", { name: messages.authorize }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "La autorización fue rechazada.",
+    );
+    expect(passphrase).toHaveValue("wrong-secret");
+    expect(
+      screen.getByRole("button", { name: messages.authorize }),
+    ).toBeEnabled();
+    expect(
+      screen.queryByLabelText(messages.confirmation),
+    ).not.toBeInTheDocument();
+  });
 });
+
+function renderEligiblePanel() {
+  return render(
+    <AdminLifecycleActionPanel
+      teamId="tracked-team"
+      messages={messages}
+      match={{
+        id: "match-live",
+        externalFixtureId: "fixture-live",
+        kickoffAt: "2026-10-18T18:00:00.000Z",
+        homeTeamName: "Local",
+        awayTeamName: "Visitante",
+        status: "live",
+        ratingState: "preparing_rating",
+        participantCount: 11,
+        rateableParticipantCount: 11,
+        confirmedStarterCount: 11,
+        confirmedSubstituteCount: 0,
+        unconfirmedOrUnusedCount: 0,
+        headCoachReady: true,
+        lineupProvenance: "provider",
+      }}
+    />,
+  );
+}
+
+function response(body: unknown) {
+  return { ok: true, json: async () => body };
+}
