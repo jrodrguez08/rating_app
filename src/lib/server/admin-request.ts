@@ -6,6 +6,7 @@ import type { NextRequest } from "next/server";
 import { getMessages } from "@/i18n/messages";
 import { emitOperationalLog } from "@/lib/operational-log";
 import type { AdminCoachAction } from "@/lib/server/admin-coach-action";
+import type { AdminCoachIdentityAction } from "@/lib/server/admin-coach-identity-action";
 import type { AdminLifecycleAction } from "@/lib/server/admin-lifecycle-action";
 import type { AdminManualVotingAction } from "@/lib/server/admin-manual-voting-action";
 import type { AdminLineupDraftAction } from "@/lib/server/admin-lineup-draft-action";
@@ -201,6 +202,24 @@ export function parseAdminPlayerIdentityAction(
     throw new AdminAuthorizationError(403);
   }
   return value as unknown as AdminPlayerIdentityAction;
+}
+
+export function parseAdminCoachIdentityAction(
+  value: unknown,
+): AdminCoachIdentityAction {
+  if (!isRecord(value)) throw new AdminAuthorizationError(403);
+  for (const key of [
+    "firstCoachId",
+    "secondCoachId",
+    "canonicalCoachId",
+    "decision",
+  ] as const) {
+    if (typeof value[key] !== "string") throw new AdminAuthorizationError(403);
+  }
+  if (!["match", "nonmatch"].includes(String(value.decision))) {
+    throw new AdminAuthorizationError(403);
+  }
+  return value as unknown as AdminCoachIdentityAction;
 }
 
 function parseLineupParticipant(value: unknown): AdminLineupParticipantAction {

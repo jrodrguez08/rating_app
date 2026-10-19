@@ -1,6 +1,11 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 import {
+  adminCoachIdentityResourceId,
+  hashAdminCoachIdentityAction,
+  type AdminCoachIdentityAction,
+} from "@/lib/server/admin-coach-identity-action";
+import {
   hashAdminLifecycleAction,
   type AdminLifecycleAction,
 } from "@/lib/server/admin-lifecycle-action";
@@ -45,6 +50,8 @@ export type AdminAuditAction =
   | "lineup_preparation_apply"
   | "player_identity_passphrase"
   | "player_identity_apply"
+  | "coach_identity_passphrase"
+  | "coach_identity_apply"
   | "lifecycle_request_passphrase"
   | "lifecycle_request_apply"
   | "manual_voting_passphrase"
@@ -55,7 +62,8 @@ type AdminSensitiveAction =
   | AdminLineupAction
   | AdminLifecycleAction
   | AdminManualVotingAction
-  | AdminPlayerIdentityAction;
+  | AdminPlayerIdentityAction
+  | AdminCoachIdentityAction;
 
 export class AdminSecurityError extends Error {
   constructor(
@@ -282,6 +290,7 @@ export class AdminSecurityStore {
 }
 
 function hashAdminSensitiveAction(action: AdminSensitiveAction): string {
+  if ("firstCoachId" in action) return hashAdminCoachIdentityAction(action);
   if ("decision" in action) return hashAdminPlayerIdentityAction(action);
   if ("participants" in action) return hashAdminLineupAction(action);
   if ("coachId" in action) return hashAdminCoachAction(action);
@@ -291,9 +300,11 @@ function hashAdminSensitiveAction(action: AdminSensitiveAction): string {
 }
 
 function adminSensitiveResourceId(action: AdminSensitiveAction): string {
-  return "decision" in action
-    ? adminPlayerIdentityResourceId(action)
-    : action.matchId;
+  return "firstCoachId" in action
+    ? adminCoachIdentityResourceId(action)
+    : "decision" in action
+      ? adminPlayerIdentityResourceId(action)
+      : action.matchId;
 }
 
 function adminSensitiveMatchId(

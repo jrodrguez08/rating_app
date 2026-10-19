@@ -357,6 +357,26 @@ export interface Coach {
   createdAt: string;
   updatedAt: string;
 }
+export interface CoachProviderAlias {
+  id: EntityId;
+  canonicalCoachId: EntityId;
+  externalProvider: string;
+  externalProviderCoachId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface CoachIdentityReview {
+  id: EntityId;
+  firstCoachId: EntityId;
+  secondCoachId: EntityId;
+  canonicalCoachId: EntityId;
+  decision: "match" | "nonmatch";
+  status: "active";
+  operatorId: string;
+  reviewedAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
 export interface VerifiedCoachAssignment {
   matchId: EntityId;
   trackedTeamId: EntityId;

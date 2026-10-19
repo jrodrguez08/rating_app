@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
-import { AdminPlayerIdentityReconciliation } from "@/components/admin-player-identity";
+import { AdminIdentityReconciliation } from "@/components/admin-identity-reconciliation";
 import { initialClub } from "@/config/club";
 import { getMessages } from "@/i18n/messages";
 import {
@@ -35,7 +35,7 @@ export default async function AdminPlayerIdentityPage() {
         } as React.CSSProperties
       }
     >
-      <AdminPlayerIdentityReconciliation
+      <AdminIdentityReconciliation
         messages={messages}
         teamId={initialClub.teamId}
         teamName={initialClub.displayName}

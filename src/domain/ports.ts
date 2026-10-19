@@ -3,6 +3,7 @@ import type {
   Competition,
   Coach,
   CoachAssignment,
+  CoachProviderAlias,
   EntityId,
   FootballSyncMetadata,
   Match,
@@ -269,6 +270,9 @@ export interface FootballSyncStore {
   resolvePlayerProviderAliases(
     aliases: PlayerProviderAlias[],
   ): Promise<PlayerProviderAlias[]>;
+  resolveCoachProviderAlias?(
+    alias: CoachProviderAlias,
+  ): Promise<CoachProviderAlias>;
   upsertMatchParticipants(
     matchId: string,
     participants: MatchParticipant[],
