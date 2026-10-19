@@ -15,10 +15,20 @@ const app = initializeApp({ projectId }, `admin-console-lineup-${Date.now()}`);
 const database = getFirestore(app);
 const service = new AdminConsoleService(database);
 
-beforeAll(() => {
+beforeAll(async () => {
   if (!process.env.FIRESTORE_EMULATOR_HOST) {
     throw new Error("FIRESTORE_EMULATOR_HOST is required.");
   }
+  await database
+    .doc(`teams/${initialClub.teamId}/playerMembershipIndex/state`)
+    .set({
+      teamId: initialClub.teamId,
+      status: "complete",
+      schemaVersion: 1,
+      baselineMembershipCount: 0,
+      blockingIssueCount: 0,
+      auditedAt: Timestamp.now(),
+    });
 });
 
 afterAll(() => deleteApp(app));
@@ -186,9 +196,11 @@ describe("admin console lineup reads", () => {
 
     const { players: results } = await service.searchPlayers("Histórico");
 
-    expect(results).toEqual([
+    expect(results).toContainEqual(
       expect.objectContaining({ id: canonicalId, name: "Nombre Canónico" }),
-    ]);
+    );
+    expect(results.filter(({ id }) => id === canonicalId)).toHaveLength(1);
+    expect(results.some(({ id }) => id === legacyId)).toBe(false);
   });
 
   it("finds historical and transferred Players beyond 150 records without opponent leakage", async () => {

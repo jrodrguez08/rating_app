@@ -9,8 +9,9 @@ import {
 } from "@/domain/player-identity";
 import { AdminConsoleService } from "@/lib/firebase/admin-console";
 import { AdminPlayerHistoryService } from "@/lib/firebase/server";
+import { runMembershipBackfill } from "../../scripts/backfill-team-player-memberships";
 
-const projectId = process.env.GCLOUD_PROJECT ?? "demo-rating-app-local";
+const projectId = `demo-rating-parity-${process.pid}`;
 const app = initializeApp({ projectId }, `player-parity-${Date.now()}`);
 const database = getFirestore(app);
 
@@ -66,6 +67,17 @@ describe("public and administrative Player discovery parity", () => {
         },
       },
       {
+        path: `players/${legacyId}`,
+        value: {
+          displayName: `Nombre Histórico ${suffix}`,
+          externalProvider: "api-football",
+          externalProviderId: legacyExternalId,
+          identityProvenance: "provider",
+          createdAt: now,
+          updatedAt: now,
+        },
+      },
+      {
         path: `players/${opponentId}`,
         value: {
           displayName: `Rival Exclusivo ${suffix}`,
@@ -113,6 +125,15 @@ describe("public and administrative Player discovery parity", () => {
     }
     for (let index = 0; index < 500; index += 1) {
       const playerId = `parity-filler-${suffix}-${String(index).padStart(3, "0")}`;
+      writes.push({
+        path: `players/${playerId}`,
+        value: {
+          displayName: `Histórico Paridad ${index}`,
+          identityProvenance: "provider",
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
       writes.push({
         path: `matches/${oldMatchId}/participants/${playerId}`,
         value: participant(oldMatchId, playerId, initialClub.teamId, now),
@@ -191,19 +212,35 @@ describe("public and administrative Player discovery parity", () => {
     );
     await commitWrites(writes);
 
-    const publicCatalog = await new AdminPlayerHistoryService(database).list(
+    const repaired = await runMembershipBackfill(
+      database,
       initialClub.teamId,
+      true,
+      100,
     );
+    expect(repaired.matchesScanned).toBeGreaterThan(100);
+    expect(repaired.participantsScanned).toBeGreaterThan(500);
+    expect(repaired.indexWrites).toBe(1);
+
+    const publicReads: Array<{ kind: string; documents: number }> = [];
+    const publicCatalog = await new AdminPlayerHistoryService(
+      database,
+      (read) => publicReads.push(read),
+    ).list(initialClub.teamId);
     const publicPlayer = publicCatalog.players.find(
       ({ playerId }) => playerId === canonicalId,
     );
-    const adminPage = await new AdminConsoleService(database).searchPlayers(
+    const adminReads: Array<{ kind: string; documents: number }> = [];
+    const adminService = new AdminConsoleService(database, (read) =>
+      adminReads.push(read),
+    );
+    const adminPage = await adminService.searchPlayers(
       `nombre historico ${suffix}`,
     );
-    const verifiedPage = await new AdminConsoleService(database).searchPlayers(
+    const verifiedPage = await adminService.searchPlayers(
       `interno verificado ${suffix}`,
     );
-    const opponentPage = await new AdminConsoleService(database).searchPlayers(
+    const opponentPage = await adminService.searchPlayers(
       `rival exclusivo ${suffix}`,
     );
 
@@ -223,10 +260,29 @@ describe("public and administrative Player discovery parity", () => {
     ]);
     expect(opponentPage.players).toEqual([]);
     expect(
+      adminReads
+        .filter(({ kind }) => kind === "membership_query")
+        .every(({ documents }) => documents <= 21),
+    ).toBe(true);
+    expect(adminReads.some(({ kind }) => kind === "result_query")).toBe(false);
+    expect(
+      adminReads
+        .filter(({ kind }) => kind === "membership_query")
+        .reduce((total, { documents }) => total + documents, 0),
+    ).toBeLessThanOrEqual(63);
+    expect(
+      adminReads.reduce((total, { documents }) => total + documents, 0),
+    ).toBeLessThanOrEqual(246);
+    expect(publicReads.some(({ kind }) => kind === "result_query")).toBe(true);
+    expect(publicReads.some(({ kind }) => kind === "membership_query")).toBe(
+      true,
+    );
+    expect(publicCatalog.players.length).toBeGreaterThan(150);
+    expect(
       await database
         .doc(`teams/${initialClub.teamId}/playerMemberships/${canonicalId}`)
         .get(),
-    ).toMatchObject({ exists: false });
+    ).toMatchObject({ exists: true });
   }, 60_000);
 });
 

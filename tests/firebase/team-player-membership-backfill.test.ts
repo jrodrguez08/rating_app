@@ -7,6 +7,10 @@ import {
   normalizePlayerSearch,
   playerSearchPrefixes,
 } from "@/domain/player-search";
+import {
+  searchIndexedTeamPlayers,
+  TeamPlayerMembershipIndexIncompleteError,
+} from "@/lib/firebase/team-player-membership-index";
 import { runMembershipBackfill } from "../../scripts/backfill-team-player-memberships";
 
 const projectId = process.env.GCLOUD_PROJECT ?? "demo-rating-app-local";
@@ -22,6 +26,38 @@ beforeAll(() => {
 afterAll(() => deleteApp(app));
 
 describe("complete Team Player membership backfill", () => {
+  it("marks unresolved evidence incomplete instead of publishing a partial index", async () => {
+    const suffix = Date.now();
+    const teamId = `incomplete-team-${suffix}`;
+    const matchId = `incomplete-match-${suffix}`;
+    const now = Timestamp.now();
+    await database.doc(`matches/${matchId}`).set({
+      trackedTeamId: teamId,
+      externalProvider: "api-football",
+      externalProviderFixtureId: `fixture-${suffix}`,
+      kickoffAt: now,
+      status: "finished",
+      ratingState: "preparing_rating",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await database
+      .doc(`matches/${matchId}/participants/missing-player-${suffix}`)
+      .set(participant(matchId, `missing-player-${suffix}`, teamId, now));
+
+    const result = await runMembershipBackfill(database, teamId, true, 20);
+
+    expect(result).toMatchObject({
+      unresolvedIdentities: 1,
+      indexStatusAfter: "incomplete",
+      indexBlockingIssues: 1,
+      indexWrites: 1,
+    });
+    await expect(
+      searchIndexedTeamPlayers(database, teamId, ""),
+    ).rejects.toBeInstanceOf(TeamPlayerMembershipIndexIncompleteError);
+  });
+
   it("traverses every page and remains additive, canonical, dry-run safe, and idempotent", async () => {
     const suffix = Date.now();
     const teamId = `backfill-team-${suffix}`;
@@ -40,6 +76,12 @@ describe("complete Team Player membership backfill", () => {
     }
     for (let index = 0; index < 31; index += 1) {
       const playerId = `preserved-${suffix}-${index}`;
+      batch.set(database.doc(`players/${playerId}`), {
+        displayName: `Preservado ${index}`,
+        identityProvenance: "provider",
+        createdAt: now,
+        updatedAt: now,
+      });
       batch.set(
         database.doc(`teams/${teamId}/playerMemberships/${playerId}`),
         membership(playerId, teamId, `Preservado ${index}`, now),
@@ -183,8 +225,13 @@ describe("complete Team Player membership backfill", () => {
 
     const applied = await runMembershipBackfill(database, teamId, true, 20);
     expect(applied.writes).toBe(
-      applied.newMemberships + applied.updatedMemberships,
+      applied.newMemberships + applied.updatedMemberships + 1,
     );
+    expect(applied).toMatchObject({
+      indexStatusBefore: "missing",
+      indexWritePlanned: true,
+      indexWrites: 1,
+    });
     expect(applied.finalUniqueMembershipCount).toBeGreaterThan(220);
     await expect(
       database.doc(`teams/${teamId}/playerMemberships/${opponentId}`).get(),
@@ -207,6 +254,11 @@ describe("complete Team Player membership backfill", () => {
 
     const rerun = await runMembershipBackfill(database, teamId, true, 20);
     expect(rerun.writes).toBe(0);
+    expect(rerun).toMatchObject({
+      indexStatusBefore: "complete",
+      indexWritePlanned: false,
+      indexWrites: 0,
+    });
     expect(rerun.finalUniqueMembershipCount).toBe(
       applied.finalUniqueMembershipCount,
     );

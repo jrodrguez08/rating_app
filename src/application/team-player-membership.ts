@@ -55,7 +55,14 @@ export function mergeTeamPlayerMembership(
   existing: TeamPlayerMembership | undefined,
   incoming: TeamPlayerMembership,
 ): TeamPlayerMembership {
-  if (!existing) return incoming;
+  if (!existing) {
+    return {
+      ...incoming,
+      searchPrefixes: [...new Set(incoming.searchPrefixes)]
+        .sort()
+        .slice(0, 160),
+    };
+  }
   const presentation =
     incoming.lastObservedAt >= existing.lastObservedAt ? incoming : existing;
   const evidence =
@@ -64,13 +71,18 @@ export function mergeTeamPlayerMembership(
       ? incoming
       : existing;
   const combined = { ...existing, ...incoming };
+  const searchPrefixes = [
+    ...new Set([...existing.searchPrefixes, ...incoming.searchPrefixes]),
+  ]
+    .sort()
+    .slice(0, 160);
   delete combined.sourceMatchId;
   delete combined.shirtNumber;
   return {
     ...combined,
     displayName: presentation.displayName,
     searchName: presentation.searchName,
-    searchPrefixes: presentation.searchPrefixes,
+    searchPrefixes,
     source: evidence.source,
     ...(evidence.sourceMatchId
       ? { sourceMatchId: evidence.sourceMatchId }

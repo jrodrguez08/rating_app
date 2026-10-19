@@ -8,7 +8,10 @@ import {
 } from "firebase-admin/firestore";
 
 import initialTeam from "../firebase/seed/initial-team.json";
-import type { TeamPlayerMembership } from "../src/domain/models";
+import type {
+  TeamPlayerMembership,
+  TeamPlayerMembershipIndex,
+} from "../src/domain/models";
 import {
   changedMemberships,
   discoverTeamPlayers,
@@ -47,6 +50,11 @@ export interface MembershipBackfillTelemetry {
     playerLookups: number;
   };
   finalUniqueMembershipCount: number;
+  indexStatusBefore: "missing" | "complete" | "stale";
+  indexStatusAfter: "complete" | "incomplete";
+  indexBlockingIssues: number;
+  indexWritePlanned: boolean;
+  indexWrites: number;
   writes: number;
   plannedChanges: Array<{
     playerId: string;
@@ -147,14 +155,61 @@ export async function runMembershipBackfill(
   const discovery = await discoverTeamPlayers(database, teamId, pageSize);
   const { changed, created, updated, unchanged } =
     changedMemberships(discovery);
-  if (apply) await writeMemberships(database, teamId, changed);
+  const indexReference = database.doc(
+    `teams/${teamId}/playerMembershipIndex/state`,
+  );
+  const indexSnapshot = await indexReference.get();
+  const currentIndex = indexSnapshot.exists
+    ? fromIndexDocument(indexSnapshot.data() ?? {})
+    : undefined;
+  const indexStatusBefore = !currentIndex
+    ? "missing"
+    : currentIndex.teamId === teamId &&
+        currentIndex.status === "complete" &&
+        currentIndex.schemaVersion === 1 &&
+        currentIndex.baselineMembershipCount ===
+          discovery.proposedMemberships.size
+      ? "complete"
+      : "stale";
+  const indexBlockingIssues =
+    discovery.telemetry.unresolvedIdentities +
+    (discovery.telemetry.skippedByReason.wrong_team_membership ?? 0);
+  const indexStatusAfter =
+    indexBlockingIssues === 0 ? "complete" : "incomplete";
+  const indexWritePlanned =
+    !currentIndex ||
+    currentIndex.teamId !== teamId ||
+    currentIndex.schemaVersion !== 1 ||
+    currentIndex.status !== indexStatusAfter ||
+    currentIndex.baselineMembershipCount !==
+      discovery.proposedMemberships.size ||
+    currentIndex.blockingIssueCount !== indexBlockingIssues;
+  if (apply) {
+    await writeMemberships(database, teamId, changed);
+    if (indexWritePlanned) {
+      await indexReference.set({
+        teamId,
+        status: indexStatusAfter,
+        schemaVersion: 1,
+        baselineMembershipCount: discovery.proposedMemberships.size,
+        blockingIssueCount: indexBlockingIssues,
+        auditedAt: Timestamp.now(),
+      });
+    }
+  }
+  const indexWrites = apply && indexWritePlanned ? 1 : 0;
   return {
     ...discovery.telemetry,
     newMemberships: created,
     updatedMemberships: updated,
     unchangedMemberships: unchanged,
     finalUniqueMembershipCount: discovery.proposedMemberships.size,
-    writes: apply ? changed.length : 0,
+    indexStatusBefore,
+    indexStatusAfter,
+    indexBlockingIssues,
+    indexWritePlanned,
+    indexWrites,
+    writes: apply ? changed.length + indexWrites : 0,
     plannedChanges: changed.map((membership) => ({
       playerId: membership.playerId,
       displayName: membership.displayName,
@@ -164,6 +219,12 @@ export async function runMembershipBackfill(
         : "create",
     })),
   };
+}
+
+function fromIndexDocument(
+  value: Record<string, unknown>,
+): TeamPlayerMembershipIndex {
+  return value as unknown as TeamPlayerMembershipIndex;
 }
 
 export { readAllQueryPages };

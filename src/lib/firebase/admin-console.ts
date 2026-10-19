@@ -12,9 +12,11 @@ import type {
   VerifiedLineupReconciliation,
   VerifiedLineupSnapshot,
 } from "@/domain/models";
-import { normalizePlayerSearch } from "@/domain/player-search";
 import { getServerFirestore } from "@/lib/firebase/server";
-import { discoverTeamPlayers } from "@/lib/firebase/team-player-discovery";
+import {
+  searchIndexedTeamPlayers,
+  type TeamPlayerIndexObserver,
+} from "@/lib/firebase/team-player-membership-index";
 
 export interface AdminMatchOperation {
   id: string;
@@ -108,7 +110,10 @@ export interface AdminMatchDetail {
 }
 
 export class AdminConsoleService {
-  constructor(private readonly database: Firestore = getServerFirestore()) {}
+  constructor(
+    private readonly database: Firestore = getServerFirestore(),
+    private readonly observePlayerIndexRead?: TeamPlayerIndexObserver,
+  ) {}
 
   async overview(): Promise<AdminOverview> {
     const [matchesSnapshot, coachesSnapshot] = await Promise.all([
@@ -348,21 +353,17 @@ export class AdminConsoleService {
     query: string,
     cursor?: string,
   ): Promise<AdminPlayerSearchPage> {
-    const normalizedQuery = normalizePlayerSearch(query).slice(0, 80);
     if (cursor && (cursor.length > 200 || cursor.includes("/"))) {
       throw new Error("Player search cursor is invalid.");
     }
-    const discovery = await discoverTeamPlayers(
+    const page = await searchIndexedTeamPlayers(
       this.database,
       initialClub.teamId,
+      query,
+      cursor,
+      this.observePlayerIndexRead,
     );
-    const matching = discovery.players.filter(
-      ({ player, searchPrefixes }) =>
-        (!normalizedQuery || searchPrefixes.includes(normalizedQuery)) &&
-        (!cursor || player.id > cursor),
-    );
-    const page = matching.slice(0, 20);
-    const players = page.map(({ player, membership }) => ({
+    const players = page.players.map(({ player, membership }) => ({
       id: player.id,
       name: player.displayName,
       ...(player.position ? { position: player.position } : {}),
@@ -376,9 +377,7 @@ export class AdminConsoleService {
     }));
     return {
       players,
-      ...(matching.length > 20 && page.at(-1)
-        ? { nextCursor: page.at(-1)!.player.id }
-        : {}),
+      ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
     };
   }
 

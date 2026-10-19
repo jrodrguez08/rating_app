@@ -322,7 +322,14 @@ export async function discoverTeamPlayers(
       teamId,
       displayName: player.displayName,
       searchName: normalizePlayerSearch(player.displayName),
-      searchPrefixes: playerSearchPrefixes(player.displayName),
+      searchPrefixes: [
+        ...new Set([
+          ...item.membership.searchPrefixes,
+          ...playerSearchPrefixes(player.displayName),
+        ]),
+      ]
+        .sort()
+        .slice(0, 160),
     };
     proposed.set(
       player.id,

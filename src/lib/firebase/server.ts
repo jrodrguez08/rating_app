@@ -70,7 +70,13 @@ import {
   playerProviderAliasId,
   providerEntityId,
 } from "@/domain/player-identity";
-import { discoverTeamPlayers } from "@/lib/firebase/team-player-discovery";
+import {
+  readIndexedTeamPlayers,
+  readPublishedTeamHistory,
+  resolveIndexedCanonicalPlayerIds,
+  TeamPlayerMembershipIndexIncompleteError,
+  type TeamPlayerIndexObserver,
+} from "@/lib/firebase/team-player-membership-index";
 import { selectDurableVerifiedLineupReconciliation } from "@/domain/verified-lineup-reconciliation";
 import {
   getEffectiveVotingWindow,
@@ -315,47 +321,69 @@ export class AdminMatchArchiveService {
 }
 
 export class AdminPlayerHistoryService {
-  constructor(private readonly database = getServerFirestore()) {}
+  constructor(
+    private readonly database = getServerFirestore(),
+    private readonly observePlayerIndexRead?: TeamPlayerIndexObserver,
+  ) {}
 
   async list(teamId: string): Promise<PlayerCatalog> {
     const store = new AdminFootballSyncStore(this.database);
-    const [team, discovery] = await Promise.all([
+    const [team, indexed, history] = await Promise.all([
       store.getTeam(teamId),
-      discoverTeamPlayers(this.database, teamId),
+      readIndexedTeamPlayers(
+        this.database,
+        teamId,
+        this.observePlayerIndexRead,
+      ),
+      readPublishedTeamHistory(
+        this.database,
+        teamId,
+        this.observePlayerIndexRead,
+      ),
     ]);
     if (team.externalProviderId === undefined)
       throw new Error(`Tracked Team ${teamId} has no provider mapping.`);
-    const matches = discovery.matches.sort(
+    const matches = history.matches.sort(
       (left, right) =>
         new Date(right.kickoffAt).getTime() -
           new Date(left.kickoffAt).getTime() || left.id.localeCompare(right.id),
     );
-    const resultSnapshots = [];
-    for (let offset = 0; offset < matches.length; offset += 100) {
-      resultSnapshots.push(
-        ...(await this.database.getAll(
-          ...matches
-            .slice(offset, offset + 100)
-            .map((match) =>
-              this.database.doc(`matches/${match.id}/results/summary`),
-            ),
-        )),
-      );
+    const resultPlayerIds = [
+      ...new Set(
+        history.results.flatMap((result) => Object.keys(result.playerResults)),
+      ),
+    ];
+    const resultCanonicalIds = await resolveIndexedCanonicalPlayerIds(
+      this.database,
+      resultPlayerIds,
+      this.observePlayerIndexRead,
+    );
+    const canonicalPlayerIds = new Map(indexed.canonicalPlayerIds);
+    resultCanonicalIds.forEach((canonicalId, playerId) =>
+      canonicalPlayerIds.set(playerId, canonicalId),
+    );
+    const indexedPlayerIds = new Set(
+      indexed.players.map(({ player }) => player.id),
+    );
+    if (
+      resultPlayerIds.some(
+        (playerId) =>
+          !indexedPlayerIds.has(canonicalPlayerIds.get(playerId) ?? playerId),
+      )
+    ) {
+      throw new TeamPlayerMembershipIndexIncompleteError(teamId);
     }
-    const results = resultSnapshots
-      .filter((snapshot) => snapshot.exists)
-      .map((snapshot) => fromDocument<MatchResult>(snapshot));
     return buildPlayerCatalog({
-      identities: discovery.players.map(({ player }) => ({
+      identities: indexed.players.map(({ player }) => ({
         id: player.id,
         name: player.displayName,
         ...(player.position === undefined ? {} : { position: player.position }),
         ...(player.photoUrl === undefined ? {} : { photoUrl: player.photoUrl }),
       })),
       matches,
-      results,
+      results: history.results,
       trackedTeamExternalProviderId: team.externalProviderId,
-      canonicalPlayerIds: discovery.canonicalPlayerIds,
+      canonicalPlayerIds,
     });
   }
 
