@@ -408,6 +408,7 @@ export const enMessages = {
     searchPlayersHelp:
       "Current and historical Team players. Type to filter by name.",
     searchingPlayers: "Searching players…",
+    loadMorePlayers: "Load more players",
     playerSearchError: "Players could not be searched right now.",
     noPlayers: "No available players match that search.",
     canonicalIdentity: "Existing canonical identity",

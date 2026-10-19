@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
+import type { Query } from "firebase-admin/firestore";
 
-import { parseMembershipBackfillArguments } from "./backfill-team-player-memberships";
+import {
+  parseMembershipBackfillArguments,
+  readAllQueryPages,
+} from "./backfill-team-player-memberships";
 
 describe("team player membership backfill arguments", () => {
   it("defaults to a bounded dry run", () => {
@@ -44,5 +48,27 @@ describe("team player membership backfill arguments", () => {
     expect(() =>
       parseMembershipBackfillArguments(["--project-id", "demo-local"]),
     ).toThrow(/rejects demo/i);
+  });
+});
+
+describe("team player membership pagination", () => {
+  it("reports the collection and page when a read fails", async () => {
+    const failingQuery = {
+      orderBy() {
+        return this;
+      },
+      limit() {
+        return this;
+      },
+      async get() {
+        throw new Error("simulated outage");
+      },
+    } as unknown as Query;
+
+    await expect(
+      readAllQueryPages(failingQuery, "tracked Team matches", 20, () => {}),
+    ).rejects.toThrow(
+      "Failed to read tracked Team matches page 1: simulated outage",
+    );
   });
 });

@@ -56,9 +56,25 @@ export function mergeTeamPlayerMembership(
   incoming: TeamPlayerMembership,
 ): TeamPlayerMembership {
   if (!existing) return incoming;
+  const presentation =
+    incoming.lastObservedAt >= existing.lastObservedAt ? incoming : existing;
+  const evidence =
+    membershipSourceRank(incoming.source) >=
+    membershipSourceRank(existing.source)
+      ? incoming
+      : existing;
+  const combined = { ...existing, ...incoming };
+  delete combined.sourceMatchId;
+  delete combined.shirtNumber;
   return {
-    ...existing,
-    ...incoming,
+    ...combined,
+    displayName: presentation.displayName,
+    searchName: presentation.searchName,
+    searchPrefixes: presentation.searchPrefixes,
+    source: evidence.source,
+    ...(evidence.sourceMatchId
+      ? { sourceMatchId: evidence.sourceMatchId }
+      : {}),
     firstObservedAt:
       existing.firstObservedAt < incoming.firstObservedAt
         ? existing.firstObservedAt
@@ -68,8 +84,25 @@ export function mergeTeamPlayerMembership(
         ? existing.lastObservedAt
         : incoming.lastObservedAt,
     createdAt: existing.createdAt,
-    ...(incoming.shirtNumber === undefined && existing.shirtNumber !== undefined
-      ? { shirtNumber: existing.shirtNumber }
-      : {}),
+    updatedAt:
+      existing.updatedAt > incoming.updatedAt
+        ? existing.updatedAt
+        : incoming.updatedAt,
+    ...(presentation.shirtNumber === undefined
+      ? existing.shirtNumber === undefined
+        ? {}
+        : { shirtNumber: existing.shirtNumber }
+      : { shirtNumber: presentation.shirtNumber }),
   };
+}
+
+function membershipSourceRank(source: TeamPlayerMembership["source"]): number {
+  switch (source) {
+    case "operator_verified":
+      return 3;
+    case "match_participant":
+      return 2;
+    case "current_squad":
+      return 1;
+  }
 }

@@ -62,6 +62,7 @@ export function AdminLineupEditor({
   const [knownPlayers, setKnownPlayers] = useState(detail.players);
   const [search, setSearch] = useState("");
   const [searchResults, setSearchResults] = useState<AdminPlayerOption[]>([]);
+  const [searchCursor, setSearchCursor] = useState<string | undefined>();
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchComplete, setSearchComplete] = useState(false);
   const [internalId, setInternalId] = useState("");
@@ -147,6 +148,7 @@ export function AdminLineupEditor({
           setSearchResults(
             value.players.filter((player) => !selectedIds.has(player.id)),
           );
+          setSearchCursor(value.nextCursor);
           setKnownPlayers((current) => mergePlayers(current, value.players));
           setSearchComplete(true);
         } catch (caught) {
@@ -154,6 +156,7 @@ export function AdminLineupEditor({
             return;
           setError(messages.playerSearchError);
           setSearchResults([]);
+          setSearchCursor(undefined);
           setSearchComplete(true);
         } finally {
           if (!controller.signal.aborted) setSearchLoading(false);
@@ -166,6 +169,33 @@ export function AdminLineupEditor({
       controller.abort();
     };
   }, [editable, messages.playerSearchError, search, selectedIds]);
+
+  async function loadMorePlayers() {
+    if (!searchCursor || searchLoading) return;
+    setSearchLoading(true);
+    setError("");
+    try {
+      const parameters = new URLSearchParams({
+        query: search.trim(),
+        cursor: searchCursor,
+      });
+      const response = await fetch(`/api/admin/players?${parameters}`, {
+        cache: "no-store",
+      });
+      const value: unknown = await response.json();
+      if (!response.ok || !isPlayerSearchResponse(value)) throw new Error();
+      const available = value.players.filter(
+        (player) => !selectedIds.has(player.id),
+      );
+      setSearchResults((current) => mergePlayers(current, available));
+      setKnownPlayers((current) => mergePlayers(current, value.players));
+      setSearchCursor(value.nextCursor);
+    } catch {
+      setError(messages.playerSearchError);
+    } finally {
+      setSearchLoading(false);
+    }
+  }
 
   const announcements = useMemo<Announcements>(
     () => ({
@@ -501,6 +531,18 @@ export function AdminLineupEditor({
                   />
                 ))}
               </ul>
+            ) : null}
+            {searchCursor ? (
+              <button
+                className="button-utility min-h-11 w-fit px-4"
+                type="button"
+                disabled={searchLoading}
+                onClick={loadMorePlayers}
+              >
+                {searchLoading
+                  ? messages.searchingPlayers
+                  : messages.loadMorePlayers}
+              </button>
             ) : null}
             <details className="game-inset p-4">
               <summary className="cursor-pointer font-bold">

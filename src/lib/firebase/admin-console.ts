@@ -1,4 +1,4 @@
-import { Timestamp, type Firestore } from "firebase-admin/firestore";
+import { FieldPath, Timestamp, type Firestore } from "firebase-admin/firestore";
 
 import { initialClub } from "@/config/club";
 import type {
@@ -79,6 +79,11 @@ export interface AdminPlayerOption {
   photoUrl?: string;
   shirtNumber?: number;
   identityProvenance: "provider" | "operator_verified";
+}
+
+export interface AdminPlayerSearchPage {
+  players: AdminPlayerOption[];
+  nextCursor?: string;
 }
 
 export type AdminParticipantEvidence = Pick<
@@ -341,18 +346,28 @@ export class AdminConsoleService {
     };
   }
 
-  async searchPlayers(query: string): Promise<AdminPlayerOption[]> {
+  async searchPlayers(
+    query: string,
+    cursor?: string,
+  ): Promise<AdminPlayerSearchPage> {
     const normalizedQuery = normalizePlayerSearch(query).slice(0, 80);
+    if (cursor && (cursor.length > 200 || cursor.includes("/"))) {
+      throw new Error("Player search cursor is invalid.");
+    }
     const membershipCollection = this.database.collection(
       `teams/${initialClub.teamId}/playerMemberships`,
     );
-    const membershipSnapshot = await (normalizedQuery
-      ? membershipCollection
-          .where("searchPrefixes", "array-contains", normalizedQuery)
-          .limit(40)
-          .get()
-      : membershipCollection.orderBy("searchName").limit(20).get());
-    const memberships = membershipSnapshot.docs
+    let membershipQuery = (
+      normalizedQuery
+        ? membershipCollection
+            .where("searchPrefixes", "array-contains", normalizedQuery)
+            .orderBy(FieldPath.documentId())
+        : membershipCollection.orderBy(FieldPath.documentId())
+    ).limit(21);
+    if (cursor) membershipQuery = membershipQuery.startAfter(cursor);
+    const membershipSnapshot = await membershipQuery.get();
+    const pageDocuments = membershipSnapshot.docs.slice(0, 20);
+    const memberships = pageDocuments
       .map((document) => fromSnapshot<TeamPlayerMembership>(document))
       .filter((membership) => membership.teamId === initialClub.teamId);
     const observedSnapshots =
@@ -428,11 +443,10 @@ export class AdminConsoleService {
       if (!canonical || !membership) continue;
       resolved.set(canonical.id, { player: canonical, membership });
     }
-    return [...resolved.values()]
+    const playersPage = [...resolved.values()]
       .sort((left, right) =>
         left.player.displayName.localeCompare(right.player.displayName, "es"),
       )
-      .slice(0, 20)
       .map(({ player, membership }) => ({
         id: player.id,
         name: player.displayName,
@@ -445,6 +459,12 @@ export class AdminConsoleService {
           player.identityProvenance ??
           (player.externalProviderId ? "provider" : "operator_verified"),
       }));
+    return {
+      players: playersPage,
+      ...(membershipSnapshot.size > 20 && pageDocuments.at(-1)
+        ? { nextCursor: pageDocuments.at(-1)!.id }
+        : {}),
+    };
   }
 
   private async describeMatch(match: Match): Promise<AdminMatchOperation> {
