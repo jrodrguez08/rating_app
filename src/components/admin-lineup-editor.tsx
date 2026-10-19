@@ -65,8 +65,9 @@ export function AdminLineupEditor({
   const [searchCursor, setSearchCursor] = useState<string | undefined>();
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchComplete, setSearchComplete] = useState(false);
-  const [internalId, setInternalId] = useState("");
   const [internalName, setInternalName] = useState("");
+  const [internalPosition, setInternalPosition] = useState("");
+  const [internalShirtNumber, setInternalShirtNumber] = useState("");
   const [internalVerified, setInternalVerified] = useState(false);
   const [evidence, setEvidence] = useState(
     detail.match.verifiedLineup?.verificationSource ?? "",
@@ -297,43 +298,69 @@ export function AdminLineupEditor({
     setSearchResults([]);
   }
 
-  function addInternalPlayer(lane: LineupLane) {
-    const playerId = internalId.trim();
+  async function addInternalPlayer(lane: LineupLane) {
     const playerNameValue = internalName.trim();
-    if (!internalVerified || !playerId || !playerNameValue) return;
-    if (selectedIds.has(playerId)) {
-      setError(messages.duplicatePlayerError);
-      return;
-    }
+    if (!internalVerified || !playerNameValue || busy) return;
     if (lane === "starters" && starters.length >= 11) {
       setError(messages.starterLimitError);
       return;
     }
-    const participant = participantForLane(
-      {
-        playerId,
-        playerName: playerNameValue,
-        createInternalIdentity: true,
-        evidenceProvenance: "operator_verified",
-      },
-      lane,
-    );
-    setKnownPlayers((current) =>
-      mergePlayers(current, [
+    setBusy(true);
+    try {
+      const allocation = await post("/api/admin/players/internal-id", {
+        matchId: detail.match.id,
+        trackedTeamId: teamId,
+      });
+      const playerId = String(allocation.playerId ?? "");
+      const identityAllocationToken = String(
+        allocation.identityAllocationToken ?? "",
+      );
+      if (!playerId || !identityAllocationToken) throw new Error();
+      const shirtNumber = internalShirtNumber
+        ? Number(internalShirtNumber)
+        : undefined;
+      const participant = participantForLane(
         {
-          id: playerId,
-          name: playerNameValue,
-          identityProvenance: "operator_verified",
+          playerId,
+          playerName: playerNameValue,
+          createInternalIdentity: true,
+          identityAllocationToken,
+          evidenceProvenance: "operator_verified",
+          ...(internalPosition
+            ? {
+                position: internalPosition as EditableParticipant["position"],
+              }
+            : {}),
+          ...(shirtNumber === undefined ? {} : { shirtNumber }),
         },
-      ]),
-    );
-    replaceParticipants(
-      [...participants, participant],
-      movedMessage(playerNameValue, lane, messages),
-    );
-    setInternalId("");
-    setInternalName("");
-    setInternalVerified(false);
+        lane,
+      );
+      setKnownPlayers((current) =>
+        mergePlayers(current, [
+          {
+            id: playerId,
+            name: playerNameValue,
+            identityProvenance: "operator_verified",
+            ...(participant.position ? { position: participant.position } : {}),
+            ...(shirtNumber === undefined ? {} : { shirtNumber }),
+          },
+        ]),
+      );
+      replaceParticipants(
+        [...participants, participant],
+        movedMessage(playerNameValue, lane, messages),
+      );
+      setInternalName("");
+      setInternalPosition("");
+      setInternalShirtNumber("");
+      setInternalVerified(false);
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : messages.genericError,
+      );
+    } finally {
+      setBusy(false);
+    }
   }
 
   function movePlayer(playerId: string, lane: LineupLane) {
@@ -546,7 +573,7 @@ export function AdminLineupEditor({
             ) : null}
             <details className="game-inset p-4">
               <summary className="cursor-pointer font-bold">
-                {messages.advancedActions}
+                {messages.newPlayer}
               </summary>
               <div className="mt-4 grid gap-3">
                 <strong>{messages.internalIdentity}</strong>
@@ -554,19 +581,53 @@ export function AdminLineupEditor({
                   {messages.internalIdentityHelp}
                 </p>
                 <label className="grid gap-2">
-                  <span>{messages.internalPlayerId}</span>
-                  <input
-                    className="game-inset min-h-11 px-3"
-                    value={internalId}
-                    onChange={(event) => setInternalId(event.target.value)}
-                  />
-                </label>
-                <label className="grid gap-2">
                   <span>{messages.playerName}</span>
                   <input
                     className="game-inset min-h-11 px-3"
                     value={internalName}
-                    onChange={(event) => setInternalName(event.target.value)}
+                    onChange={(event) => {
+                      setInternalName(event.target.value);
+                      setSearch(event.target.value);
+                      setSearchComplete(false);
+                    }}
+                    required
+                  />
+                </label>
+                {internalName.trim() && searchResults.length > 0 ? (
+                  <p className="text-warning text-sm" role="status">
+                    {messages.potentialDuplicates}
+                  </p>
+                ) : null}
+                <label className="grid gap-2">
+                  <span>{messages.playerPosition}</span>
+                  <select
+                    className="game-inset min-h-11 px-3"
+                    value={internalPosition}
+                    onChange={(event) =>
+                      setInternalPosition(event.target.value)
+                    }
+                  >
+                    <option value="">{messages.optionalField}</option>
+                    {Object.entries(messages.positions).map(
+                      ([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ),
+                    )}
+                  </select>
+                </label>
+                <label className="grid gap-2">
+                  <span>{messages.shirtNumber}</span>
+                  <input
+                    className="game-inset min-h-11 px-3"
+                    type="number"
+                    min="1"
+                    max="99"
+                    value={internalShirtNumber}
+                    onChange={(event) =>
+                      setInternalShirtNumber(event.target.value)
+                    }
                   />
                 </label>
                 <label className="flex min-h-11 items-center gap-3">
@@ -584,20 +645,20 @@ export function AdminLineupEditor({
                     className="button-utility min-h-11 px-3"
                     type="button"
                     disabled={
-                      !internalId ||
                       !internalName ||
                       !internalVerified ||
+                      busy ||
                       starters.length >= 11
                     }
-                    onClick={() => addInternalPlayer("starters")}
+                    onClick={() => void addInternalPlayer("starters")}
                   >
                     {messages.addStarter}
                   </button>
                   <button
                     className="button-utility min-h-11 px-3"
                     type="button"
-                    disabled={!internalId || !internalName || !internalVerified}
-                    onClick={() => addInternalPlayer("available")}
+                    disabled={!internalName || !internalVerified || busy}
+                    onClick={() => void addInternalPlayer("available")}
                   >
                     {messages.addSubstitute}
                   </button>

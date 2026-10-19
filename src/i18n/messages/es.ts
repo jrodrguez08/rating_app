@@ -431,6 +431,12 @@ export const esMessages = {
     },
     addStarter: "Agregar titular",
     addSubstitute: "Agregar suplente",
+    newPlayer: "Nuevo jugador",
+    potentialDuplicates:
+      "Revise los posibles duplicados mostrados en el plantel antes de crear una identidad.",
+    playerPosition: "Posición (opcional)",
+    shirtNumber: "Número de camiseta (opcional)",
+    optionalField: "Sin especificar",
     internalIdentity: "Agregar identidad interna verificada",
     advancedActions: "Acciones excepcionales",
     internalIdentityHelp:
@@ -454,7 +460,9 @@ export const esMessages = {
       "Mantenga aquí a quienes todavía no tienen evidencia suficiente de participación.",
     groupEmpty: "Todavía no hay jugadores en este grupo.",
     move: "Mover",
+    dragHandle: "Arrastrar",
     dragPlayer: "Mover a {player}",
+    moveDestination: "Destino para {player}",
     dragInstructions:
       "Presione espacio para tomar al jugador, use las flechas para moverlo y presione espacio para soltarlo. También puede usar los botones de acción.",
     dragStarted: "Se tomó a {player}.",
@@ -535,6 +543,22 @@ export const esMessages = {
     coachConflictError:
       "La asignación o identidad existente entra en conflicto con la propuesta.",
     reconciliation: "Conciliación con el proveedor",
+    identityReconciliation: "Conciliar identidad",
+    identityReconciliationTitle: "Conciliación de identidad de jugador",
+    identityReconciliationHelp:
+      "Compare una identidad interna verificada con un ID genuino de API-Football. El sistema nunca decide por nombre.",
+    searchManualPlayer: "Buscar jugador interno verificado",
+    selectedCanonicalPlayer: "Identidad canónica seleccionada: {player}",
+    apiFootballPlayerId: "ID genuino de API-Football",
+    samePerson: "Son la misma persona",
+    notSamePerson: "No son la misma persona",
+    cancel: "Cancelar",
+    identityComparison: "Comparación de identidades",
+    manualIdentity: "Identidad interna canónica",
+    providerIdentity: "Identidad de API-Football",
+    exactChanges: "Cambios exactos propuestos",
+    applyIdentityDecision: "Aplicar decisión verificada",
+    identityReconciliationApplied: "La decisión de identidad fue aplicada.",
     reconciliationStatuses: {
       matched: "La evidencia del proveedor coincide",
       provider_missing: "El proveedor todavía no publicó la alineación",

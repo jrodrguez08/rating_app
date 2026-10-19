@@ -3,6 +3,7 @@ import {
   membershipFromPlayer,
   mergeTeamPlayerMembership,
 } from "@/application/team-player-membership";
+import { resolvePersistedPlayerProviderAlias } from "@/application/reconcile-player-identities";
 import { preserveMonotonicMatchStatus } from "@/domain/match-status";
 import { aggregateMatchResult } from "@/domain/result-aggregation";
 import type {
@@ -21,6 +22,7 @@ import type {
   TeamPlayerMembership,
   VerifiedCoachAssignment,
 } from "@/domain/models";
+import { mergePlayerForProviderSync } from "@/domain/player-identity";
 import type {
   FootballSyncStore,
   MatchLifecycleStore,
@@ -155,23 +157,6 @@ function sortObject(value: unknown): unknown {
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([key, field]) => [key, sortObject(field)]),
   );
-}
-
-function assertMatchingPlayerProviderAlias(
-  existing: PlayerProviderAlias,
-  proposed: PlayerProviderAlias,
-): void {
-  if (
-    existing.canonicalPlayerId !== proposed.canonicalPlayerId ||
-    existing.canonicalExternalProviderPlayerId !==
-      proposed.canonicalExternalProviderPlayerId ||
-    existing.externalProvider !== proposed.externalProvider ||
-    existing.externalProviderPlayerId !== proposed.externalProviderPlayerId
-  ) {
-    throw new Error(
-      `Player provider alias ${proposed.id} conflicts with its persisted canonical identity.`,
-    );
-  }
 }
 
 export class EmulatorFootballSyncStore
@@ -421,9 +406,19 @@ export class EmulatorFootballSyncStore
   }
 
   async upsertPlayers(players: Player[]): Promise<SyncWriteCounts> {
-    const counts = await this.upsert("players", players);
+    const merged: Player[] = [];
+    for (const player of players) {
+      const existing = await this.get("players", player.id);
+      merged.push(
+        mergePlayerForProviderSync(
+          existing as unknown as Player | undefined,
+          player,
+        ),
+      );
+    }
+    const counts = await this.upsert("players", merged);
     await this.upsertTeamPlayerMemberships(
-      players.flatMap((player) => {
+      merged.flatMap((player) => {
         const membership = membershipFromPlayer(player, player.updatedAt);
         return membership === null ? [] : [membership];
       }),
@@ -450,8 +445,16 @@ export class EmulatorFootballSyncStore
         continue;
       }
       const persisted = existing as unknown as PlayerProviderAlias;
-      assertMatchingPlayerProviderAlias(persisted, proposed);
-      resolved.push(persisted);
+      const selected = resolvePersistedPlayerProviderAlias(persisted, proposed);
+      if (selected !== persisted) {
+        await this.put(
+          "playerProviderAliases",
+          selected.id,
+          selected as unknown as Record<string, unknown>,
+          selected.createdAt,
+        );
+      }
+      resolved.push(selected);
     }
     return resolved;
   }

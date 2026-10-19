@@ -6,6 +6,7 @@ import {
   ADMIN_CSRF_COOKIE,
   ADMIN_LIFECYCLE_ACTION_COOKIE,
   ADMIN_LINEUP_ACTION_COOKIE,
+  ADMIN_PLAYER_IDENTITY_ACTION_COOKIE,
   ADMIN_SESSION_COOKIE,
 } from "@/lib/server/admin-auth";
 import {
@@ -31,6 +32,12 @@ export async function POST(request: NextRequest) {
       httpOnly: true,
       sameSite: "strict",
       path: "/api/admin/lineup/apply",
+      maxAge: 0,
+    });
+    response.cookies.set(ADMIN_PLAYER_IDENTITY_ACTION_COOKIE, "", {
+      httpOnly: true,
+      sameSite: "strict",
+      path: "/api/admin/player-identities/apply",
       maxAge: 0,
     });
     response.cookies.set(ADMIN_LIFECYCLE_ACTION_COOKIE, "", {

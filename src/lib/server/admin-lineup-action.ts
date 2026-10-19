@@ -10,6 +10,7 @@ export interface AdminLineupParticipantAction {
   playerId: string;
   playerName?: string;
   createInternalIdentity: boolean;
+  identityAllocationToken?: string;
   squadRole: SquadRole;
   participationStatus: ParticipationStatus;
   shirtNumber?: number;
@@ -39,6 +40,8 @@ export function hashAdminLineupAction(action: AdminLineupAction): string {
             playerId: participant.playerId,
             playerName: participant.playerName ?? null,
             createInternalIdentity: participant.createInternalIdentity,
+            identityAllocationToken:
+              participant.identityAllocationToken ?? null,
             squadRole: participant.squadRole,
             participationStatus: participant.participationStatus,
             shirtNumber: participant.shirtNumber ?? null,

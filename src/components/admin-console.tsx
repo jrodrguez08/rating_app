@@ -252,6 +252,12 @@ export function AdminConsole({
   return (
     <div className="grid gap-6">
       <div className="flex flex-wrap justify-end gap-3">
+        <Link
+          className="button-secondary inline-flex min-h-11 items-center px-4"
+          href="/admin/player-identities"
+        >
+          {messages.identityReconciliation}
+        </Link>
         <button
           className="game-inset min-h-11 px-4"
           onClick={() => window.location.reload()}

@@ -20,6 +20,11 @@ import {
   hashAdminLineupAction,
   type AdminLineupAction,
 } from "@/lib/server/admin-lineup-action";
+import {
+  adminPlayerIdentityResourceId,
+  hashAdminPlayerIdentityAction,
+  type AdminPlayerIdentityAction,
+} from "@/lib/server/admin-player-identity-action";
 import { verifyAdminPassphrase } from "@/lib/server/admin-passphrase";
 
 const PREVIEW_LIFETIME_MS = 5 * 60 * 1000;
@@ -34,11 +39,16 @@ export type AdminAuditAction =
   | "coach_assignment_apply"
   | "lineup_preparation_passphrase"
   | "lineup_preparation_apply"
+  | "player_identity_passphrase"
+  | "player_identity_apply"
   | "lifecycle_request_passphrase"
   | "lifecycle_request_apply";
 
 type AdminSensitiveAction =
-  AdminCoachAction | AdminLineupAction | AdminLifecycleAction;
+  | AdminCoachAction
+  | AdminLineupAction
+  | AdminLifecycleAction
+  | AdminPlayerIdentityAction;
 
 export class AdminSecurityError extends Error {
   constructor(
@@ -64,7 +74,7 @@ export class AdminSecurityStore {
     const payload = Buffer.from(
       JSON.stringify({
         operatorUid,
-        matchId: action.matchId,
+        resourceId: adminSensitiveResourceId(action),
         actionHash: hashAdminSensitiveAction(action),
         expiresAt,
       }),
@@ -106,7 +116,10 @@ export class AdminSecurityStore {
         );
         transaction.create(reference, {
           operatorUid: values.operatorUid,
-          matchId: values.action.matchId,
+          resourceId: adminSensitiveResourceId(values.action),
+          ...(adminSensitiveMatchId(values.action)
+            ? { matchId: adminSensitiveMatchId(values.action) }
+            : {}),
           actionHash: hashAdminSensitiveAction(values.action),
           createdAt: Timestamp.fromDate(now),
           expiresAt: expiration,
@@ -120,7 +133,8 @@ export class AdminSecurityStore {
   async audit(values: {
     operatorUid: string;
     action: AdminAuditAction;
-    matchId: string;
+    matchId?: string;
+    resourceId?: string;
     coachId?: string;
     evidenceReference?: string;
     verificationReason?: string;
@@ -129,7 +143,8 @@ export class AdminSecurityStore {
     const reference = await this.database.collection("adminAudit").add({
       operatorUid: values.operatorUid,
       action: values.action,
-      matchId: values.matchId,
+      ...(values.matchId ? { matchId: values.matchId } : {}),
+      ...(values.resourceId ? { resourceId: values.resourceId } : {}),
       ...(values.coachId ? { coachId: values.coachId } : {}),
       ...(values.evidenceReference
         ? { evidenceReference: values.evidenceReference }
@@ -171,8 +186,8 @@ export class AdminSecurityStore {
       data === null ||
       !("operatorUid" in data) ||
       data.operatorUid !== operatorUid ||
-      !("matchId" in data) ||
-      data.matchId !== action.matchId ||
+      !("resourceId" in data) ||
+      data.resourceId !== adminSensitiveResourceId(action) ||
       !("actionHash" in data) ||
       data.actionHash !== hashAdminSensitiveAction(action) ||
       !Number.isFinite(expiresAt) ||
@@ -260,9 +275,22 @@ export class AdminSecurityStore {
 }
 
 function hashAdminSensitiveAction(action: AdminSensitiveAction): string {
+  if ("decision" in action) return hashAdminPlayerIdentityAction(action);
   if ("participants" in action) return hashAdminLineupAction(action);
   if ("coachId" in action) return hashAdminCoachAction(action);
   return hashAdminLifecycleAction(action);
+}
+
+function adminSensitiveResourceId(action: AdminSensitiveAction): string {
+  return "decision" in action
+    ? adminPlayerIdentityResourceId(action)
+    : action.matchId;
+}
+
+function adminSensitiveMatchId(
+  action: AdminSensitiveAction,
+): string | undefined {
+  return "decision" in action ? undefined : action.matchId;
 }
 
 function signPreview(payload: string): string {

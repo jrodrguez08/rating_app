@@ -10,7 +10,10 @@ import {
   providerEntityId,
 } from "@/domain/player-identity";
 
-import { planPlayerIdentityReconciliation } from "./reconcile-player-identities";
+import {
+  planPlayerIdentityReconciliation,
+  resolvePersistedPlayerProviderAlias,
+} from "./reconcile-player-identities";
 
 const reconciliation = {
   externalProvider: "api-football",
@@ -194,6 +197,33 @@ describe("player identity reconciliation", () => {
         canonicalPlayerId: canonicalId,
         createdAt: selfAlias.createdAt,
       }),
+    );
+  });
+
+  it("preserves an operator-reviewed alias when sync proposes a default self mapping", () => {
+    const externalPlayerId = "99999";
+    const providerId = providerEntityId(
+      "player",
+      "api-football",
+      externalPlayerId,
+    );
+    const existing: PlayerProviderAlias = {
+      id: playerProviderAliasId("api-football", externalPlayerId),
+      canonicalPlayerId: `player-internal-${"a".repeat(32)}`,
+      canonicalExternalProviderPlayerId: externalPlayerId,
+      externalProvider: "api-football",
+      externalProviderPlayerId: externalPlayerId,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: now,
+    };
+    const proposed: PlayerProviderAlias = {
+      ...existing,
+      canonicalPlayerId: providerId,
+      createdAt: now,
+    };
+
+    expect(resolvePersistedPlayerProviderAlias(existing, proposed)).toEqual(
+      existing,
     );
   });
 });

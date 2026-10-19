@@ -23,6 +23,8 @@ export function hashAdminLineupDraft(action: AdminLineupDraftAction): string {
             playerId: participant.playerId,
             playerName: participant.playerName,
             createInternalIdentity: participant.createInternalIdentity,
+            identityAllocationToken:
+              participant.identityAllocationToken ?? null,
             squadRole: participant.squadRole,
             participationStatus: participant.participationStatus,
             shirtNumber: participant.shirtNumber ?? null,

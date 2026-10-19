@@ -186,6 +186,22 @@ export interface PlayerProviderAlias {
   createdAt: string;
   updatedAt: string;
 }
+export interface PlayerIdentityReview {
+  id: EntityId;
+  canonicalPlayerId: EntityId;
+  providerPlayerId: EntityId;
+  externalProvider: string;
+  externalProviderPlayerId: string;
+  decision: "nonmatch";
+  status: "active" | "corrected";
+  verificationSource: string;
+  verificationReason: string;
+  operatorId: string;
+  reviewedAt: string;
+  correctedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
 export interface TeamPlayerMembership {
   playerId: EntityId;
   teamId: EntityId;
@@ -274,6 +290,7 @@ export interface AdminLineupDraftParticipant {
   playerId: EntityId;
   playerName: string;
   createInternalIdentity: boolean;
+  identityAllocationToken?: string;
   squadRole: SquadRole;
   participationStatus: ParticipationStatus;
   shirtNumber?: number;

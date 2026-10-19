@@ -21,6 +21,7 @@ import {
   hashAdminLineupAction,
 } from "@/lib/server/admin-lineup-action";
 import { adminChallengeDocumentId } from "@/lib/server/admin-coach-action";
+import { verifyInternalPlayerAllocationToken } from "@/lib/server/admin-player-identity-allocation";
 
 import { getServerFirestore } from "./server";
 
@@ -282,7 +283,19 @@ export class AdminVerifiedLineupService {
       for (const [index, participant] of input.participants.entries()) {
         const snapshot = playerSnapshots[index];
         if (participant.createInternalIdentity) {
-          if (snapshot.exists || !participant.playerName) {
+          if (
+            snapshot.exists ||
+            !participant.playerName ||
+            !verifyInternalPlayerAllocationToken(
+              participant.identityAllocationToken,
+              {
+                playerId: participant.playerId,
+                ownerId: input.operatorId,
+                matchId: input.matchId,
+                trackedTeamId: input.trackedTeamId,
+              },
+            )
+          ) {
             throw new AdminVerifiedLineupRejectedError(
               "Internal player identity conflicts with an existing Player.",
             );
@@ -567,6 +580,19 @@ function validateInput(input: AdminVerifiedLineupInput): void {
           participant.enteredAtMinute > 130))
     ) {
       throw new AdminVerifiedLineupRejectedError("Lineup input is invalid.");
+    }
+    if (
+      participant.createInternalIdentity !==
+      verifyInternalPlayerAllocationToken(participant.identityAllocationToken, {
+        playerId: participant.playerId,
+        ownerId: input.operatorId,
+        matchId: input.matchId,
+        trackedTeamId: input.trackedTeamId,
+      })
+    ) {
+      throw new AdminVerifiedLineupRejectedError(
+        "Internal Player allocation is invalid.",
+      );
     }
     ids.add(participant.playerId);
     if (participant.squadRole === "starter") starters += 1;
