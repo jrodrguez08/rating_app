@@ -30,6 +30,7 @@ import {
 } from "@/application/team-player-membership";
 import { validateBallotRatings } from "@/domain/ballot-validation";
 import { preserveMonotonicMatchStatus } from "@/domain/match-status";
+import { hasAuthoritativeFinalWhistle } from "@/domain/manual-voting";
 import { aggregateMatchResult } from "@/domain/result-aggregation";
 import {
   compareVoteWithResult,
@@ -102,6 +103,8 @@ const TIMESTAMP_FIELDS = new Set([
   "finishedObservedAt",
   "lastLifecycleRequestedAt",
   "ratingReadyAt",
+  "manualFinalWhistleAttestedAt",
+  "attestedAt",
   "votingOpensAt",
   "votingClosesAt",
   "votingReopenedAt",
@@ -649,7 +652,7 @@ export class AdminVotingWindowService {
       const trustedAt = matchSnapshot.readTime.toDate();
       const window = requireAuditableWindow(match);
       if (
-        match.status !== "finished" ||
+        !hasAuthoritativeFinalWhistle(match) ||
         match.ratingState !== "rating_closed"
       ) {
         throw new Error(
@@ -755,7 +758,7 @@ export class AdminVotingWindowService {
       const trustedAt = matchSnapshot.readTime.toDate();
       requireAuditableWindow(match);
       if (
-        match.status !== "finished" ||
+        !hasAuthoritativeFinalWhistle(match) ||
         getVotingWindowState(match, trustedAt) !== "active"
       ) {
         throw new Error("Only an active finished rating window can be closed.");
@@ -1090,7 +1093,7 @@ export class AdminVerifiedCoachService {
         );
       }
       if (
-        match.status !== "finished" ||
+        !["scheduled", "live", "finished"].includes(match.status) ||
         !["not_ready", "preparing_rating"].includes(match.ratingState) ||
         resultSnapshot.exists ||
         !ballots.empty ||
@@ -1283,7 +1286,7 @@ export class AdminVotingWindowNotificationStore implements VotingWindowNotificat
       const windowSequence = match.votingReopenCount ?? 0;
       const window = getEffectiveVotingWindow(match);
       if (
-        match.status !== "finished" ||
+        !hasAuthoritativeFinalWhistle(match) ||
         window === null ||
         getVotingWindowState(match, trustedAt) !== "active"
       ) {
@@ -1506,7 +1509,7 @@ export class AdminFootballSyncStore
       }
       const window = getEffectiveVotingWindow(match);
       if (
-        match.status !== "finished" ||
+        !hasAuthoritativeFinalWhistle(match) ||
         match.ratingState !== "rating_ready" ||
         window === null ||
         (closeEarly
@@ -2305,6 +2308,29 @@ export class AdminFootballSyncStore
     const counts = { created: 0, updated: 0, unchanged: 0 };
     for (const incoming of values) {
       const reference = this.database.doc(`${collection}/${incoming.id}`);
+      if (preserveLifecycle) {
+        const disposition = await this.database.runTransaction(
+          async (transaction) => {
+            const snapshot = await transaction.get(reference);
+            if (!snapshot.exists) {
+              transaction.create(reference, toDocument(incoming));
+              return "created" as const;
+            }
+            const existing = fromDocument<T>(snapshot);
+            const merged = preserveMatchLifecycle(
+              existing as unknown as Match,
+              incoming as unknown as Match,
+            ) as unknown as T;
+            if (comparable(existing) === comparable(merged)) {
+              return "unchanged" as const;
+            }
+            transaction.set(reference, toDocument(merged));
+            return "updated" as const;
+          },
+        );
+        counts[disposition] += 1;
+        continue;
+      }
       const snapshot = await reference.get();
       if (!snapshot.exists) {
         await reference.create(toDocument(incoming));
@@ -2312,12 +2338,11 @@ export class AdminFootballSyncStore
         continue;
       }
       const existing = fromDocument<T>(snapshot);
-      const merged = preserveLifecycle
-        ? (preserveMatchLifecycle(
-            existing as unknown as Match,
-            incoming as unknown as Match,
-          ) as unknown as T)
-        : ({ ...existing, ...incoming, createdAt: existing.createdAt } as T);
+      const merged = {
+        ...existing,
+        ...incoming,
+        createdAt: existing.createdAt,
+      } as T;
       if (comparable(existing) === comparable(merged)) counts.unchanged += 1;
       else {
         await reference.set(toDocument(merged));
@@ -2760,6 +2785,14 @@ function preserveMatchLifecycle(existing: Match, incoming: Match): Match {
     ...(existing.votingClosesAt === undefined
       ? {}
       : { votingClosesAt: existing.votingClosesAt }),
+    ...(existing.votingOpeningMode === undefined
+      ? {}
+      : { votingOpeningMode: existing.votingOpeningMode }),
+    ...(existing.manualFinalWhistleAttestedAt === undefined
+      ? {}
+      : {
+          manualFinalWhistleAttestedAt: existing.manualFinalWhistleAttestedAt,
+        }),
     ...(existing.votingReopenedAt === undefined
       ? {}
       : { votingReopenedAt: existing.votingReopenedAt }),

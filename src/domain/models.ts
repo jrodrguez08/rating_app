@@ -119,6 +119,8 @@ export interface Match {
   ratingReadyAt?: string;
   votingOpensAt?: string;
   votingClosesAt?: string;
+  votingOpeningMode?: "provider" | "manual";
+  manualFinalWhistleAttestedAt?: string;
   votingReopenedAt?: string;
   votingReopenCount?: number;
   effectiveVotingOpensAt?: string;
@@ -136,6 +138,19 @@ export interface Match {
   externalProviderFixtureId: string;
   createdAt: string;
   updatedAt: string;
+}
+export interface ManualFinalWhistleAttestation {
+  matchId: EntityId;
+  trackedTeamId: EntityId;
+  externalFixtureId: string;
+  operatorId: string;
+  actualMatchEnded: true;
+  verificationSource: string;
+  verificationReason: string;
+  providerStatusObserved: MatchStatus;
+  provenance: "operator_verified";
+  attestedAt: string;
+  createdAt: string;
 }
 export type LineupCaptureOutcome =
   | "attempting"

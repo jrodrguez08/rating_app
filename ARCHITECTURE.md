@@ -41,6 +41,7 @@ matches/{matchId}/verifiedCoachAssignments/head-coach
 matches/{matchId}/verifiedLineups/current
 matches/{matchId}/lineupDrafts/{ownerUid}
 matches/{matchId}/lineupReconciliations/provider
+matches/{matchId}/finalWhistleAttestations/manual
 matches/{matchId}/ballots/{voterId}
 matches/{matchId}/results/summary
 matches/{matchId}/resultRevisions/reopen-{sequence}
@@ -50,6 +51,12 @@ standings/{trackedTeamId}
 ```
 
 The original `ratingReadyAt`, `votingOpensAt`, and `votingClosesAt` fields remain the first-window audit record. An exceptional reopen adds `votingReopenedAt`, monotonic `votingReopenCount`, and the current `effectiveVotingOpensAt`/`effectiveVotingClosesAt`; ordinary matches continue to use the original bounds. `votingClosedEarlyAt` records an operator close. Provider synchronization preserves all of these lifecycle fields.
+
+`votingOpeningMode` records whether the first window came from provider-confirmed lifecycle readiness or the manual final-whistle operation. The shared manual-status guard permits `scheduled`, `live`, and `finished`, allowing independent final-whistle evidence to bridge provider delay, and rejects `postponed`, `suspended`, `cancelled`, and `abandoned`. Preview and apply both use the guard, while apply evaluates the freshly read Match inside the same Firestore transaction as every resulting write. Provider Match upserts also read and preserve lifecycle fields transactionally, so a concurrent status refresh and manual apply serialize: an ineligible status observed first rejects opening, while a committed manual window observed first remains authoritative. A manual opening atomically creates `finalWhistleAttestations/manual`, stores `manualFinalWhistleAttestedAt`, and establishes the same immutable original voting timestamps. The attestation binds the Match, tracked Team, provider fixture, operator, HTTPS evidence, reason, observed provider status, and trusted server time without fabricating provider `FT`. Close, notification, aggregation, archive, and reopen accept that durable attestation as final-whistle authority while voting and eligibility keep their existing rules. Later provider synchronization preserves the mode, attestation timestamp, and window.
+
+`AdminManualVotingService` is the sole manual-opening mutation boundary. Preview and apply read the authoritative verified lineup and its materialized participants, canonical Player documents, verified coach and assignment, reconciliation receipt, protected ballots/results/revisions, and existing attestation. Apply consumes the exact short-lived challenge and creates the attestation, Match transition, notification state, and deterministic success audit in one transaction. It performs no football-provider request. Exact retries return the stored audit plan without repeating writes.
+
+The Match detail loads the bounded canonical coach roster and exposes the existing `AdminVerifiedCoachService` flow for scheduled, live, or finished Matches whose rating state remains mutable. Coach verification itself never attests final whistle or advances lifecycle state. Existing ballots, results, revisions, a voting window, or incompatible identity evidence still reject the transaction.
 
 Each original or reopened window also has one server-owned operator-notification generation. `votingOpenNotificationWindow` uses `0` for the original window and the monotonic reopen count afterward. Status, attempt, lease, first-attempt, sent timestamp, and provider-message fields live on the Match so concurrent lifecycle or operator processes can transactionally claim one send and later retries can observe its durable outcome. Provider synchronization preserves these fields. Ballots, voters, and aggregate data are never notification inputs.
 

@@ -29,6 +29,29 @@ beforeAll(() => {
 afterAll(() => deleteApp(app));
 
 describe("verified coach assignment persistence", () => {
+  it.each(["scheduled", "live"] as const)(
+    "permits guarded fixture coach preparation while provider status is %s",
+    async (status) => {
+      const matchId = `verified-coach-${status}`;
+      await seedMatch(matchId);
+      await database.doc(`matches/${matchId}`).update({ status });
+      const input = assignmentInput(matchId);
+      const token = challengeToken(`coach-${status}`);
+      await seedChallenge(input, token);
+
+      await expect(
+        service.assignAuthorized(input, token),
+      ).resolves.toMatchObject({
+        disposition: "committed",
+      });
+      expect(
+        (await database.doc(`matches/${matchId}`).get()).data(),
+      ).toMatchObject({
+        status,
+        ratingState: "preparing_rating",
+      });
+    },
+  );
   it("dry-runs without writes, applies idempotently, and rejects conflicts", async () => {
     const matchId = "verified-coach-dry-run";
     await seedMatch(matchId);

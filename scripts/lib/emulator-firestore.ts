@@ -5,6 +5,7 @@ import {
 } from "@/application/team-player-membership";
 import { resolvePersistedPlayerProviderAlias } from "@/application/reconcile-player-identities";
 import { preserveMonotonicMatchStatus } from "@/domain/match-status";
+import { hasAuthoritativeFinalWhistle } from "@/domain/manual-voting";
 import { aggregateMatchResult } from "@/domain/result-aggregation";
 import type {
   Ballot,
@@ -248,7 +249,7 @@ export class EmulatorFootballSyncStore
     }
     const window = getEffectiveVotingWindow(match);
     if (
-      match.status !== "finished" ||
+      !hasAuthoritativeFinalWhistle(match) ||
       match.ratingState !== "rating_ready" ||
       window === null ||
       now < new Date(window.closesAt)
@@ -868,6 +869,15 @@ function preserveMatchLifecycle(
       : {}),
     ...(typeof existing.votingClosesAt === "string"
       ? { votingClosesAt: existing.votingClosesAt }
+      : {}),
+    ...(existing.votingOpeningMode === "provider" ||
+    existing.votingOpeningMode === "manual"
+      ? { votingOpeningMode: existing.votingOpeningMode }
+      : {}),
+    ...(typeof existing.manualFinalWhistleAttestedAt === "string"
+      ? {
+          manualFinalWhistleAttestedAt: existing.manualFinalWhistleAttestedAt,
+        }
       : {}),
     ...(typeof existing.votingReopenedAt === "string"
       ? { votingReopenedAt: existing.votingReopenedAt }

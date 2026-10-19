@@ -105,6 +105,7 @@ export interface AdminMatchDetail {
   match: AdminMatchOperation;
   participants: AdminParticipantEvidence[];
   players: AdminPlayerOption[];
+  coaches?: AdminCoachOption[];
   draft?: AdminLineupDraft;
   reconciliation?: VerifiedLineupReconciliation;
 }
@@ -179,6 +180,7 @@ export class AdminConsoleService {
       metadataSnapshot,
       draftSnapshot,
       reconciliationSnapshot,
+      coachesSnapshot,
     ] = await Promise.all([
       this.database.collection(`matches/${matchId}/participants`).get(),
       this.database.doc(`matches/${matchId}/verifiedLineups/current`).get(),
@@ -188,6 +190,11 @@ export class AdminConsoleService {
         : Promise.resolve(undefined),
       this.database
         .doc(`matches/${matchId}/lineupReconciliations/provider`)
+        .get(),
+      this.database
+        .collection("coaches")
+        .orderBy("updatedAt", "desc")
+        .limit(100)
         .get(),
     ]);
     const persistedParticipants = participantSnapshot.docs.map((snapshot) =>
@@ -344,6 +351,17 @@ export class AdminConsoleService {
             (player.externalProviderId ? "provider" : "operator_verified"),
         }))
         .sort((left, right) => left.name.localeCompare(right.name, "es")),
+      coaches: coachesSnapshot.docs.map((snapshot) => {
+        const coach = fromSnapshot<Coach>(snapshot);
+        return {
+          id: coach.id,
+          name: coach.displayName,
+          provenance: coach.identityProvenance ?? "provider",
+          ...(coach.externalProviderId
+            ? { externalProviderId: coach.externalProviderId }
+            : {}),
+        };
+      }),
       ...(draft ? { draft } : {}),
       ...(reconciliation ? { reconciliation } : {}),
     };
