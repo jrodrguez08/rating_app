@@ -3,12 +3,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type * as AdminRequestModule from "@/lib/server/admin-request";
 import { AdminLineupError } from "@/lib/server/admin-lineup-error";
+import { AdminAuthorizationError } from "@/lib/server/admin-auth";
 
 import { POST } from "./route";
 
 const mocks = vi.hoisted(() => ({
   preview: vi.fn(),
   issuePreview: vi.fn(),
+  requireAdminRequest: vi.fn(),
 }));
 
 vi.mock("@/lib/firebase/admin-lineup", () => ({
@@ -27,7 +29,7 @@ vi.mock("@/lib/server/admin-request", async (importOriginal) => {
   const actual = await importOriginal<typeof AdminRequestModule>();
   return {
     ...actual,
-    requireAdminRequest: vi.fn().mockResolvedValue({ uid: "owner-uid" }),
+    requireAdminRequest: mocks.requireAdminRequest,
   };
 });
 
@@ -35,22 +37,29 @@ const action = {
   matchId: "match-10a50b08075ca1f0646e5b6d",
   trackedTeamId: "club-sport-herediano",
   externalFixtureId: "1551706",
-  participants: Array.from({ length: 11 }, (_, index) =>
-    index === 10
+  participants: Array.from({ length: 21 }, (_, index) =>
+    index === 20
       ? {
           playerId: `player-internal-${"a".repeat(32)}`,
           playerName: "D. Gonzalez",
           createInternalIdentity: true,
           identityAllocationToken: "sensitive-allocation-token",
-          squadRole: "starter",
-          participationStatus: "confirmed_starter",
+          squadRole: "substitute",
+          participationStatus: "confirmed_substitute",
+          enteredAtMinute: 78,
         }
       : {
           playerId: `player-${index + 1}`,
           playerName: `Jugador ${index + 1}`,
           createInternalIdentity: false,
-          squadRole: "starter",
-          participationStatus: "confirmed_starter",
+          squadRole: index < 11 ? "starter" : "substitute",
+          participationStatus:
+            index < 11
+              ? "confirmed_starter"
+              : index < 15
+                ? "confirmed_substitute"
+                : "unused_substitute",
+          ...(index >= 11 && index < 15 ? { enteredAtMinute: 50 + index } : {}),
         },
   ),
   verificationSource: "https://example.com/fixture-1551706",
@@ -60,6 +69,8 @@ const action = {
 beforeEach(() => {
   mocks.preview.mockReset();
   mocks.issuePreview.mockReset();
+  mocks.requireAdminRequest.mockReset();
+  mocks.requireAdminRequest.mockResolvedValue({ uid: "owner-uid" });
   mocks.issuePreview.mockResolvedValue({
     token: "preview-token",
     expiresAt: "2026-10-19T12:00:00.000Z",
@@ -67,6 +78,34 @@ beforeEach(() => {
 });
 
 describe("admin verified lineup preview route", () => {
+  it("rejects an unauthorized request before parsing or reading lineup data", async () => {
+    mocks.requireAdminRequest.mockRejectedValue(
+      new AdminAuthorizationError(401),
+    );
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(401);
+    expect(mocks.preview).not.toHaveBeenCalled();
+    expect(mocks.issuePreview).not.toHaveBeenCalled();
+  });
+
+  it("accepts the reported 11 starter, five entrant, five unused structure", async () => {
+    mocks.preview.mockResolvedValue({
+      matchId: action.matchId,
+      participantCreates: 21,
+    });
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(200);
+    expect(mocks.preview).toHaveBeenCalledWith({
+      ...action,
+      operatorId: "owner-uid",
+    });
+    expect(mocks.issuePreview).toHaveBeenCalledWith("owner-uid", action);
+  });
+
   it("returns a stable actionable conflict without exposing internal details", async () => {
     mocks.preview.mockRejectedValue(
       new AdminLineupError(
@@ -87,6 +126,24 @@ describe("admin verified lineup preview route", () => {
     });
     expect(body.error).not.toContain("sensitive internal detail");
     expect(response.headers.get("X-Request-ID")).toBe(body.requestId);
+  });
+
+  it("identifies the missing provider Team field in Spanish", async () => {
+    mocks.preview.mockRejectedValue(
+      new AdminLineupError(
+        "LINEUP_TRACKED_TEAM_PROVIDER_ID_MISSING",
+        "internal detail",
+      ),
+    );
+
+    const response = await POST(request());
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body).toMatchObject({
+      code: "LINEUP_TRACKED_TEAM_PROVIDER_ID_MISSING",
+      error: "Falta la identidad de proveedor del equipo seleccionado.",
+    });
   });
 
   it("returns 500 and a correlation ID for an unexpected failure", async () => {
