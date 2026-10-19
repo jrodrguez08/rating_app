@@ -2,6 +2,8 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 import { isInternalPlayerId } from "@/domain/player-identity";
 
+import { InternalPlayerIdentityConfigurationError } from "./admin-lineup-error";
+
 export interface InternalPlayerAllocation {
   playerId: string;
   ownerId: string;
@@ -9,12 +11,15 @@ export interface InternalPlayerAllocation {
   trackedTeamId: string;
 }
 
+const CURRENT_TOKEN_VERSION = "v2";
+const MINIMUM_SIGNING_KEY_LENGTH = 32;
+
 export function issueInternalPlayerAllocationToken(
   allocation: InternalPlayerAllocation,
 ): string {
   validateAllocation(allocation);
   const payload = Buffer.from(JSON.stringify(allocation)).toString("base64url");
-  return `${payload}.${sign(payload)}`;
+  return `${CURRENT_TOKEN_VERSION}.${payload}.${sign(payload, currentKey())}`;
 }
 
 export function verifyInternalPlayerAllocationToken(
@@ -22,8 +27,27 @@ export function verifyInternalPlayerAllocationToken(
   expected: InternalPlayerAllocation,
 ): boolean {
   if (!token || token.length > 2_048) return false;
-  const [payload, signature, extra] = token.split(".");
-  if (!payload || !signature || extra || !safeSignature(payload, signature)) {
+  const parts = token.split(".");
+  let payload: string;
+  let signature: string;
+  let validSignature: boolean;
+  if (parts.length === 3 && parts[0] === CURRENT_TOKEN_VERSION) {
+    [, payload, signature] = parts;
+    validSignature = verificationKeys().some((key) =>
+      safeSignature(payload, signature, key),
+    );
+  } else if (parts.length === 2) {
+    [payload, signature] = parts;
+    const legacyKey = boundedKey(
+      "ADMIN_PLAYER_IDENTITY_LEGACY_SIGNING_KEY",
+      "ADMIN_PLAYER_IDENTITY_LEGACY_UNTIL",
+    );
+    validSignature =
+      legacyKey !== null && safeSignature(payload, signature, legacyKey);
+  } else {
+    return false;
+  }
+  if (!payload || !signature || !validSignature) {
     return false;
   }
   let value: unknown;
@@ -65,16 +89,52 @@ function isAllocation(value: unknown): value is InternalPlayerAllocation {
   );
 }
 
-function sign(payload: string): string {
-  const key = process.env.ADMIN_PASSPHRASE_SCRYPT;
-  if (!key || key.length < 64) {
-    throw new Error("Admin passphrase configuration is unavailable.");
-  }
+function sign(payload: string, key: string): string {
   return createHmac("sha256", key).update(payload).digest("base64url");
 }
 
-function safeSignature(payload: string, signature: string): boolean {
-  const expected = Buffer.from(sign(payload));
+function safeSignature(
+  payload: string,
+  signature: string,
+  key: string,
+): boolean {
+  const expected = Buffer.from(sign(payload, key));
   const actual = Buffer.from(signature);
   return expected.length === actual.length && timingSafeEqual(expected, actual);
+}
+
+function currentKey(): string {
+  return requiredKey("ADMIN_PLAYER_IDENTITY_SIGNING_KEY");
+}
+
+function verificationKeys(): string[] {
+  const keys = [currentKey()];
+  const previous = boundedKey(
+    "ADMIN_PLAYER_IDENTITY_PREVIOUS_SIGNING_KEY",
+    "ADMIN_PLAYER_IDENTITY_PREVIOUS_KEY_UNTIL",
+  );
+  if (previous !== null) keys.push(previous);
+  return keys;
+}
+
+function requiredKey(name: string): string {
+  const value = process.env[name];
+  if (!value || value.length < MINIMUM_SIGNING_KEY_LENGTH) {
+    throw new InternalPlayerIdentityConfigurationError();
+  }
+  return value;
+}
+
+function boundedKey(keyName: string, untilName: string): string | null {
+  const key = process.env[keyName];
+  const until = process.env[untilName];
+  if (key === undefined && until === undefined) return null;
+  if (!key || key.length < MINIMUM_SIGNING_KEY_LENGTH || !until) {
+    throw new InternalPlayerIdentityConfigurationError();
+  }
+  const expiresAt = Date.parse(until);
+  if (!Number.isFinite(expiresAt)) {
+    throw new InternalPlayerIdentityConfigurationError();
+  }
+  return expiresAt > Date.now() ? key : null;
 }

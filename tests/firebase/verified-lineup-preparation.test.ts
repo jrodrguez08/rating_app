@@ -24,6 +24,7 @@ import {
   AdminVerifiedLineupService,
   type AdminVerifiedLineupInput,
 } from "@/lib/firebase/admin-lineup";
+import { AdminPlayerIdentityRecoveryService } from "@/lib/firebase/admin-player-identity-recovery";
 import { AdminFootballSyncStore } from "@/lib/firebase/server";
 import { ProviderError } from "@/lib/providers/api-football/errors";
 import {
@@ -38,21 +39,22 @@ const projectId = process.env.GCLOUD_PROJECT ?? "demo-rating-app-local";
 const app = initializeApp({ projectId }, `verified-lineup-${Date.now()}`);
 const database = getFirestore(app);
 const service = new AdminVerifiedLineupService(database);
-const originalPassphraseConfiguration = process.env.ADMIN_PASSPHRASE_SCRYPT;
+const originalSigningConfiguration =
+  process.env.ADMIN_PLAYER_IDENTITY_SIGNING_KEY;
 
 beforeAll(() => {
   if (!process.env.FIRESTORE_EMULATOR_HOST) {
     throw new Error("FIRESTORE_EMULATOR_HOST is required.");
   }
-  process.env.ADMIN_PASSPHRASE_SCRYPT ||= "test-allocation-signing-key".repeat(
-    4,
-  );
+  process.env.ADMIN_PLAYER_IDENTITY_SIGNING_KEY ||=
+    "test-allocation-signing-key".repeat(4);
 });
 afterAll(async () => {
-  if (originalPassphraseConfiguration === undefined) {
-    delete process.env.ADMIN_PASSPHRASE_SCRYPT;
+  if (originalSigningConfiguration === undefined) {
+    delete process.env.ADMIN_PLAYER_IDENTITY_SIGNING_KEY;
   } else {
-    process.env.ADMIN_PASSPHRASE_SCRYPT = originalPassphraseConfiguration;
+    process.env.ADMIN_PLAYER_IDENTITY_SIGNING_KEY =
+      originalSigningConfiguration;
   }
   await deleteApp(app);
 });
@@ -268,6 +270,118 @@ describe("verified lineup preparation persistence", () => {
       (await database.collection(`matches/${matchId}/participants`).get())
         .empty,
     ).toBe(true);
+  });
+
+  it("accepts harmless canonical name differences and rejects a different identity", async () => {
+    const matchId = "lineup-canonical-name";
+    const input = await seedScenario(matchId);
+    input.participants[0] = {
+      ...input.participants[0],
+      playerName: "  jUgAdOr   1  ",
+    };
+
+    await expect(service.preview(input)).resolves.toMatchObject({ matchId });
+    input.participants[0] = {
+      ...input.participants[0],
+      playerName: "Persona diferente",
+    };
+    await expect(service.preview(input)).rejects.toMatchObject({
+      code: "LINEUP_PLAYER_NAME_CONFLICT",
+    });
+  });
+
+  it("previews fixture 1551706 with complete mixed participation evidence", async () => {
+    const matchId = "match-10a50b08075ca1f0646e5b6d";
+    const input = await seedScenario(matchId, 20);
+    await database.doc(`matches/${matchId}`).update({
+      externalProviderFixtureId: "1551706",
+    });
+    input.externalFixtureId = "1551706";
+    for (let index = 11; index < 16; index += 1) {
+      input.participants[index] = {
+        ...input.participants[index],
+        participationStatus: "confirmed_substitute",
+        enteredAtMinute: 50 + index,
+      };
+    }
+    const playerId = `player-internal-${"d".repeat(32)}`;
+    input.participants[19] = {
+      playerId,
+      playerName: "D. Gonzalez",
+      createInternalIdentity: true,
+      identityAllocationToken: issueInternalPlayerAllocationToken({
+        playerId,
+        ownerId: input.operatorId,
+        matchId,
+        trackedTeamId: input.trackedTeamId,
+      }),
+      squadRole: "substitute",
+      participationStatus: "unused_substitute",
+      shirtNumber: 42,
+      position: "midfielder",
+    };
+
+    await expect(service.preview(input)).resolves.toMatchObject({
+      matchId,
+      participantCreates: 20,
+      internalPlayersCreated: [playerId],
+    });
+  });
+
+  it("rotates every saved internal identity token without changing draft data", async () => {
+    const matchId = "lineup-recover-identities";
+    const input = await seedScenario(matchId, 12, true);
+    input.participants = input.participants.map((participant) => ({
+      ...participant,
+      identityAllocationToken: "legacy.invalid",
+    }));
+    await database
+      .doc(`matches/${matchId}/lineupDrafts/${input.operatorId}`)
+      .set({
+        matchId,
+        trackedTeamId: input.trackedTeamId,
+        externalFixtureId: input.externalFixtureId,
+        ownerId: input.operatorId,
+        version: 1,
+        contentHash: "legacy-draft",
+        participants: input.participants,
+        createdAt: Timestamp.now(),
+        updatedAt: Timestamp.now(),
+      });
+
+    const result = await new AdminPlayerIdentityRecoveryService(
+      database,
+    ).recover({
+      ownerId: input.operatorId,
+      matchId,
+      trackedTeamId: input.trackedTeamId,
+      externalFixtureId: input.externalFixtureId,
+    });
+    const draft = (
+      await database
+        .doc(`matches/${matchId}/lineupDrafts/${input.operatorId}`)
+        .get()
+    ).data() as { participants: AdminLineupParticipantAction[] } | undefined;
+
+    expect(result.version).toBe(2);
+    expect(result.allocations).toHaveLength(12);
+    expect(draft?.participants).toHaveLength(12);
+    expect(draft?.participants[0]).toMatchObject({
+      playerId: input.participants[0].playerId,
+      playerName: input.participants[0].playerName,
+      squadRole: input.participants[0].squadRole,
+    });
+    expect(draft?.participants[0].identityAllocationToken).toMatch(/^v2\./);
+    expect(
+      (await database.collection("players").get()).docs.some(
+        (snapshot) => snapshot.id === input.participants[0].playerId,
+      ),
+    ).toBe(false);
+    await expect(service.preview(input)).rejects.toMatchObject({
+      code: "LINEUP_INTERNAL_IDENTITY_INVALID",
+    });
+    input.participants = draft!.participants;
+    await expect(service.preview(input)).resolves.toMatchObject({ matchId });
   });
 
   it("rejects a canonical Player owned by another Team", async () => {

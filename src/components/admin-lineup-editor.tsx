@@ -39,6 +39,17 @@ import {
 } from "./admin-lineup-workspace";
 
 type AdminMessages = Messages["admin"];
+
+class AdminApiError extends Error {
+  constructor(
+    message: string,
+    readonly code?: string,
+  ) {
+    super(message);
+    this.name = "AdminApiError";
+  }
+}
+
 export function AdminLineupEditor({
   detail,
   messages,
@@ -81,6 +92,7 @@ export function AdminLineupEditor({
   const [confirmation, setConfirmation] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [errorCode, setErrorCode] = useState<string>();
   const [outcome, setOutcome] = useState("");
   const [interactionStatus, setInteractionStatus] = useState(
     messages.preloadSummary
@@ -120,7 +132,12 @@ export function AdminLineupEditor({
     matchId: detail.match.id,
     trackedTeamId: teamId,
     externalFixtureId: detail.match.externalFixtureId,
-    participants,
+    participants: participants.map((participant) => {
+      const canonical = metadata.get(participant.playerId);
+      return !participant.createInternalIdentity && canonical
+        ? { ...participant, playerName: canonical.name }
+        : participant;
+    }),
     verificationSource: evidence,
     verificationReason: reason,
   };
@@ -227,6 +244,7 @@ export function AdminLineupEditor({
 
   async function post(path: string, body: unknown) {
     setError("");
+    setErrorCode(undefined);
     const csrf = document.cookie
       .split("; ")
       .find((item) => item.startsWith("rating_admin_csrf="))
@@ -248,7 +266,14 @@ export function AdminLineupEditor({
         typeof result.error === "string"
           ? result.error
           : messages.genericError;
-      throw new Error(message);
+      const code =
+        typeof result === "object" &&
+        result !== null &&
+        "code" in result &&
+        typeof result.code === "string"
+          ? result.code
+          : undefined;
+      throw new AdminApiError(message, code);
     }
     return result as Record<string, unknown>;
   }
@@ -265,6 +290,7 @@ export function AdminLineupEditor({
     setDraftStatus("unsaved");
     setInteractionStatus(status);
     setError("");
+    setErrorCode(undefined);
     resetAuthorization();
   }
 
@@ -355,6 +381,65 @@ export function AdminLineupEditor({
       setInternalShirtNumber("");
       setInternalVerified(false);
     } catch (caught) {
+      setErrorCode(caught instanceof AdminApiError ? caught.code : undefined);
+      setError(
+        caught instanceof Error ? caught.message : messages.genericError,
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function recoverInternalIdentities() {
+    setBusy(true);
+    try {
+      const result = await post("/api/admin/players/internal-id/recover", {
+        matchId: detail.match.id,
+        trackedTeamId: teamId,
+        externalFixtureId: detail.match.externalFixtureId,
+      });
+      const allocations = Array.isArray(result.allocations)
+        ? result.allocations
+        : [];
+      const tokens = new Map<string, string>();
+      for (const allocation of allocations) {
+        if (
+          typeof allocation === "object" &&
+          allocation !== null &&
+          "playerId" in allocation &&
+          typeof allocation.playerId === "string" &&
+          "identityAllocationToken" in allocation &&
+          typeof allocation.identityAllocationToken === "string"
+        ) {
+          tokens.set(allocation.playerId, allocation.identityAllocationToken);
+        }
+      }
+      const next = participants.map((participant) => {
+        const token = tokens.get(participant.playerId);
+        return token
+          ? { ...participant, identityAllocationToken: token }
+          : participant;
+      });
+      const nextVersion = Number(result.version);
+      if (!Number.isInteger(nextVersion) || nextVersion <= draftVersion) {
+        throw new Error(messages.genericError);
+      }
+      setParticipants(next);
+      setSavedParticipants((current) =>
+        current.map((participant) => {
+          const token = tokens.get(participant.playerId);
+          return token
+            ? { ...participant, identityAllocationToken: token }
+            : participant;
+        }),
+      );
+      setDraftVersion(nextVersion);
+      setDraftStatus(changes.length === 0 ? "saved" : "unsaved");
+      setInteractionStatus(messages.internalIdentitiesRecovered);
+      setErrorCode(undefined);
+      resetAuthorization();
+    } catch (caught) {
+      setErrorCode(caught instanceof AdminApiError ? caught.code : undefined);
       setError(
         caught instanceof Error ? caught.message : messages.genericError,
       );
@@ -449,6 +534,7 @@ export function AdminLineupEditor({
       setAuthorized(false);
       setConfirmation("");
     } catch (caught) {
+      setErrorCode(caught instanceof AdminApiError ? caught.code : undefined);
       setError(
         caught instanceof Error ? caught.message : messages.genericError,
       );
@@ -868,9 +954,21 @@ export function AdminLineupEditor({
         </section>
       ) : null}
       {error ? (
-        <p className="card border-danger p-4 text-danger" role="alert">
-          {error}
-        </p>
+        <div className="card grid gap-3 border-danger p-4 text-danger">
+          <p role="alert">{error}</p>
+          {errorCode === "LINEUP_INTERNAL_IDENTITY_INVALID" ? (
+            <button
+              className="button-utility min-h-11 w-fit px-3"
+              type="button"
+              disabled={busy}
+              onClick={() => void recoverInternalIdentities()}
+            >
+              {busy
+                ? messages.recoveringInternalIdentities
+                : messages.recoverInternalIdentities}
+            </button>
+          ) : null}
+        </div>
       ) : null}
       {outcome ? (
         <p className="card border-success p-4 text-success" role="status">

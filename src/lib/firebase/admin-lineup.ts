@@ -14,6 +14,7 @@ import type {
   VerifiedLineupSnapshot,
 } from "@/domain/models";
 import { playerProviderAliasId } from "@/domain/player-identity";
+import { normalizePlayerSearch } from "@/domain/player-search";
 import {
   type AdminLineupAction,
   type AdminLineupParticipantAction,
@@ -21,6 +22,10 @@ import {
   hashAdminLineupAction,
 } from "@/lib/server/admin-lineup-action";
 import { adminChallengeDocumentId } from "@/lib/server/admin-coach-action";
+import {
+  AdminLineupError,
+  type AdminLineupErrorCode,
+} from "@/lib/server/admin-lineup-error";
 import { verifyInternalPlayerAllocationToken } from "@/lib/server/admin-player-identity-allocation";
 
 import { getServerFirestore } from "./server";
@@ -60,9 +65,13 @@ export interface AdminVerifiedLineupResult {
   disposition: "committed" | "idempotent_retry";
 }
 
-export class AdminVerifiedLineupRejectedError extends Error {
-  constructor(message: string) {
-    super(message);
+export class AdminVerifiedLineupRejectedError extends AdminLineupError {
+  constructor(
+    message: string,
+    code: AdminLineupErrorCode = "LINEUP_INVALID_INPUT",
+    participantName?: string,
+  ) {
+    super(code, message, participantName);
     this.name = "AdminVerifiedLineupRejectedError";
   }
 }
@@ -221,7 +230,10 @@ export class AdminVerifiedLineupService {
         ...playerReferences.map((reference) => transaction.get(reference)),
       ]);
       if (!matchSnapshot.exists) {
-        throw new AdminVerifiedLineupRejectedError("Match was not found.");
+        throw new AdminVerifiedLineupRejectedError(
+          "Match was not found.",
+          "LINEUP_MATCH_NOT_FOUND",
+        );
       }
       const match = fromSnapshot<Match>(matchSnapshot);
       if (
@@ -230,6 +242,7 @@ export class AdminVerifiedLineupService {
       ) {
         throw new AdminVerifiedLineupRejectedError(
           "The Team or fixture binding is invalid.",
+          "LINEUP_INVALID_TEAM_BINDING",
         );
       }
       if (
@@ -241,6 +254,7 @@ export class AdminVerifiedLineupService {
       ) {
         throw new AdminVerifiedLineupRejectedError(
           "Lineup preparation is not permitted for this match state.",
+          "LINEUP_INVALID_MATCH_STATE",
         );
       }
 
@@ -262,6 +276,7 @@ export class AdminVerifiedLineupService {
       ) {
         throw new AdminVerifiedLineupRejectedError(
           "Saved lineup draft binding is invalid.",
+          "LINEUP_DRAFT_STALE",
         );
       }
       const membershipReferences = input.participants.map((participant) =>
@@ -298,6 +313,8 @@ export class AdminVerifiedLineupService {
           ) {
             throw new AdminVerifiedLineupRejectedError(
               "Internal player identity conflicts with an existing Player.",
+              "LINEUP_INTERNAL_IDENTITY_INVALID",
+              participant.playerName,
             );
           }
           internalPlayerIds.push(participant.playerId);
@@ -315,6 +332,8 @@ export class AdminVerifiedLineupService {
         if (!snapshot.exists) {
           throw new AdminVerifiedLineupRejectedError(
             "Canonical player identity was not found.",
+            "LINEUP_PLAYER_NOT_FOUND",
+            participant.playerName,
           );
         }
         const player = fromSnapshot<Player>(snapshot);
@@ -330,14 +349,23 @@ export class AdminVerifiedLineupService {
         ) {
           throw new AdminVerifiedLineupRejectedError(
             "Canonical player does not belong to the tracked Team.",
+            "LINEUP_PLAYER_MEMBERSHIP_CONFLICT",
+            participant.playerName ?? player.displayName,
           );
         }
+        const proposedName =
+          participant.playerName === undefined
+            ? undefined
+            : normalizePlayerSearch(participant.playerName);
         if (
-          participant.playerName !== undefined &&
-          participant.playerName !== player.displayName
+          proposedName !== undefined &&
+          (!proposedName ||
+            proposedName !== normalizePlayerSearch(player.displayName))
         ) {
           throw new AdminVerifiedLineupRejectedError(
             "Canonical player identity conflicts with the proposed name.",
+            "LINEUP_PLAYER_NAME_CONFLICT",
+            participant.playerName,
           );
         }
         players.push(player);
@@ -368,6 +396,8 @@ export class AdminVerifiedLineupService {
           ) {
             throw new AdminVerifiedLineupRejectedError(
               "Canonical player alias conflicts with the selected Player.",
+              "LINEUP_PLAYER_ALIAS_CONFLICT",
+              aliasPairs[index].player.displayName,
             );
           }
         });
@@ -592,6 +622,8 @@ function validateInput(input: AdminVerifiedLineupInput): void {
     ) {
       throw new AdminVerifiedLineupRejectedError(
         "Internal Player allocation is invalid.",
+        "LINEUP_INTERNAL_IDENTITY_INVALID",
+        participant.playerName,
       );
     }
     ids.add(participant.playerId);

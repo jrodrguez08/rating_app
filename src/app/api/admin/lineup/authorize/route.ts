@@ -10,7 +10,7 @@ import {
   readAdminIdentityConfig,
 } from "@/lib/server/admin-auth";
 import {
-  adminError,
+  adminLineupError,
   adminJson,
   parseAdminLineupAction,
   requireAdminRequest,
@@ -20,6 +20,7 @@ const messages = getMessages("es").admin;
 
 export async function POST(request: NextRequest) {
   const security = new AdminSecurityStore();
+  let matchId: string | undefined;
   let audit: { uid: string; matchId: string } | undefined;
   try {
     const identity = await requireAdminRequest(request, true);
@@ -30,6 +31,7 @@ export async function POST(request: NextRequest) {
     const action = parseAdminLineupAction(
       "action" in body ? body.action : undefined,
     );
+    matchId = action.matchId;
     audit = { uid: identity.uid, matchId: action.matchId };
     const previewToken = "previewToken" in body ? body.previewToken : undefined;
     const passphrase = "passphrase" in body ? body.passphrase : undefined;
@@ -80,6 +82,6 @@ export async function POST(request: NextRequest) {
         error.code === "too_many_attempts" ? 429 : 403,
       );
     }
-    return adminError(error);
+    return adminLineupError(error, { operation: "authorize", matchId });
   }
 }

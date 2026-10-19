@@ -297,6 +297,51 @@ describe("admin lineup editor", () => {
     expect(screen.getByText("11/11")).toBeVisible();
   });
 
+  it("submits the canonical name for an existing Player while preserving the editor", async () => {
+    const user = userEvent.setup();
+    const matchDetail = detail("preparing_rating");
+    matchDetail.participants[0].playerName = "  JUGADOR 1 ";
+    let previewBody: unknown;
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockImplementation(async (input: string | URL | Request, init) => {
+          if (String(input).includes("/api/admin/lineup/preview")) {
+            previewBody = JSON.parse(String(init?.body));
+            return {
+              ok: true,
+              json: async () => ({ plan: {}, previewToken: "preview-token" }),
+            };
+          }
+          return { ok: true, json: async () => ({ players: [] }) };
+        }),
+    );
+    renderEditor(matchDetail);
+
+    await user.type(
+      screen.getByLabelText(messages.evidence),
+      "https://example.com/fixture",
+    );
+    await user.type(
+      screen.getByLabelText(messages.reason),
+      "Retraso API-Football",
+    );
+    await user.click(screen.getByRole("button", { name: messages.preview }));
+
+    await waitFor(() => expect(previewBody).toBeDefined());
+    const submitted = previewBody as {
+      participants: Array<{ playerId: string; playerName: string }>;
+    };
+    expect(submitted.participants[0]).toMatchObject({
+      playerId: matchDetail.players[0].id,
+      playerName: matchDetail.players[0].name,
+    });
+    expect(
+      screen.getAllByText("JUGADOR 1", { exact: false }).length,
+    ).toBeGreaterThan(0);
+  });
+
   it("keeps voting and completed matches read-only", () => {
     renderEditor(detail("rating_ready"));
     expect(screen.getByText(messages.historicalReadOnly)).toBeVisible();

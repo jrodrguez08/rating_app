@@ -7,8 +7,9 @@ import {
 } from "@/lib/firebase/admin-lineup";
 import { AdminSecurityStore } from "@/lib/firebase/admin-security";
 import { ADMIN_LINEUP_ACTION_COOKIE } from "@/lib/server/admin-auth";
+import { AdminLineupError } from "@/lib/server/admin-lineup-error";
 import {
-  adminError,
+  adminLineupError,
   adminJson,
   parseAdminLineupAction,
   requireAdminRequest,
@@ -19,6 +20,7 @@ export async function POST(request: NextRequest) {
   let response;
   let clearChallenge = true;
   let applyStarted = false;
+  let matchId: string | undefined;
   let audit:
     | {
         uid: string;
@@ -36,6 +38,7 @@ export async function POST(request: NextRequest) {
     const action = parseAdminLineupAction(
       "action" in body ? body.action : undefined,
     );
+    matchId = action.matchId;
     audit = {
       uid: identity.uid,
       matchId: action.matchId,
@@ -44,7 +47,10 @@ export async function POST(request: NextRequest) {
     };
     const confirmation = "confirmation" in body ? body.confirmation : undefined;
     if (confirmation !== `prepare-verified-lineup:${action.matchId}`) {
-      throw new Error("La confirmación no coincide con el partido.");
+      throw new AdminLineupError(
+        "LINEUP_INVALID_INPUT",
+        "The confirmation does not match the fixture.",
+      );
     }
     applyStarted = true;
     const result = await new AdminVerifiedLineupService().applyAuthorized(
@@ -66,7 +72,7 @@ export async function POST(request: NextRequest) {
       });
     }
     if (audit && applyStarted && !rejected && !failed) clearChallenge = false;
-    response = adminError(error);
+    response = adminLineupError(error, { operation: "apply", matchId });
   }
   if (clearChallenge) {
     response.cookies.set(ADMIN_LINEUP_ACTION_COOKIE, "", {
