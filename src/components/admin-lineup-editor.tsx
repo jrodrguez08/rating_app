@@ -10,6 +10,7 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 import type { Messages } from "@/i18n/messages";
@@ -29,7 +30,6 @@ import {
   mergePlayers,
   participantForLane,
   type EditableParticipant,
-  type LineupChange,
   type LineupLane,
 } from "./admin-lineup-draft";
 import {
@@ -59,6 +59,7 @@ export function AdminLineupEditor({
   messages: AdminMessages;
   teamId: string;
 }) {
+  const router = useRouter();
   const initialParticipants = useMemo(
     () => buildInitialParticipants(detail),
     [detail],
@@ -80,16 +81,6 @@ export function AdminLineupEditor({
   const [internalPosition, setInternalPosition] = useState("");
   const [internalShirtNumber, setInternalShirtNumber] = useState("");
   const [internalVerified, setInternalVerified] = useState(false);
-  const [evidence, setEvidence] = useState(
-    detail.match.verifiedLineup?.verificationSource ?? "",
-  );
-  const [reason, setReason] = useState(
-    detail.match.verifiedLineup?.verificationReason ?? "",
-  );
-  const [preview, setPreview] = useState<Record<string, unknown> | null>(null);
-  const [previewToken, setPreviewToken] = useState("");
-  const [authorized, setAuthorized] = useState(false);
-  const [confirmation, setConfirmation] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [errorCode, setErrorCode] = useState<string>();
@@ -138,8 +129,9 @@ export function AdminLineupEditor({
         ? { ...participant, playerName: canonical.name }
         : participant;
     }),
-    verificationSource: evidence,
-    verificationReason: reason,
+    verificationSource: "authenticated-owner",
+    verificationReason:
+      "Participación confirmada por el propietario autenticado.",
   };
   const draftAction = {
     matchId: detail.match.id,
@@ -279,9 +271,6 @@ export function AdminLineupEditor({
   }
 
   function resetAuthorization() {
-    setPreview(null);
-    setAuthorized(false);
-    setConfirmation("");
     setOutcome("");
   }
 
@@ -524,59 +513,27 @@ export function AdminLineupEditor({
     }
   }
 
-  async function createPreview(event: FormEvent) {
-    event.preventDefault();
-    setBusy(true);
-    try {
-      const result = await post("/api/admin/lineup/preview", action);
-      setPreview(result.plan as Record<string, unknown>);
-      setPreviewToken(String(result.previewToken));
-      setAuthorized(false);
-      setConfirmation("");
-    } catch (caught) {
-      setErrorCode(caught instanceof AdminApiError ? caught.code : undefined);
-      setError(
-        caught instanceof Error ? caught.message : messages.genericError,
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function authorize(event: FormEvent<HTMLFormElement>) {
+  async function confirmLineup(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
     setBusy(true);
     try {
-      const passphrase = String(new FormData(form).get("passphrase"));
+      const preview = await post("/api/admin/lineup/preview", action);
       await post("/api/admin/lineup/authorize", {
         action,
-        previewToken,
-        passphrase,
+        previewToken: preview.previewToken,
+        passphrase: String(new FormData(form).get("passphrase")),
       });
-      form.reset();
-      setAuthorized(true);
-    } catch (caught) {
-      setError(
-        caught instanceof Error ? caught.message : messages.genericError,
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function apply() {
-    setBusy(true);
-    try {
       const result = await post("/api/admin/lineup/apply", {
         action,
-        confirmation,
+        confirmation: `prepare-verified-lineup:${action.matchId}`,
       });
       setOutcome(
         `${messages.lineupApplied} ${messages.audit}: ${String(result.auditId)}`,
       );
-      setAuthorized(false);
+      router.refresh();
     } catch (caught) {
+      setErrorCode(caught instanceof AdminApiError ? caught.code : undefined);
       setError(
         caught instanceof Error ? caught.message : messages.genericError,
       );
@@ -821,19 +778,17 @@ export function AdminLineupEditor({
             </button>
           </section>
 
-          <details className="card p-5">
-            <summary className="cursor-pointer font-bold">
-              {messages.confirmVerifiedLineup}
-            </summary>
-            <form className="mt-4 grid gap-4" onSubmit={createPreview}>
+          <section className="card p-5">
+            <form className="grid gap-4" onSubmit={confirmLineup}>
+              <p className="eyebrow">1–2 / 4</p>
+              <h2 className="score-font text-xl">
+                {messages.confirmVerifiedLineup}
+              </h2>
               <div className="game-inset grid gap-2 p-4 text-sm">
                 <strong>{messages.verificationSummary}</strong>
                 <span>
                   {detail.match.homeTeamName} {messages.versus}{" "}
                   {detail.match.awayTeamName}
-                </span>
-                <span>
-                  {messages.fixture}: {detail.match.externalFixtureId}
                 </span>
                 <span>
                   {messages.previewParticipants
@@ -847,33 +802,14 @@ export function AdminLineupEditor({
                       String(countLane(participants, "entered")),
                     )}
                 </span>
-                <span>{messages.verificationAuthorityHelp}</span>
               </div>
-              <h2 className="score-font text-xl">{messages.evidenceTitle}</h2>
               <label className="grid gap-2">
-                <span>{messages.evidence}</span>
+                <span>{messages.passphrase}</span>
                 <input
                   className="game-inset min-h-11 px-3"
-                  type="url"
-                  value={evidence}
-                  onChange={(event) => {
-                    setEvidence(event.target.value);
-                    resetAuthorization();
-                  }}
-                  required
-                />
-              </label>
-              <label className="grid gap-2">
-                <span>{messages.reason}</span>
-                <textarea
-                  className="game-inset min-h-28 p-3"
-                  minLength={10}
-                  maxLength={500}
-                  value={reason}
-                  onChange={(event) => {
-                    setReason(event.target.value);
-                    resetAuthorization();
-                  }}
+                  name="passphrase"
+                  type="password"
+                  autoComplete="off"
                   required
                 />
               </label>
@@ -886,73 +822,16 @@ export function AdminLineupEditor({
                 </p>
               ) : null}
               <button
-                className="button-secondary min-h-11 px-4"
+                className="button-primary min-h-11 px-4"
                 type="submit"
                 disabled={busy || starters.length !== 11}
               >
-                {busy ? messages.loading : messages.preview}
+                {busy ? messages.loading : messages.applyLineup}
               </button>
             </form>
-          </details>
+          </section>
         </div>
       )}
-
-      {preview ? (
-        <section
-          className="card grid gap-4 p-5"
-          aria-labelledby="lineup-preview"
-        >
-          <h2 id="lineup-preview" className="score-font text-xl">
-            {messages.previewTitle}
-          </h2>
-          <p>
-            {messages.previewCounts
-              .replace("{creates}", String(preview.participantCreates ?? 0))
-              .replace("{updates}", String(preview.participantUpdates ?? 0))
-              .replace("{deletes}", String(preview.participantDeletes ?? 0))}
-          </p>
-          <ChangeList changes={changes} messages={messages} />
-          <form className="grid gap-3" onSubmit={authorize}>
-            <label className="grid gap-2">
-              <span>{messages.passphrase}</span>
-              <input
-                className="game-inset min-h-11 px-3"
-                name="passphrase"
-                type="password"
-                autoComplete="off"
-                required
-              />
-            </label>
-            <button className="button-secondary min-h-11 px-4" disabled={busy}>
-              {messages.authorize}
-            </button>
-          </form>
-          {authorized ? (
-            <div className="grid gap-3">
-              <p className="text-success" role="status">
-                {messages.authorizationSuccess}
-              </p>
-              <label className="grid gap-2">
-                <span>{messages.confirmation}</span>
-                <input
-                  className="game-inset min-h-11 px-3"
-                  placeholder={`prepare-verified-lineup:${action.matchId}`}
-                  value={confirmation}
-                  onChange={(event) => setConfirmation(event.target.value)}
-                />
-              </label>
-              <button
-                className="button-primary min-h-11 px-4"
-                type="button"
-                disabled={busy}
-                onClick={apply}
-              >
-                {messages.applyLineup}
-              </button>
-            </div>
-          ) : null}
-        </section>
-      ) : null}
       {error ? (
         <div className="card grid gap-3 border-danger p-4 text-danger">
           <p role="alert">{error}</p>
@@ -1045,33 +924,6 @@ function MatchSummary({
   );
 }
 
-function ChangeList({
-  changes,
-  messages,
-}: {
-  changes: LineupChange[];
-  messages: AdminMessages;
-}) {
-  return (
-    <div className="game-inset grid gap-2 p-4 text-sm">
-      <strong>{messages.currentVsProposed}</strong>
-      {changes.length === 0 ? (
-        <p>{messages.noDraftChanges}</p>
-      ) : (
-        <ul className="grid gap-2">
-          {changes.map((change) => (
-            <li key={change.playerId}>
-              <strong>{change.playerName}</strong>:{" "}
-              {displayStatus(change.before, messages)} →{" "}
-              {displayStatus(change.after, messages)}
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
 function movedMessage(
   name: string,
   lane: LineupLane,
@@ -1090,11 +942,4 @@ function playerName(
     participants.find((participant) => participant.playerId === playerId)
       ?.playerName ?? playerId
   );
-}
-
-function displayStatus(
-  status: LineupChange["before"],
-  messages: AdminMessages,
-): string {
-  return status ? messages.participationStatuses[status] : messages.notSelected;
 }

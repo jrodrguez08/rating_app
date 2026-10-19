@@ -217,6 +217,16 @@ Before lifecycle consumes an applied assignment, an incorrect assignment still r
 
 No Firestore rule or index deployment is required. The existing recursive deny rule protects Coach, head-coach assignment, and verified-assignment documents from every browser client.
 
+## Owner match workflow smoke test
+
+This workflow is available only after the reviewed release is deployed. Sign in at `/admin`, open the exact Match, and confirm the page shows the four ordered tasks. Existing verified lineup and coach evidence should appear as completed summaries; the owner must not be asked for Player tokens, technical IDs, evidence URLs, reasons, JSON plans, provider synchronization, or typed confirmation strings.
+
+For fixture `1551706`, require 11 confirmed starters, 5 participating substitutes, and 5 excluded unused substitutes. Confirm the displayed coach name resolves from the canonical Coach even if the older `coachAssignments/head-coach` document is absent. Select the two-hour default or an intended future Costa Rica close, check the one final-whistle confirmation, enter the independent admin passphrase once, and submit. Do not manually edit Firestore.
+
+After success, confirm the Match has one unchanged verified lineup, the same verified coach evidence, a matching `operator_verified` effective head-coach assignment, one manual final-whistle attestation, `ratingState: rating_ready`, trusted open and close timestamps, and one deterministic success audit. Confirm the close is two hours after open when the default was selected. Verify the public rating route includes only the 11 starters and 5 participating substitutes plus the head coach; all 5 unused substitutes must be absent. Confirm an exact browser retry cannot create another window and that existing ballots and results remain unchanged. A conflicting effective coach assignment, missing canonical Coach, participant mismatch, ballot, result, or revision must fail without any write.
+
+The normal provider lifecycle remains enabled. Later provider refreshes may update football status but cannot replace operator-verified participation, the fixture coach, voting timestamps, ballots, or results.
+
 ## Exceptional voting-window recovery
 
 Use `npm run manage:voting-window` only from a clean checkout of the reviewed production commit. Load the production Firebase Web/Admin variables, the configured operator digest, and the invocation-only raw operator token into the current controlled process. Confirm no emulator variables are present. The command rejects non-production and `demo-*` projects, project mismatches, missing or wrong operator authorization, malformed arguments, and incompatible persisted state. It never calls API-Football.

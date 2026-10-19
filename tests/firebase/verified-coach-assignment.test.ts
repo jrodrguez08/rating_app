@@ -94,6 +94,21 @@ describe("verified coach assignment persistence", () => {
       provenance: "operator_verified",
       verificationSource: "https://example.com/match-report",
     });
+    expect(
+      (
+        await database
+          .doc(`matches/${matchId}/coachAssignments/head-coach`)
+          .get()
+      ).data(),
+    ).toMatchObject({
+      matchId,
+      teamId: "team-verified",
+      externalProviderTeamId: "815",
+      coachId: `coach-${matchId}`,
+      coachName: "Verified Coach",
+      role: "head-coach",
+      provenance: "operator_verified",
+    });
     await expect(
       service.assign({ ...input, coachId: "other-coach" }, true),
     ).rejects.toThrow(/conflicts/i);
@@ -115,6 +130,64 @@ describe("verified coach assignment persistence", () => {
           .get()
       ).size,
     ).toBe(1);
+  });
+
+  it("repairs a legacy verified-only coach without replacing its evidence", async () => {
+    const matchId = "verified-coach-legacy-materialization";
+    await seedMatch(matchId);
+    const input = assignmentInput(matchId);
+    const now = Timestamp.now();
+    await Promise.all([
+      database.doc(`coaches/${input.coachId}`).set({
+        displayName: input.coachName,
+        identityProvenance: "operator_verified",
+        createdAt: now,
+        updatedAt: now,
+      }),
+      database
+        .doc(`matches/${matchId}/verifiedCoachAssignments/head-coach`)
+        .set({
+          matchId,
+          trackedTeamId: input.trackedTeamId,
+          externalProvider: "api-football",
+          externalFixtureId: input.externalFixtureId,
+          coachId: input.coachId,
+          verificationSource: input.verificationSource,
+          verificationReason: input.verificationReason,
+          operatorId: input.operatorId,
+          provenance: "operator_verified",
+          verifiedAt: now,
+          createdAt: now,
+          updatedAt: now,
+        }),
+    ]);
+    const evidenceBefore = (
+      await database
+        .doc(`matches/${matchId}/verifiedCoachAssignments/head-coach`)
+        .get()
+    ).data();
+
+    await expect(service.assign(input, true)).resolves.toMatchObject({
+      coachCreated: false,
+      assignmentCreated: true,
+    });
+    expect(
+      (
+        await database
+          .doc(`matches/${matchId}/verifiedCoachAssignments/head-coach`)
+          .get()
+      ).data(),
+    ).toEqual(evidenceBefore);
+    expect(
+      (
+        await database
+          .doc(`matches/${matchId}/coachAssignments/head-coach`)
+          .get()
+      ).data(),
+    ).toMatchObject({
+      coachId: input.coachId,
+      provenance: "operator_verified",
+    });
   });
 
   it("atomically commits an authorized assignment, challenge, and success audit", async () => {
@@ -590,6 +663,7 @@ async function readDocuments(paths: string[]) {
 async function seedMatch(matchId: string) {
   await database.doc(`matches/${matchId}`).set({
     trackedTeamId: "team-verified",
+    trackedTeamExternalProviderId: "815",
     competitionId: "competition",
     seasonId: "season",
     homeTeam: { externalProviderId: "815", name: "Tracked" },

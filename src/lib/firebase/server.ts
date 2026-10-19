@@ -1103,6 +1103,20 @@ export class AdminVerifiedCoachService {
           "Verified coach recovery is not permitted in the current match state.",
         );
       }
+      let trackedTeamExternalProviderId = match.trackedTeamExternalProviderId;
+      if (!trackedTeamExternalProviderId) {
+        const teamSnapshot = await transaction.get(
+          this.database.doc(`teams/${input.trackedTeamId}`),
+        );
+        trackedTeamExternalProviderId = teamSnapshot.exists
+          ? fromDocument<Team>(teamSnapshot).externalProviderId
+          : undefined;
+      }
+      if (!trackedTeamExternalProviderId) {
+        throw new AdminVerifiedCoachAssignmentRejectedError(
+          "Tracked Team provider identity is missing.",
+        );
+      }
       const trustedDate = matchSnapshot.readTime.toDate();
       const trustedAt = trustedDate.toISOString();
       if (input.externalProviderCoachId !== undefined) {
@@ -1158,6 +1172,17 @@ export class AdminVerifiedCoachService {
         createdAt: trustedAt,
         updatedAt: trustedAt,
       };
+      const materializedAssignment: CoachAssignment = {
+        matchId: input.matchId,
+        teamId: input.trackedTeamId,
+        externalProviderTeamId: trackedTeamExternalProviderId,
+        coachId: input.coachId,
+        coachName: input.coachName,
+        role: "head-coach",
+        provenance: "operator_verified",
+        createdAt: trustedAt,
+        updatedAt: trustedAt,
+      };
       if (verifiedSnapshot.exists) {
         const existing =
           fromDocument<VerifiedCoachAssignment>(verifiedSnapshot);
@@ -1205,7 +1230,7 @@ export class AdminVerifiedCoachService {
         coachId: input.coachId,
         coachName: input.coachName,
         coachCreated: !coachSnapshot.exists,
-        assignmentCreated: !verifiedSnapshot.exists,
+        assignmentCreated: !assignmentSnapshot.exists,
         verificationSource: input.verificationSource,
         verificationReason: input.verificationReason,
       };
@@ -1216,6 +1241,12 @@ export class AdminVerifiedCoachService {
         }
         if (!verifiedSnapshot.exists) {
           transaction.create(verifiedReference, toDocument(proposedAssignment));
+        }
+        if (!assignmentSnapshot.exists) {
+          transaction.create(
+            assignmentReference,
+            toDocument(materializedAssignment),
+          );
         }
       }
       if (challengeReference && auditReference && auditId) {
@@ -2715,6 +2746,7 @@ function assertCompatibleCoach(existing: Coach, proposed: Coach): void {
 }
 
 function validVerificationSource(value: string): boolean {
+  if (value === "authenticated-owner") return true;
   try {
     const url = new URL(value);
     return (
