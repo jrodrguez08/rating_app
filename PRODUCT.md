@@ -62,7 +62,7 @@ The same team, competition, season, match, participant, ballot, and result conce
 
 ## Owner administrative recovery
 
-`/admin` is an unlinked, non-indexed Spanish operations surface for the single configured owner. Its bounded dashboard separates upcoming/live matches, matches requiring attention, and recent voting/completed matches. A fixture detail page shows persisted lineup evidence, participant and coach readiness, and canonical tracked-Team Players without calling the football provider. Voting and completed matches are read-only.
+`/admin` is an unlinked, non-indexed Spanish operations surface for the single configured owner. Its bounded dashboard separates open voting windows, upcoming or preparing Matches, exceptional review, and closed voting or published results. Each compact Match card shows supporter-readable status and one state-specific destination without exposing technical identifiers. Lineup and head-coach preparation exists only in the fixture detail workspace, which shows persisted evidence, readiness, and canonical tracked-Team Players without calling the football provider. Voting and completed matches are read-only.
 
 Before kickoff, during play, or after `FT` while voting remains unopened, the owner may prepare and explicitly save an incomplete fixture lineup without evidence fields or a passphrase. The saved preparation can contain canonical Players, fewer than 11 starters, substitutes, arrangement, and locally reviewed participation states. It is private owner working state only: it never creates MatchParticipants, a verified snapshot, eligibility, or lifecycle progress.
 
