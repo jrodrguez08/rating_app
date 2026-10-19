@@ -189,20 +189,15 @@ export function parseAdminPlayerIdentityAction(
 ): AdminPlayerIdentityAction {
   if (!isRecord(value)) throw new AdminAuthorizationError(403);
   for (const key of [
+    "firstPlayerId",
+    "secondPlayerId",
     "canonicalPlayerId",
     "trackedTeamId",
-    "externalProvider",
-    "externalProviderPlayerId",
     "decision",
-    "verificationSource",
-    "verificationReason",
   ] as const) {
     if (typeof value[key] !== "string") throw new AdminAuthorizationError(403);
   }
-  if (
-    value.externalProvider !== "api-football" ||
-    !["match", "nonmatch"].includes(String(value.decision))
-  ) {
+  if (!["match", "nonmatch"].includes(String(value.decision))) {
     throw new AdminAuthorizationError(403);
   }
   return value as unknown as AdminPlayerIdentityAction;

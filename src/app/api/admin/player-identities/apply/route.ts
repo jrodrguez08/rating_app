@@ -7,6 +7,7 @@ import {
 } from "@/lib/firebase/admin-player-identity";
 import { AdminSecurityStore } from "@/lib/firebase/admin-security";
 import { ADMIN_PLAYER_IDENTITY_ACTION_COOKIE } from "@/lib/server/admin-auth";
+import { adminPlayerIdentityResourceId } from "@/lib/server/admin-player-identity-action";
 import {
   adminError,
   adminJson,
@@ -19,9 +20,7 @@ export async function POST(request: NextRequest) {
   let response;
   let clearChallenge = true;
   let applyStarted = false;
-  let audit:
-    | { uid: string; resourceId: string; evidence: string; reason: string }
-    | undefined;
+  let audit: { uid: string; resourceId: string } | undefined;
   try {
     const identity = await requireAdminRequest(request, true);
     const body: unknown = await request.json();
@@ -30,16 +29,14 @@ export async function POST(request: NextRequest) {
     const action = parseAdminPlayerIdentityAction(
       "action" in body ? body.action : undefined,
     );
-    const resourceId = `${action.canonicalPlayerId}:${action.externalProvider}:${action.externalProviderPlayerId}`;
+    const resourceId = adminPlayerIdentityResourceId(action);
     audit = {
       uid: identity.uid,
       resourceId,
-      evidence: action.verificationSource,
-      reason: action.verificationReason,
     };
-    const confirmation = "confirmation" in body ? body.confirmation : undefined;
-    if (confirmation !== `reconcile-player:${action.canonicalPlayerId}`) {
-      throw new Error("La confirmación no coincide con el jugador.");
+    const confirmed = "confirmed" in body ? body.confirmed : undefined;
+    if (confirmed !== true) {
+      throw new Error("Debe confirmar la decisión antes de continuar.");
     }
     applyStarted = true;
     const result = await new AdminPlayerIdentityService().applyAuthorized(
@@ -55,8 +52,6 @@ export async function POST(request: NextRequest) {
         operatorUid: audit.uid,
         action: "player_identity_apply",
         resourceId: audit.resourceId,
-        evidenceReference: audit.evidence,
-        verificationReason: audit.reason,
         outcome: failed ? "failed" : "rejected",
       });
     }

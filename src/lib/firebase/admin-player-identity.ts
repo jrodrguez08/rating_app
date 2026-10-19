@@ -16,10 +16,7 @@ import type {
   PlayerProviderAlias,
   TeamPlayerMembership,
 } from "@/domain/models";
-import {
-  playerProviderAliasId,
-  providerEntityId,
-} from "@/domain/player-identity";
+import { playerProviderAliasId } from "@/domain/player-identity";
 import {
   normalizePlayerSearch,
   playerSearchPrefixes,
@@ -35,42 +32,79 @@ import {
 } from "@/lib/server/admin-player-identity-action";
 
 import { getServerFirestore } from "./server";
+import { readIndexedTeamPlayers } from "./team-player-membership-index";
 
 const MAX_IDENTITY_MATCHES = 100;
 const MAX_OWNER_DRAFTS = 20;
 const MAX_TEAM_RESULTS = 500;
+const MAX_SUGGESTIONS = 12;
+const MAX_SUGGESTION_REVIEW_CANDIDATES = 100;
+const OWNER_IDENTITY_SOURCE = "authenticated-owner";
+const OWNER_IDENTITY_REASON =
+  "Player identity decision confirmed by the authenticated owner.";
 
 export interface AdminPlayerIdentityInput extends AdminPlayerIdentityAction {
   operatorId: string;
 }
 
+export interface PlayerIdentityOption {
+  id: string;
+  name: string;
+  position?: Player["position"];
+  photoUrl?: string;
+  shirtNumber?: number;
+  identityProvenance: "provider" | "operator_verified";
+}
+
+export interface PlayerIdentitySuggestion {
+  first: PlayerIdentityOption;
+  second: PlayerIdentityOption;
+  suggestedCanonicalPlayerId: string;
+  signals: Array<"name" | "abbreviation" | "position" | "shirt">;
+}
+
+export interface PlayerIdentitySuggestionResult {
+  suggestions: PlayerIdentitySuggestion[];
+  providerDataAvailable: boolean;
+}
+
 export interface AdminPlayerIdentityPlan {
   decision: "match" | "nonmatch";
+  status:
+    | "safe"
+    | "already_linked"
+    | "confirmed_different"
+    | "insufficient_evidence"
+    | "history_conflict";
+  canApply: boolean;
+  explanation: string;
   canonical: IdentityEvidence;
-  provider: IdentityEvidence;
+  duplicate: IdentityEvidence;
+  suggestedCanonicalPlayerId: string;
   currentAliasTarget?: string;
   previousReview?: "active" | "corrected";
   proposedChanges: string[];
   preservedReferences: {
     canonicalParticipations: number;
-    providerParticipations: number;
+    duplicateParticipations: number;
     verifiedLineups: number;
     ownerDrafts: number;
     canonicalPublishedResults: number;
-    providerPublishedResults: number;
+    duplicatePublishedResults: number;
   };
   warnings: string[];
 }
 
-interface IdentityEvidence {
+export interface IdentityEvidence {
   playerId: string;
-  name?: string;
-  externalProviderId?: string;
+  name: string;
   currentTeamId?: string;
   position?: Player["position"];
+  photoUrl?: string;
   shirtNumber?: number;
-  identityProvenance?: Player["identityProvenance"];
-  matchIds: string[];
+  identityProvenance: "provider" | "operator_verified";
+  matchCount: number;
+  hasProtectedHistory: boolean;
 }
 
 export interface AdminPlayerIdentityResult {
@@ -88,13 +122,95 @@ export class AdminPlayerIdentityRejectedError extends Error {
 
 export class AdminPlayerIdentityCommitError extends Error {
   constructor() {
-    super("Player identity reconciliation commit failed.");
+    super("No se pudo guardar la conciliación de jugadores.");
     this.name = "AdminPlayerIdentityCommitError";
   }
 }
 
 export class AdminPlayerIdentityService {
   constructor(private readonly database: Firestore = getServerFirestore()) {}
+
+  async suggestions(
+    trackedTeamId: string,
+  ): Promise<PlayerIdentitySuggestionResult> {
+    if (!validEntityId(trackedTeamId)) {
+      throw new AdminPlayerIdentityRejectedError("El equipo no es válido.");
+    }
+    const indexed = await readIndexedTeamPlayers(this.database, trackedTeamId);
+    const manual = indexed.players.filter(
+      ({ player }) =>
+        player.identityProvenance === "operator_verified" ||
+        (!player.externalProvider && !player.externalProviderId),
+    );
+    const provider = indexed.players.filter(
+      ({ player }) =>
+        player.externalProvider === "api-football" &&
+        player.externalProviderId !== undefined,
+    );
+    const candidates = manual
+      .flatMap((manualEntry) =>
+        provider.flatMap((providerEntry) => {
+          const signals = suggestionSignals(
+            manualEntry.player,
+            manualEntry.membership,
+            providerEntry.player,
+            providerEntry.membership,
+          );
+          if (!signals.includes("name") && !signals.includes("abbreviation")) {
+            return [];
+          }
+          return [
+            {
+              first: option(manualEntry.player, manualEntry.membership),
+              second: option(providerEntry.player, providerEntry.membership),
+              suggestedCanonicalPlayerId: manualEntry.player.id,
+              signals,
+              score:
+                (signals.includes("name") ? 8 : 5) +
+                (signals.includes("position") ? 2 : 0) +
+                (signals.includes("shirt") ? 2 : 0),
+            },
+          ];
+        }),
+      )
+      .sort(
+        (left, right) =>
+          right.score - left.score ||
+          left.first.name.localeCompare(right.first.name, "es"),
+      )
+      .slice(0, MAX_SUGGESTION_REVIEW_CANDIDATES);
+    const reviewIds = candidates.map(({ first, second }) =>
+      playerIdentityReviewId(first.id, second.id),
+    );
+    const reviewed = new Set<string>();
+    for (let offset = 0; offset < reviewIds.length; offset += 100) {
+      const references = reviewIds
+        .slice(offset, offset + 100)
+        .map((id) => this.database.doc(`playerIdentityReviews/${id}`));
+      if (references.length === 0) continue;
+      const snapshots = await this.database.getAll(...references);
+      for (const snapshot of snapshots) {
+        if (snapshot.exists && snapshot.data()?.status === "active") {
+          reviewed.add(snapshot.id);
+        }
+      }
+    }
+    return {
+      providerDataAvailable: provider.length > 0,
+      suggestions: candidates
+        .filter(
+          ({ first, second }) =>
+            !reviewed.has(playerIdentityReviewId(first.id, second.id)),
+        )
+        .slice(0, MAX_SUGGESTIONS)
+        .map(({ first, second, suggestedCanonicalPlayerId, signals }) => ({
+          first,
+          second,
+          suggestedCanonicalPlayerId,
+          signals,
+        })),
+    };
+  }
 
   async preview(
     input: AdminPlayerIdentityInput,
@@ -110,7 +226,7 @@ export class AdminPlayerIdentityService {
   ): Promise<AdminPlayerIdentityResult> {
     if (!challengeToken || challengeToken.length > 256) {
       throw new AdminPlayerIdentityRejectedError(
-        "Admin action challenge is invalid.",
+        "La autorización de esta acción no es válida.",
       );
     }
     try {
@@ -128,25 +244,20 @@ export class AdminPlayerIdentityService {
     challengeToken?: string,
   ): Promise<AdminPlayerIdentityPlan | AdminPlayerIdentityResult> {
     validateInput(input);
-    const providerPlayerId = providerEntityId(
-      "player",
-      input.externalProvider,
-      input.externalProviderPlayerId,
-    );
-    if (providerPlayerId === input.canonicalPlayerId) {
+    const playerIds = [input.firstPlayerId, input.secondPlayerId] as const;
+    if (playerIds[0] === playerIds[1]) {
       throw new AdminPlayerIdentityRejectedError(
-        "The selected identities are already the same Player.",
+        "Seleccione dos jugadores diferentes.",
       );
     }
-    const aliasId = playerProviderAliasId(
-      input.externalProvider,
-      input.externalProviderPlayerId,
-    );
-    const reviewId = playerIdentityReviewId(
-      input.canonicalPlayerId,
-      input.externalProvider,
-      input.externalProviderPlayerId,
-    );
+    if (!playerIds.includes(input.canonicalPlayerId)) {
+      throw new AdminPlayerIdentityRejectedError(
+        "Seleccione cuál identidad desea conservar.",
+      );
+    }
+    const duplicatePlayerId =
+      playerIds[0] === input.canonicalPlayerId ? playerIds[1] : playerIds[0];
+    const reviewId = playerIdentityReviewId(playerIds[0], playerIds[1]);
     const challengeId = challengeToken
       ? adminChallengeDocumentId(challengeToken)
       : undefined;
@@ -156,31 +267,12 @@ export class AdminPlayerIdentityService {
     const actionHash = hashAdminPlayerIdentityAction(input);
 
     return this.database.runTransaction(async (transaction) => {
-      const canonicalReference = this.database.doc(
-        `players/${input.canonicalPlayerId}`,
-      );
-      const providerReference = this.database.doc(
-        `players/${providerPlayerId}`,
-      );
-      const aliasReference = this.database.doc(
-        `playerProviderAliases/${aliasId}`,
-      );
-      const canonicalMembershipReference = this.database.doc(
-        `teams/${input.trackedTeamId}/playerMemberships/${input.canonicalPlayerId}`,
-      );
-      const providerMembershipReference = this.database.doc(
-        `teams/${input.trackedTeamId}/playerMemberships/${providerPlayerId}`,
-      );
-      const reviewReference = this.database.doc(
-        `playerIdentityReviews/${reviewId}`,
-      );
       const challengeReference = challengeId
         ? this.database.doc(`adminActionChallenges/${challengeId}`)
         : undefined;
       const auditReference = auditId
         ? this.database.doc(`adminAudit/${auditId}`)
         : undefined;
-
       if (challengeReference && auditReference && auditId) {
         const challengeSnapshot = await transaction.get(challengeReference);
         const challenge = challengeSnapshot.data();
@@ -192,7 +284,7 @@ export class AdminPlayerIdentityService {
           !(challenge.expiresAt instanceof Timestamp)
         ) {
           throw new AdminPlayerIdentityRejectedError(
-            "Admin action challenge is invalid.",
+            "La autorización de esta acción no es válida.",
           );
         }
         if (challenge.consumedAt !== undefined) {
@@ -210,7 +302,7 @@ export class AdminPlayerIdentityService {
             !isPlan(audit.plan)
           ) {
             throw new AdminPlayerIdentityRejectedError(
-              "Committed admin action audit is invalid.",
+              "El recibo de la conciliación no es válido.",
             );
           }
           return {
@@ -225,14 +317,25 @@ export class AdminPlayerIdentityService {
             challengeSnapshot.readTime.toMillis()
         ) {
           throw new AdminPlayerIdentityRejectedError(
-            "Admin action challenge is invalid.",
+            "La autorización de esta acción venció.",
           );
         }
       }
 
+      const playerReferences = playerIds.map((playerId) =>
+        this.database.doc(`players/${playerId}`),
+      );
+      const membershipReferences = playerIds.map((playerId) =>
+        this.database.doc(
+          `teams/${input.trackedTeamId}/playerMemberships/${playerId}`,
+        ),
+      );
+      const reviewReference = this.database.doc(
+        `playerIdentityReviews/${reviewId}`,
+      );
       const participantQuery = this.database
         .collectionGroup("participants")
-        .where("playerId", "in", [input.canonicalPlayerId, providerPlayerId])
+        .where("playerId", "in", [...playerIds])
         .limit(MAX_IDENTITY_MATCHES * 2 + 1);
       const draftsQuery = this.database
         .collectionGroup("lineupDrafts")
@@ -242,32 +345,20 @@ export class AdminPlayerIdentityService {
         .collectionGroup("results")
         .where("teamId", "==", input.trackedTeamId)
         .limit(MAX_TEAM_RESULTS + 1);
-      const inboundAliasesQuery = this.database
-        .collection("playerProviderAliases")
-        .where("canonicalPlayerId", "==", providerPlayerId)
-        .limit(2);
       const [
-        canonicalSnapshot,
-        providerSnapshot,
-        aliasSnapshot,
-        canonicalMembershipSnapshot,
-        providerMembershipSnapshot,
+        playerSnapshots,
+        membershipSnapshots,
         reviewSnapshot,
         participantSnapshot,
         draftsSnapshot,
         resultsSnapshot,
-        inboundAliasesSnapshot,
       ] = await Promise.all([
-        transaction.get(canonicalReference),
-        transaction.get(providerReference),
-        transaction.get(aliasReference),
-        transaction.get(canonicalMembershipReference),
-        transaction.get(providerMembershipReference),
+        transaction.getAll(...playerReferences),
+        transaction.getAll(...membershipReferences),
         transaction.get(reviewReference),
         transaction.get(participantQuery),
         transaction.get(draftsQuery),
         transaction.get(resultsQuery),
-        transaction.get(inboundAliasesQuery),
       ]);
       if (
         participantSnapshot.size > MAX_IDENTITY_MATCHES * 2 ||
@@ -275,285 +366,228 @@ export class AdminPlayerIdentityService {
         resultsSnapshot.size > MAX_TEAM_RESULTS
       ) {
         throw new AdminPlayerIdentityRejectedError(
-          "Identity history exceeds the reviewed reconciliation bound.",
+          "El historial supera el límite seguro de conciliación.",
         );
       }
-      if (!canonicalSnapshot.exists) {
+      if (playerSnapshots.some((snapshot) => !snapshot.exists)) {
         throw new AdminPlayerIdentityRejectedError(
-          "Canonical Player was not found.",
+          "Uno de los jugadores seleccionados ya no existe.",
         );
       }
-      const canonical = fromSnapshot<Player>(canonicalSnapshot);
-      if (canonical.identityProvenance !== "operator_verified") {
-        throw new AdminPlayerIdentityRejectedError(
-          "The canonical survivor must be an operator-verified Player.",
-        );
-      }
-      const provider = providerSnapshot.exists
-        ? fromSnapshot<Player>(providerSnapshot)
-        : undefined;
-      if (
-        provider &&
-        (provider.externalProvider !== input.externalProvider ||
-          provider.externalProviderId !== input.externalProviderPlayerId)
-      ) {
-        throw new AdminPlayerIdentityRejectedError(
-          "Provider identity mapping conflicts with the selected Player.",
-        );
-      }
-      const alias = aliasSnapshot.exists
-        ? fromSnapshot<PlayerProviderAlias>(aliasSnapshot)
-        : undefined;
-      const proposedAlias: PlayerProviderAlias = {
-        id: aliasId,
-        canonicalPlayerId: canonical.id,
-        canonicalExternalProviderPlayerId: input.externalProviderPlayerId,
-        externalProvider: input.externalProvider,
-        externalProviderPlayerId: input.externalProviderPlayerId,
-        createdAt: canonicalSnapshot.readTime.toDate().toISOString(),
-        updatedAt: canonicalSnapshot.readTime.toDate().toISOString(),
-      };
-      if (input.decision === "match") {
-        try {
-          playerProviderAliasTransition(alias, proposedAlias);
-        } catch {
-          throw new AdminPlayerIdentityRejectedError(
-            "Player provider alias conflicts with another canonical identity.",
-          );
-        }
-        if (
-          !inboundAliasesSnapshot.empty &&
-          inboundAliasesSnapshot.docs.some(
-            (document) => document.id !== aliasId,
-          )
-        ) {
-          throw new AdminPlayerIdentityRejectedError(
-            "Provider identity has multi-hop aliases and cannot be reconciled.",
-          );
-        }
-      } else if (alias && alias.canonicalPlayerId === canonical.id) {
-        throw new AdminPlayerIdentityRejectedError(
-          "A confirmed alias cannot be recorded as a nonmatch.",
-        );
-      }
-
+      const players = playerSnapshots.map((snapshot) =>
+        fromSnapshot<Player>(snapshot),
+      );
+      const memberships = membershipSnapshots.map((snapshot) =>
+        snapshot.exists
+          ? fromSnapshot<TeamPlayerMembership>(snapshot)
+          : undefined,
+      );
+      const canonicalIndex = playerIds.indexOf(input.canonicalPlayerId);
+      const duplicateIndex = canonicalIndex === 0 ? 1 : 0;
+      const canonical = players[canonicalIndex];
+      const duplicate = players[duplicateIndex];
+      const canonicalMembership = memberships[canonicalIndex];
+      const duplicateMembership = memberships[duplicateIndex];
       const participants = participantSnapshot.docs.map((document) =>
         fromSnapshot<MatchParticipant>(document),
       );
       const canonicalParticipants = participants.filter(
         ({ playerId }) => playerId === canonical.id,
       );
-      const providerParticipants = participants.filter(
-        ({ playerId }) => playerId === providerPlayerId,
+      const duplicateParticipants = participants.filter(
+        ({ playerId }) => playerId === duplicate.id,
       );
-      const canonicalMembership = canonicalMembershipSnapshot.exists
-        ? fromSnapshot<TeamPlayerMembership>(canonicalMembershipSnapshot)
-        : undefined;
-      const providerMembership = providerMembershipSnapshot.exists
-        ? fromSnapshot<TeamPlayerMembership>(providerMembershipSnapshot)
-        : undefined;
-      const canonicalBelongs =
-        canonical.currentTeamId === input.trackedTeamId ||
-        canonicalMembership?.teamId === input.trackedTeamId ||
-        canonicalParticipants.some(
-          ({ teamId }) => teamId === input.trackedTeamId,
-        );
-      const providerBelongs =
-        provider?.currentTeamId === input.trackedTeamId ||
-        providerMembership?.teamId === input.trackedTeamId ||
-        providerParticipants.some(
-          ({ teamId }) => teamId === input.trackedTeamId,
-        );
-      const genuineProviderEvidence =
-        provider !== undefined ||
-        alias !== undefined ||
-        providerParticipants.length > 0;
-      if (!canonicalBelongs || !providerBelongs || !genuineProviderEvidence) {
-        throw new AdminPlayerIdentityRejectedError(
-          "Both identities require tracked-Team evidence.",
-        );
-      }
       if (
-        providerParticipants.some(
-          (participant) =>
-            participant.externalProvider !== input.externalProvider ||
-            participant.externalProviderPlayerId !==
-              input.externalProviderPlayerId,
+        !belongsToTeam(
+          canonical,
+          canonicalMembership,
+          canonicalParticipants,
+          input.trackedTeamId,
+        ) ||
+        !belongsToTeam(
+          duplicate,
+          duplicateMembership,
+          duplicateParticipants,
+          input.trackedTeamId,
         )
       ) {
         throw new AdminPlayerIdentityRejectedError(
-          "Provider participation evidence is ambiguous.",
+          "Ambos jugadores deben pertenecer al equipo seleccionado.",
         );
       }
-      const sharedMatch = providerParticipants.find((providerParticipant) =>
-        canonicalParticipants.some(
-          (canonicalParticipant) =>
-            canonicalParticipant.matchId === providerParticipant.matchId,
-        ),
-      );
-      if (sharedMatch) {
+      if (
+        canonicalParticipants.some((participant) =>
+          duplicateParticipants.some(
+            (candidate) => candidate.matchId === participant.matchId,
+          ),
+        )
+      ) {
         throw new AdminPlayerIdentityRejectedError(
-          "Both identities already appear in the same Match.",
+          "Los dos jugadores aparecen en el mismo partido y requieren revisión especial.",
         );
       }
+
+      const duplicateProvider = providerIdentity(duplicate);
+      const aliasId = duplicateProvider
+        ? playerProviderAliasId(
+            duplicateProvider.provider,
+            duplicateProvider.externalId,
+          )
+        : undefined;
+      const aliasReference = aliasId
+        ? this.database.doc(`playerProviderAliases/${aliasId}`)
+        : undefined;
+      const inboundAliasesQuery = this.database
+        .collection("playerProviderAliases")
+        .where("canonicalPlayerId", "==", duplicate.id)
+        .limit(2);
+      const [aliasSnapshot, inboundAliasesSnapshot] = await Promise.all([
+        aliasReference ? transaction.get(aliasReference) : undefined,
+        transaction.get(inboundAliasesQuery),
+      ]);
+      const alias = aliasSnapshot?.exists
+        ? fromSnapshot<PlayerProviderAlias>(aliasSnapshot)
+        : undefined;
+      const canonicalProvider = providerIdentity(canonical);
+      const pairAlreadyLinked =
+        alias?.canonicalPlayerId === canonical.id ||
+        (canonicalProvider !== undefined &&
+          inboundAliasesSnapshot.docs.some((document) => {
+            const inbound = fromSnapshot<PlayerProviderAlias>(document);
+            return (
+              inbound.externalProvider === canonicalProvider.provider &&
+              inbound.externalProviderPlayerId === canonicalProvider.externalId
+            );
+          }));
+      const proposedAlias =
+        duplicateProvider && aliasId
+          ? buildAlias(
+              aliasId,
+              canonical,
+              duplicateProvider,
+              playerSnapshots[0],
+            )
+          : undefined;
+      const previousReview = reviewSnapshot.exists
+        ? fromSnapshot<PlayerIdentityReview>(reviewSnapshot)
+        : undefined;
 
       const results = resultsSnapshot.docs.map((document) =>
         fromSnapshot<MatchResult>(document),
       );
-      const providerPublishedResults = results.filter(
-        (result) => providerPlayerId in result.playerResults,
-      ).length;
-      const canonicalPublishedResults = results.filter(
-        (result) => canonical.id in result.playerResults,
-      ).length;
-      if (input.decision === "match" && providerPublishedResults > 0) {
-        throw new AdminPlayerIdentityRejectedError(
-          "Provider Player has immutable published results and cannot be linked automatically.",
-        );
-      }
-
-      const relevantMatchIds = [
-        ...new Set(providerParticipants.map(({ matchId }) => matchId)),
-      ];
-      const matchReferences = relevantMatchIds.map((matchId) =>
-        this.database.doc(`matches/${matchId}`),
-      );
-      const verifiedReferences = relevantMatchIds.map((matchId) =>
-        this.database.doc(`matches/${matchId}/verifiedLineups/current`),
-      );
-      const resultReferences = relevantMatchIds.map((matchId) =>
-        this.database.doc(`matches/${matchId}/results/summary`),
-      );
-      const [matchSnapshots, verifiedSnapshots, protectedResultSnapshots] =
-        relevantMatchIds.length === 0
+      const canonicalPublishedResults = resultCount(results, canonical.id);
+      const duplicatePublishedResults = resultCount(results, duplicate.id);
+      const matchIds = [...new Set(participants.map(({ matchId }) => matchId))];
+      const [matchSnapshots, verifiedSnapshots, resultSnapshots] =
+        matchIds.length === 0
           ? [[], [], []]
           : await Promise.all([
-              transaction.getAll(...matchReferences),
-              transaction.getAll(...verifiedReferences),
-              transaction.getAll(...resultReferences),
+              transaction.getAll(
+                ...matchIds.map((id) => this.database.doc(`matches/${id}`)),
+              ),
+              transaction.getAll(
+                ...matchIds.map((id) =>
+                  this.database.doc(`matches/${id}/verifiedLineups/current`),
+                ),
+              ),
+              transaction.getAll(
+                ...matchIds.map((id) =>
+                  this.database.doc(`matches/${id}/results/summary`),
+                ),
+              ),
             ]);
       const ballotSnapshots = await Promise.all(
-        relevantMatchIds.map((matchId) =>
+        matchIds.map((id) =>
           transaction.get(
-            this.database.collection(`matches/${matchId}/ballots`).limit(1),
+            this.database.collection(`matches/${id}/ballots`).limit(1),
           ),
         ),
       );
-      if (
-        input.decision === "match" &&
-        (matchSnapshots.some(
-          (snapshot) =>
-            snapshot.exists &&
-            ["rating_ready", "rating_closed"].includes(
-              fromSnapshot<Match>(snapshot).ratingState,
-            ),
-        ) ||
-          protectedResultSnapshots.some((snapshot) => snapshot.exists) ||
-          ballotSnapshots.some((snapshot) => !snapshot.empty))
-      ) {
-        throw new AdminPlayerIdentityRejectedError(
-          "Provider Player has protected voting history and cannot be linked automatically.",
+      const protectedMatches = new Set<string>();
+      matchIds.forEach((id, index) => {
+        const match = matchSnapshots[index]?.exists
+          ? fromSnapshot<Match>(matchSnapshots[index])
+          : undefined;
+        if (
+          (match &&
+            ["rating_ready", "rating_closed"].includes(match.ratingState)) ||
+          resultSnapshots[index]?.exists ||
+          !ballotSnapshots[index]?.empty
+        ) {
+          protectedMatches.add(id);
+        }
+      });
+      const canonicalProtected =
+        canonicalPublishedResults > 0 ||
+        canonicalParticipants.some(({ matchId }) =>
+          protectedMatches.has(matchId),
         );
-      }
-
+      const duplicateProtected =
+        duplicatePublishedResults > 0 ||
+        duplicateParticipants.some(({ matchId }) =>
+          protectedMatches.has(matchId),
+        );
       const affectedDrafts = draftsSnapshot.docs
         .map((document) => ({
           document,
           draft: fromSnapshot<AdminLineupDraft>(document),
         }))
         .filter(({ draft }) =>
-          draft.participants.some(
-            ({ playerId }) => playerId === providerPlayerId,
-          ),
+          draft.participants.some(({ playerId }) => playerId === duplicate.id),
         );
-      for (const { draft } of affectedDrafts) {
-        if (
-          draft.participants.some(({ playerId }) => playerId === canonical.id)
-        ) {
-          throw new AdminPlayerIdentityRejectedError(
-            "A saved draft already contains both identities.",
-          );
-        }
+      if (
+        affectedDrafts.some(({ draft }) =>
+          draft.participants.some(({ playerId }) => playerId === canonical.id),
+        )
+      ) {
+        throw new AdminPlayerIdentityRejectedError(
+          "Un borrador contiene ambos jugadores y requiere revisión.",
+        );
+      }
+      const verifiedLineups = verifiedSnapshots.filter(
+        (snapshot) =>
+          snapshot.exists &&
+          Array.isArray(snapshot.data()?.participants) &&
+          snapshot
+            .data()!
+            .participants.some(
+              (participant: unknown) =>
+                isRecord(participant) && participant.playerId === duplicate.id,
+            ),
+      ).length;
+
+      const plan = buildPlan({
+        input,
+        canonical,
+        duplicate,
+        canonicalMembership,
+        duplicateMembership,
+        canonicalParticipants,
+        duplicateParticipants,
+        canonicalPublishedResults,
+        duplicatePublishedResults,
+        canonicalProtected,
+        duplicateProtected,
+        affectedDrafts: affectedDrafts.length,
+        verifiedLineups,
+        alias,
+        proposedAlias,
+        previousReview,
+        pairAlreadyLinked,
+        hasInboundAliasConflict: inboundAliasesSnapshot.docs.some(
+          (document) => document.id !== aliasId,
+        ),
+      });
+      if (!challengeReference || !auditReference || !auditId) return plan;
+      if (!plan.canApply) {
+        throw new AdminPlayerIdentityRejectedError(plan.explanation);
       }
 
-      const verifiedLineups = verifiedSnapshots.filter((snapshot) =>
-        snapshot.exists
-          ? Array.isArray(snapshot.data()?.participants) &&
-            snapshot
-              .data()!
-              .participants.some(
-                (participant: unknown) =>
-                  isRecord(participant) &&
-                  participant.playerId === providerPlayerId,
-              )
-          : false,
-      ).length;
-      const previousReview = reviewSnapshot.exists
-        ? fromSnapshot<PlayerIdentityReview>(reviewSnapshot)
-        : undefined;
-      const warnings = [
-        ...(canonical.displayName === provider?.displayName
-          ? ["Los nombres coinciden, pero el nombre no demuestra identidad."]
-          : ["Los nombres difieren; revise la evidencia independiente."]),
-        ...(provider
-          ? []
-          : ["No existe todavía un documento Player del proveedor."]),
-        ...(verifiedLineups > 0
-          ? [
-              "Las alineaciones verificadas históricas se conservarán sin cambios.",
-            ]
-          : []),
-      ];
-      const proposedChanges =
-        input.decision === "nonmatch"
-          ? ["Registrar la decisión revisada de que no son la misma persona."]
-          : [
-              `Asignar ${aliasId} a ${canonical.id}.`,
-              "Conservar ambos documentos Player y todas las referencias históricas.",
-              ...(affectedDrafts.length > 0
-                ? [
-                    `Actualizar ${affectedDrafts.length} borrador(es) del propietario a la identidad canónica.`,
-                  ]
-                : []),
-              "Actualizar la afiliación canónica del equipo.",
-            ];
-      const plan: AdminPlayerIdentityPlan = {
-        decision: input.decision,
-        canonical: evidence(
-          canonical,
-          canonicalMembership,
-          canonicalParticipants,
-        ),
-        provider: evidence(
-          provider ?? {
-            id: providerPlayerId,
-            displayName:
-              providerParticipants[0]?.playerName ?? "Identidad del proveedor",
-            externalProvider: input.externalProvider,
-            externalProviderId: input.externalProviderPlayerId,
-            createdAt: canonical.createdAt,
-            updatedAt: canonical.updatedAt,
-          },
-          providerMembership,
-          providerParticipants,
-        ),
-        ...(alias ? { currentAliasTarget: alias.canonicalPlayerId } : {}),
-        ...(previousReview ? { previousReview: previousReview.status } : {}),
-        proposedChanges,
-        preservedReferences: {
-          canonicalParticipations: canonicalParticipants.length,
-          providerParticipations: providerParticipants.length,
-          verifiedLineups,
-          ownerDrafts: affectedDrafts.length,
-          canonicalPublishedResults,
-          providerPublishedResults,
-        },
-        warnings,
-      };
-      if (!challengeReference || !auditReference || !auditId) return plan;
-
-      const timestamp = canonicalSnapshot.readTime.toDate().toISOString();
+      const timestamp = playerSnapshots[0].readTime.toDate().toISOString();
       if (input.decision === "match") {
+        if (!aliasReference || !proposedAlias || !duplicateProvider) {
+          throw new AdminPlayerIdentityRejectedError(plan.explanation);
+        }
         transaction.set(
           aliasReference,
           toDocument({
@@ -562,11 +596,16 @@ export class AdminPlayerIdentityService {
             updatedAt: timestamp,
           }),
         );
-        transaction.update(canonicalReference, {
-          externalProvider: input.externalProvider,
-          externalProviderId: input.externalProviderPlayerId,
-          updatedAt: Timestamp.fromDate(new Date(timestamp)),
-        });
+        if (
+          canonical.identityProvenance === "operator_verified" &&
+          canonical.externalProviderId === undefined
+        ) {
+          transaction.update(playerReferences[canonicalIndex], {
+            externalProvider: duplicateProvider.provider,
+            externalProviderId: duplicateProvider.externalId,
+            updatedAt: Timestamp.fromDate(new Date(timestamp)),
+          });
+        }
         const incomingMembership: TeamPlayerMembership = {
           playerId: canonical.id,
           teamId: input.trackedTeamId,
@@ -575,46 +614,48 @@ export class AdminPlayerIdentityService {
           searchPrefixes: [
             ...new Set([
               ...playerSearchPrefixes(canonical.displayName),
-              ...(providerMembership?.searchPrefixes ?? []),
-              ...(provider ? playerSearchPrefixes(provider.displayName) : []),
+              ...(duplicateMembership?.searchPrefixes ?? []),
+              ...playerSearchPrefixes(duplicate.displayName),
             ]),
           ],
-          source: "operator_verified",
-          ...(providerMembership?.shirtNumber === undefined
+          source:
+            canonical.identityProvenance === "operator_verified"
+              ? "operator_verified"
+              : "current_squad",
+          ...(duplicateMembership?.shirtNumber === undefined
             ? {}
-            : { shirtNumber: providerMembership.shirtNumber }),
+            : { shirtNumber: duplicateMembership.shirtNumber }),
           firstObservedAt:
             canonicalMembership?.firstObservedAt ??
-            providerMembership?.firstObservedAt ??
+            duplicateMembership?.firstObservedAt ??
             timestamp,
           lastObservedAt: timestamp,
           createdAt: canonicalMembership?.createdAt ?? timestamp,
           updatedAt: timestamp,
         };
         transaction.set(
-          canonicalMembershipReference,
+          membershipReferences[canonicalIndex],
           toDocument(
             mergeTeamPlayerMembership(canonicalMembership, incomingMembership),
           ),
         );
         for (const { document, draft } of affectedDrafts) {
-          const participants = draft.participants.map((participant) =>
-            participant.playerId === providerPlayerId
+          const draftParticipants = draft.participants.map((participant) =>
+            participant.playerId === duplicate.id
               ? canonicalizeDraftParticipant(participant, canonical)
               : participant,
           );
-          const updatedDraft = {
-            ...draft,
-            participants,
-            baseVersion: draft.version,
-          };
           transaction.set(
             document.ref,
             toDocument({
               ...draft,
-              participants,
+              participants: draftParticipants,
               version: draft.version + 1,
-              contentHash: hashAdminLineupDraft(updatedDraft),
+              contentHash: hashAdminLineupDraft({
+                ...draft,
+                participants: draftParticipants,
+                baseVersion: draft.version,
+              }),
               updatedAt: timestamp,
             }),
           );
@@ -627,16 +668,24 @@ export class AdminPlayerIdentityService {
           });
         }
       } else {
+        const orderedIds = [...playerIds].sort();
         const review: PlayerIdentityReview = {
           id: reviewId,
+          firstPlayerId: orderedIds[0],
+          secondPlayerId: orderedIds[1],
+          trackedTeamId: input.trackedTeamId,
           canonicalPlayerId: canonical.id,
-          providerPlayerId,
-          externalProvider: input.externalProvider,
-          externalProviderPlayerId: input.externalProviderPlayerId,
+          ...(duplicateProvider
+            ? {
+                providerPlayerId: duplicate.id,
+                externalProvider: duplicateProvider.provider,
+                externalProviderPlayerId: duplicateProvider.externalId,
+              }
+            : {}),
           decision: "nonmatch",
           status: "active",
-          verificationSource: input.verificationSource,
-          verificationReason: input.verificationReason,
+          verificationSource: OWNER_IDENTITY_SOURCE,
+          verificationReason: OWNER_IDENTITY_REASON,
           operatorId: input.operatorId,
           reviewedAt: timestamp,
           createdAt: previousReview?.createdAt ?? timestamp,
@@ -652,11 +701,13 @@ export class AdminPlayerIdentityService {
         operatorUid: input.operatorId,
         action: "player_identity_apply",
         resourceId: adminPlayerIdentityResourceId(input),
+        firstPlayerId: input.firstPlayerId,
+        secondPlayerId: input.secondPlayerId,
         canonicalPlayerId: canonical.id,
-        providerPlayerId,
+        duplicatePlayerId,
         decision: input.decision,
-        evidenceReference: input.verificationSource,
-        verificationReason: input.verificationReason,
+        evidenceReference: OWNER_IDENTITY_SOURCE,
+        verificationReason: OWNER_IDENTITY_REASON,
         actionHash,
         outcome: "success",
         commitDisposition: "committed",
@@ -668,22 +719,208 @@ export class AdminPlayerIdentityService {
   }
 }
 
+function buildPlan({
+  input,
+  canonical,
+  duplicate,
+  canonicalMembership,
+  duplicateMembership,
+  canonicalParticipants,
+  duplicateParticipants,
+  canonicalPublishedResults,
+  duplicatePublishedResults,
+  canonicalProtected,
+  duplicateProtected,
+  affectedDrafts,
+  verifiedLineups,
+  alias,
+  proposedAlias,
+  previousReview,
+  pairAlreadyLinked,
+  hasInboundAliasConflict,
+}: {
+  input: AdminPlayerIdentityInput;
+  canonical: Player;
+  duplicate: Player;
+  canonicalMembership?: TeamPlayerMembership;
+  duplicateMembership?: TeamPlayerMembership;
+  canonicalParticipants: MatchParticipant[];
+  duplicateParticipants: MatchParticipant[];
+  canonicalPublishedResults: number;
+  duplicatePublishedResults: number;
+  canonicalProtected: boolean;
+  duplicateProtected: boolean;
+  affectedDrafts: number;
+  verifiedLineups: number;
+  alias?: PlayerProviderAlias;
+  proposedAlias?: PlayerProviderAlias;
+  previousReview?: PlayerIdentityReview;
+  pairAlreadyLinked: boolean;
+  hasInboundAliasConflict: boolean;
+}): AdminPlayerIdentityPlan {
+  let status: AdminPlayerIdentityPlan["status"] = "safe";
+  let explanation =
+    input.decision === "match"
+      ? "La identidad de API-Football se vinculará al jugador que decidió conservar."
+      : "La pareja quedará marcada como jugadores diferentes.";
+  if (input.decision === "nonmatch" && pairAlreadyLinked) {
+    status = "already_linked";
+    explanation = "Estos jugadores ya est\u00e1n conciliados.";
+  } else if (
+    input.decision === "nonmatch" &&
+    previousReview?.status === "active"
+  ) {
+    status = "confirmed_different";
+    explanation = "Esta pareja ya fue confirmada como jugadores diferentes.";
+  } else if (input.decision === "match" && pairAlreadyLinked) {
+    status = "already_linked";
+    explanation = "Estos jugadores ya están conciliados.";
+  } else if (
+    input.decision === "match" &&
+    (!proposedAlias || hasInboundAliasConflict)
+  ) {
+    status = "insufficient_evidence";
+    explanation = proposedAlias
+      ? "La identidad seleccionada tiene enlaces incompatibles y requiere revisión especial."
+      : "La identidad que se reemplazaría no tiene una referencia de API-Football que pueda vincularse de forma segura.";
+  } else if (input.decision === "match" && duplicateProtected) {
+    status = "history_conflict";
+    explanation = canonicalProtected
+      ? "No es posible consolidar estos jugadores automáticamente porque ambos tienen historial de votaciones que requiere revisión."
+      : "Conserve como identidad principal al jugador que ya tiene historial de votaciones.";
+  }
+  if (input.decision === "match" && alias && proposedAlias) {
+    try {
+      playerProviderAliasTransition(alias, proposedAlias);
+    } catch {
+      status = "insufficient_evidence";
+      explanation =
+        "La identidad de API-Football ya está vinculada a otro jugador.";
+    }
+  }
+  const canApply = status === "safe";
+  return {
+    decision: input.decision,
+    status,
+    canApply,
+    explanation,
+    canonical: evidence(
+      canonical,
+      canonicalMembership,
+      canonicalParticipants,
+      canonicalProtected,
+    ),
+    duplicate: evidence(
+      duplicate,
+      duplicateMembership,
+      duplicateParticipants,
+      duplicateProtected,
+    ),
+    suggestedCanonicalPlayerId: canonicalProtected
+      ? canonical.id
+      : duplicateProtected
+        ? duplicate.id
+        : canonical.id,
+    ...(alias ? { currentAliasTarget: alias.canonicalPlayerId } : {}),
+    ...(previousReview ? { previousReview: previousReview.status } : {}),
+    proposedChanges:
+      input.decision === "nonmatch"
+        ? ["Guardar la decisión para no volver a sugerir esta pareja."]
+        : [
+            `Conservar a ${canonical.displayName} como identidad principal.`,
+            `Vincular la identidad de API-Football de ${duplicate.displayName}.`,
+            "Conservar sin cambios los jugadores, partidos, votos y resultados históricos.",
+            ...(affectedDrafts > 0
+              ? [`Actualizar ${affectedDrafts} borrador(es) seguros.`]
+              : []),
+          ],
+    preservedReferences: {
+      canonicalParticipations: canonicalParticipants.length,
+      duplicateParticipations: duplicateParticipants.length,
+      verifiedLineups,
+      ownerDrafts: affectedDrafts,
+      canonicalPublishedResults,
+      duplicatePublishedResults,
+    },
+    warnings: [
+      ...(normalizePlayerSearch(canonical.displayName) ===
+      normalizePlayerSearch(duplicate.displayName)
+        ? ["Los nombres coinciden, pero el nombre no demuestra identidad."]
+        : ["Los nombres son distintos; confirme la identidad con cuidado."]),
+      ...(verifiedLineups > 0
+        ? ["Las alineaciones verificadas se conservarán sin cambios."]
+        : []),
+    ],
+  };
+}
+
+function buildAlias(
+  id: string,
+  canonical: Player,
+  duplicateProvider: { provider: string; externalId: string },
+  timestampSnapshot: { readTime: Timestamp },
+): PlayerProviderAlias {
+  const timestamp = timestampSnapshot.readTime.toDate().toISOString();
+  return {
+    id,
+    canonicalPlayerId: canonical.id,
+    canonicalExternalProviderPlayerId:
+      canonical.externalProvider === duplicateProvider.provider &&
+      canonical.externalProviderId
+        ? canonical.externalProviderId
+        : duplicateProvider.externalId,
+    externalProvider: duplicateProvider.provider,
+    externalProviderPlayerId: duplicateProvider.externalId,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+}
+
 function validateInput(input: AdminPlayerIdentityInput): void {
   if (
-    !/^player-internal-[a-f0-9]{32}$/.test(input.canonicalPlayerId) ||
-    !/^[A-Za-z0-9_-]{1,128}$/.test(input.trackedTeamId) ||
-    input.externalProvider !== "api-football" ||
-    !/^[1-9][0-9]{0,15}$/.test(input.externalProviderPlayerId) ||
+    !validEntityId(input.firstPlayerId) ||
+    !validEntityId(input.secondPlayerId) ||
+    !validEntityId(input.canonicalPlayerId) ||
+    !validEntityId(input.trackedTeamId) ||
     !["match", "nonmatch"].includes(input.decision) ||
-    !/^[A-Za-z0-9_.@:-]{1,128}$/.test(input.operatorId) ||
-    !validHttpsUrl(input.verificationSource) ||
-    input.verificationReason.trim().length < 10 ||
-    input.verificationReason.length > 500
+    !/^[A-Za-z0-9_.@:-]{1,128}$/.test(input.operatorId)
   ) {
     throw new AdminPlayerIdentityRejectedError(
-      "Player identity reconciliation input is invalid.",
+      "La selección de jugadores no es válida.",
     );
   }
+}
+
+function validEntityId(value: string): boolean {
+  return /^[A-Za-z0-9_-]{1,128}$/.test(value);
+}
+
+function providerIdentity(
+  player: Player,
+): { provider: string; externalId: string } | undefined {
+  return player.externalProvider && player.externalProviderId
+    ? {
+        provider: player.externalProvider,
+        externalId: player.externalProviderId,
+      }
+    : undefined;
+}
+
+function belongsToTeam(
+  player: Player,
+  membership: TeamPlayerMembership | undefined,
+  participants: MatchParticipant[],
+  teamId: string,
+): boolean {
+  return (
+    player.currentTeamId === teamId ||
+    membership?.teamId === teamId ||
+    participants.some((participant) => participant.teamId === teamId)
+  );
+}
+
+function resultCount(results: MatchResult[], playerId: string): number {
+  return results.filter((result) => playerId in result.playerResults).length;
 }
 
 function canonicalizeDraftParticipant(
@@ -704,29 +941,83 @@ function evidence(
   player: Player,
   membership: TeamPlayerMembership | undefined,
   participants: MatchParticipant[],
+  hasProtectedHistory: boolean,
 ): IdentityEvidence {
   return {
     playerId: player.id,
     name: player.displayName,
-    ...(player.externalProviderId
-      ? { externalProviderId: player.externalProviderId }
-      : {}),
     ...(player.currentTeamId ? { currentTeamId: player.currentTeamId } : {}),
     ...(player.position ? { position: player.position } : {}),
+    ...(player.photoUrl ? { photoUrl: player.photoUrl } : {}),
     ...(membership?.shirtNumber === undefined
       ? {}
       : { shirtNumber: membership.shirtNumber }),
-    ...(player.identityProvenance
-      ? { identityProvenance: player.identityProvenance }
-      : {}),
-    matchIds: [...new Set(participants.map(({ matchId }) => matchId))].sort(),
+    identityProvenance:
+      player.identityProvenance ??
+      (player.externalProviderId ? "provider" : "operator_verified"),
+    matchCount: new Set(participants.map(({ matchId }) => matchId)).size,
+    hasProtectedHistory,
   };
+}
+
+function option(
+  player: Player,
+  membership: TeamPlayerMembership,
+): PlayerIdentityOption {
+  return {
+    id: player.id,
+    name: player.displayName,
+    ...(player.position ? { position: player.position } : {}),
+    ...(player.photoUrl ? { photoUrl: player.photoUrl } : {}),
+    ...(membership.shirtNumber === undefined
+      ? {}
+      : { shirtNumber: membership.shirtNumber }),
+    identityProvenance:
+      player.identityProvenance ??
+      (player.externalProviderId ? "provider" : "operator_verified"),
+  };
+}
+
+function suggestionSignals(
+  manual: Player,
+  manualMembership: TeamPlayerMembership,
+  provider: Player,
+  providerMembership: TeamPlayerMembership,
+): PlayerIdentitySuggestion["signals"] {
+  const manualName = normalizePlayerSearch(manual.displayName);
+  const providerName = normalizePlayerSearch(provider.displayName);
+  const signals: PlayerIdentitySuggestion["signals"] = [];
+  if (manualName === providerName) signals.push("name");
+  else if (abbreviatedNamesMatch(manualName, providerName)) {
+    signals.push("abbreviation");
+  }
+  if (manual.position && manual.position === provider.position) {
+    signals.push("position");
+  }
+  if (
+    manualMembership.shirtNumber !== undefined &&
+    manualMembership.shirtNumber === providerMembership.shirtNumber
+  ) {
+    signals.push("shirt");
+  }
+  return signals;
+}
+
+function abbreviatedNamesMatch(first: string, second: string): boolean {
+  const left = first.split(" ").filter(Boolean);
+  const right = second.split(" ").filter(Boolean);
+  if (left.length < 2 || right.length < 2) return false;
+  return (
+    left.at(-1) === right.at(-1) && left[0]?.charAt(0) === right[0]?.charAt(0)
+  );
 }
 
 function isPlan(value: unknown): value is AdminPlayerIdentityPlan {
   return (
     isRecord(value) &&
     ["match", "nonmatch"].includes(String(value.decision)) &&
+    typeof value.canApply === "boolean" &&
+    typeof value.explanation === "string" &&
     Array.isArray(value.proposedChanges) &&
     Array.isArray(value.warnings)
   );
@@ -734,17 +1025,6 @@ function isPlan(value: unknown): value is AdminPlayerIdentityPlan {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function validHttpsUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    return (
-      url.protocol === "https:" && url.username === "" && url.password === ""
-    );
-  } catch {
-    return false;
-  }
 }
 
 function fromSnapshot<T>(snapshot: {

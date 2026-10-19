@@ -1,13 +1,11 @@
 import { createHash } from "node:crypto";
 
 export interface AdminPlayerIdentityAction {
+  firstPlayerId: string;
+  secondPlayerId: string;
   canonicalPlayerId: string;
   trackedTeamId: string;
-  externalProvider: "api-football";
-  externalProviderPlayerId: string;
   decision: "match" | "nonmatch";
-  verificationSource: string;
-  verificationReason: string;
 }
 
 export function hashAdminPlayerIdentityAction(
@@ -19,7 +17,7 @@ export function hashAdminPlayerIdentityAction(
 export function adminPlayerIdentityResourceId(
   action: AdminPlayerIdentityAction,
 ): string {
-  return `${action.canonicalPlayerId}:${action.externalProvider}:${action.externalProviderPlayerId}`;
+  return [action.firstPlayerId, action.secondPlayerId].sort().join(":");
 }
 
 export function adminPlayerIdentityAuditId(challengeId: string): string {
@@ -27,13 +25,9 @@ export function adminPlayerIdentityAuditId(challengeId: string): string {
 }
 
 export function playerIdentityReviewId(
-  canonicalPlayerId: string,
-  externalProvider: string,
-  externalProviderPlayerId: string,
+  firstPlayerId: string,
+  secondPlayerId: string,
 ): string {
-  return createHash("sha256")
-    .update(
-      `${canonicalPlayerId}:${externalProvider}:${externalProviderPlayerId}`,
-    )
-    .digest("hex");
+  const pair = [firstPlayerId, secondPlayerId].sort();
+  return createHash("sha256").update(pair.join(":")).digest("hex");
 }

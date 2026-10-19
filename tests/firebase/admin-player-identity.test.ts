@@ -48,7 +48,7 @@ describe("admin Player identity reconciliation", () => {
     expect(preview).toMatchObject({
       decision: "match",
       preservedReferences: {
-        providerParticipations: 1,
+        duplicateParticipations: 1,
         verifiedLineups: 1,
         ownerDrafts: 1,
       },
@@ -57,7 +57,7 @@ describe("admin Player identity reconciliation", () => {
       (
         await database
           .doc(
-            `playerProviderAliases/${playerProviderAliasId("api-football", input.externalProviderPlayerId)}`,
+            `playerProviderAliases/${playerProviderAliasId("api-football", externalIdFor(input))}`,
           )
           .get()
       ).exists,
@@ -76,7 +76,7 @@ describe("admin Player identity reconciliation", () => {
       (
         await database
           .doc(
-            `playerProviderAliases/${playerProviderAliasId("api-football", input.externalProviderPlayerId)}`,
+            `playerProviderAliases/${playerProviderAliasId("api-football", externalIdFor(input))}`,
           )
           .get()
       ).data(),
@@ -86,7 +86,7 @@ describe("admin Player identity reconciliation", () => {
     ).toMatchObject({
       displayName: "Nombre verificado",
       identityProvenance: "operator_verified",
-      externalProviderId: input.externalProviderPlayerId,
+      externalProviderId: externalIdFor(input),
     });
     expect(
       (await database.doc(`players/${providerPlayerId}`).get()).exists,
@@ -106,6 +106,18 @@ describe("admin Player identity reconciliation", () => {
     expect(draft?.participants[0]).not.toHaveProperty(
       "identityAllocationToken",
     );
+    await expect(
+      service.preview({
+        ...input,
+        firstPlayerId: providerPlayerId,
+        secondPlayerId: input.canonicalPlayerId,
+        canonicalPlayerId: providerPlayerId,
+        decision: "nonmatch",
+      }),
+    ).resolves.toMatchObject({
+      status: "already_linked",
+      canApply: false,
+    });
   });
 
   it("records a reviewed nonmatch without creating an alias", async () => {
@@ -125,7 +137,7 @@ describe("admin Player identity reconciliation", () => {
       (
         await database
           .doc(
-            `playerProviderAliases/${playerProviderAliasId("api-football", input.externalProviderPlayerId)}`,
+            `playerProviderAliases/${playerProviderAliasId("api-football", externalIdFor(input))}`,
           )
           .get()
       ).exists,
@@ -141,11 +153,10 @@ describe("admin Player identity reconciliation", () => {
     });
   });
 
-  it("links late provider evidence before a provider Player document exists", async () => {
+  it("links partial provider metadata when stable identity evidence exists", async () => {
     const input = identityInput("late");
     await seedIdentityScenario(input, {
       participant: true,
-      providerDocument: false,
     });
     const token = await seedChallenge(input, "late");
 
@@ -155,7 +166,7 @@ describe("admin Player identity reconciliation", () => {
       (
         await database
           .doc(
-            `playerProviderAliases/${playerProviderAliasId("api-football", input.externalProviderPlayerId)}`,
+            `playerProviderAliases/${playerProviderAliasId("api-football", externalIdFor(input))}`,
           )
           .get()
       ).data(),
@@ -164,7 +175,7 @@ describe("admin Player identity reconciliation", () => {
       (await database.doc(`players/${input.canonicalPlayerId}`).get()).data(),
     ).toMatchObject({
       displayName: "Nombre verificado",
-      externalProviderId: input.externalProviderPlayerId,
+      externalProviderId: externalIdFor(input),
     });
   });
 
@@ -173,20 +184,21 @@ describe("admin Player identity reconciliation", () => {
     await seedIdentityScenario(input);
     await database
       .doc(
-        `playerProviderAliases/${playerProviderAliasId("api-football", input.externalProviderPlayerId)}`,
+        `playerProviderAliases/${playerProviderAliasId("api-football", externalIdFor(input))}`,
       )
       .set({
         canonicalPlayerId: `player-internal-${"f".repeat(32)}`,
-        canonicalExternalProviderPlayerId: input.externalProviderPlayerId,
+        canonicalExternalProviderPlayerId: externalIdFor(input),
         externalProvider: "api-football",
-        externalProviderPlayerId: input.externalProviderPlayerId,
+        externalProviderPlayerId: externalIdFor(input),
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now(),
       });
 
-    await expect(service.preview(input)).rejects.toBeInstanceOf(
-      AdminPlayerIdentityRejectedError,
-    );
+    await expect(service.preview(input)).resolves.toMatchObject({
+      status: "insufficient_evidence",
+      canApply: false,
+    });
   });
 
   it("commits one mutation and returns one receipt for concurrent exact applies", async () => {
@@ -231,18 +243,174 @@ describe("admin Player identity reconciliation", () => {
       generatedAt: Timestamp.now(),
     });
 
-    await expect(service.preview(input)).rejects.toBeInstanceOf(
+    await expect(service.preview(input)).resolves.toMatchObject({
+      status: "history_conflict",
+      canApply: false,
+      suggestedCanonicalPlayerId: providerPlayerId,
+    });
+    const token = await seedChallenge(input, "protected");
+    await expect(service.applyAuthorized(input, token)).rejects.toBeInstanceOf(
       AdminPlayerIdentityRejectedError,
     );
     expect(
       (
         await database
           .doc(
-            `playerProviderAliases/${playerProviderAliasId("api-football", input.externalProviderPlayerId)}`,
+            `playerProviderAliases/${playerProviderAliasId("api-football", externalIdFor(input))}`,
           )
           .get()
       ).exists,
     ).toBe(false);
+  });
+
+  it("preserves an active voting window and submitted ballot", async () => {
+    const input = identityInput("voting");
+    const providerPlayerId = await seedIdentityScenario(input, {
+      participant: true,
+    });
+    const matchId = "match-voting";
+    await database.doc(`matches/${matchId}`).update({
+      ratingState: "rating_ready",
+      ratingOpenedAt: Timestamp.now(),
+      ratingClosesAt: Timestamp.fromMillis(Date.now() + 60_000),
+    });
+    const ballotReference = database.doc(
+      `matches/${matchId}/ballots/voter-protected`,
+    );
+    await ballotReference.set({
+      matchId,
+      teamId: input.trackedTeamId,
+      voterId: "voter-protected",
+      playerRatings: { [providerPlayerId]: 8 },
+      coachRating: { coachId: "coach-1", rating: 8 },
+      submittedAt: Timestamp.now(),
+    });
+    const matchBefore = (await database.doc(`matches/${matchId}`).get()).data();
+    const ballotBefore = (await ballotReference.get()).data();
+
+    await expect(service.preview(input)).resolves.toMatchObject({
+      status: "history_conflict",
+      canApply: false,
+      suggestedCanonicalPlayerId: providerPlayerId,
+    });
+    const token = await seedChallenge(input, "voting");
+    await expect(service.applyAuthorized(input, token)).rejects.toBeInstanceOf(
+      AdminPlayerIdentityRejectedError,
+    );
+
+    expect((await database.doc(`matches/${matchId}`).get()).data()).toEqual(
+      matchBefore,
+    );
+    expect((await ballotReference.get()).data()).toEqual(ballotBefore);
+  });
+
+  it("suggests accent-insensitive and abbreviated duplicate names", async () => {
+    const teamId = "team-suggestions";
+    const manualId = `player-internal-${"a".repeat(32)}`;
+    const providerId = providerEntityId("player", "api-football", "880001");
+    await seedSuggestionIndex(teamId, [
+      {
+        id: manualId,
+        name: "Jos\u00e9 Gonz\u00e1lez",
+        provenance: "operator_verified",
+        position: "midfielder",
+        shirtNumber: 8,
+      },
+      {
+        id: providerId,
+        name: "J. Gonzalez",
+        provenance: "provider",
+        externalId: "880001",
+        position: "midfielder",
+        shirtNumber: 8,
+      },
+    ]);
+
+    await expect(service.suggestions(teamId)).resolves.toMatchObject({
+      providerDataAvailable: true,
+      suggestions: [
+        {
+          first: { id: manualId, name: "Jos\u00e9 Gonz\u00e1lez" },
+          second: { id: providerId, name: "J. Gonzalez" },
+          suggestedCanonicalPlayerId: manualId,
+          signals: ["abbreviation", "position", "shirt"],
+        },
+      ],
+    });
+  });
+
+  it("reports provider unavailability without hiding manual reconciliation", async () => {
+    const teamId = "team-no-provider";
+    await seedSuggestionIndex(teamId, [
+      {
+        id: `player-internal-${"b".repeat(32)}`,
+        name: "Jugador manual",
+        provenance: "operator_verified",
+      },
+    ]);
+
+    await expect(service.suggestions(teamId)).resolves.toEqual({
+      providerDataAvailable: false,
+      suggestions: [],
+    });
+  });
+
+  it("compares two internal Players but blocks a merge without provider identity", async () => {
+    const input = identityInput("internal-pair");
+    input.secondPlayerId = `player-internal-${"c".repeat(32)}`;
+    await database.doc(`players/${input.firstPlayerId}`).set({
+      displayName: "Jugador interno uno",
+      identityProvenance: "operator_verified",
+      currentTeamId: input.trackedTeamId,
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    });
+    await database.doc(`players/${input.secondPlayerId}`).set({
+      displayName: "Jugador interno dos",
+      identityProvenance: "operator_verified",
+      currentTeamId: input.trackedTeamId,
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    });
+
+    await expect(service.preview(input)).resolves.toMatchObject({
+      status: "insufficient_evidence",
+      canApply: false,
+    });
+  });
+
+  it("removes a pair from suggestions after the owner confirms they differ", async () => {
+    const input = {
+      ...identityInput("reviewed"),
+      decision: "nonmatch" as const,
+    };
+    const providerPlayerId = await seedIdentityScenario(input);
+    await database.doc(`players/${providerPlayerId}`).update({
+      displayName: "Nombre verificado",
+    });
+    await seedMembershipIndex(input.trackedTeamId, [
+      input.canonicalPlayerId,
+      providerPlayerId,
+    ]);
+    expect(
+      (await service.suggestions(input.trackedTeamId)).suggestions,
+    ).toHaveLength(1);
+
+    const token = await seedChallenge(input, "reviewed");
+    await service.applyAuthorized(input, token);
+
+    expect(
+      (await service.suggestions(input.trackedTeamId)).suggestions,
+    ).toEqual([]);
+  });
+
+  it("rejects selecting the same Player twice", async () => {
+    const input = identityInput("same-player");
+    input.secondPlayerId = input.firstPlayerId;
+
+    await expect(service.preview(input)).rejects.toThrow(
+      "Seleccione dos jugadores diferentes.",
+    );
   });
 });
 
@@ -254,17 +422,31 @@ function identityInput(seed: string): AdminPlayerIdentityInput {
         0,
       ),
   );
+  const canonicalPlayerId = `player-internal-${createHash("md5").update(seed).digest("hex")}`;
+  const providerPlayerId = providerEntityId(
+    "player",
+    "api-football",
+    numericId,
+  );
   return {
-    canonicalPlayerId: `player-internal-${createHash("md5").update(seed).digest("hex")}`,
+    firstPlayerId: canonicalPlayerId,
+    secondPlayerId: providerPlayerId,
+    canonicalPlayerId,
     trackedTeamId: `team-${seed}`,
-    externalProvider: "api-football",
-    externalProviderPlayerId: numericId,
     decision: "match",
-    verificationSource: `https://evidence.example.test/${seed}`,
-    verificationReason:
-      "Identidad revisada contra evidencia oficial independiente.",
     operatorId: `owner-${seed}`,
   };
+}
+
+function externalIdFor(input: AdminPlayerIdentityInput): string {
+  const seed = input.trackedTeamId.replace(/^team-/, "");
+  return String(
+    700_000 +
+      [...seed].reduce(
+        (total, character) => total + character.charCodeAt(0),
+        0,
+      ),
+  );
 }
 
 async function seedIdentityScenario(
@@ -278,8 +460,8 @@ async function seedIdentityScenario(
 ): Promise<string> {
   const providerPlayerId = providerEntityId(
     "player",
-    input.externalProvider,
-    input.externalProviderPlayerId,
+    "api-football",
+    externalIdFor(input),
   );
   const timestamp = Timestamp.fromDate(new Date("2026-10-18T12:00:00.000Z"));
   await database.doc(`players/${input.canonicalPlayerId}`).set({
@@ -294,8 +476,8 @@ async function seedIdentityScenario(
       displayName: "Nombre proveedor",
       identityProvenance: "provider",
       currentTeamId: input.trackedTeamId,
-      externalProvider: input.externalProvider,
-      externalProviderId: input.externalProviderPlayerId,
+      externalProvider: "api-football",
+      externalProviderId: externalIdFor(input),
       createdAt: timestamp,
       updatedAt: timestamp,
     });
@@ -314,9 +496,9 @@ async function seedIdentityScenario(
         matchId,
         playerId: providerPlayerId,
         teamId: input.trackedTeamId,
-        externalProvider: input.externalProvider,
+        externalProvider: "api-football",
         externalProviderTeamId: "815",
-        externalProviderPlayerId: input.externalProviderPlayerId,
+        externalProviderPlayerId: externalIdFor(input),
         playerName: "Nombre proveedor",
         squadRole: "starter",
         starter: true,
@@ -376,4 +558,85 @@ async function seedChallenge(
       expiresAt: Timestamp.fromMillis(Date.now() + 60_000),
     });
   return token;
+}
+
+async function seedSuggestionIndex(
+  teamId: string,
+  players: Array<{
+    id: string;
+    name: string;
+    provenance: "provider" | "operator_verified";
+    externalId?: string;
+    position?: "goalkeeper" | "defender" | "midfielder" | "attacker";
+    shirtNumber?: number;
+  }>,
+): Promise<void> {
+  const timestamp = Timestamp.fromDate(new Date("2026-10-18T12:00:00.000Z"));
+  await database.doc(`teams/${teamId}/playerMembershipIndex/state`).set({
+    teamId,
+    status: "complete",
+    schemaVersion: 1,
+    baselineMembershipCount: players.length,
+    blockingIssueCount: 0,
+    auditedAt: timestamp,
+  });
+  await Promise.all(
+    players.flatMap((player) => [
+      database.doc(`players/${player.id}`).set({
+        displayName: player.name,
+        identityProvenance: player.provenance,
+        currentTeamId: teamId,
+        ...(player.externalId
+          ? {
+              externalProvider: "api-football",
+              externalProviderId: player.externalId,
+            }
+          : {}),
+        ...(player.position ? { position: player.position } : {}),
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      }),
+      database.doc(`teams/${teamId}/playerMemberships/${player.id}`).set({
+        teamId,
+        displayName: player.name,
+        searchName: player.name.toLocaleLowerCase("es"),
+        searchPrefixes: [player.name.slice(0, 1).toLocaleLowerCase("es")],
+        source:
+          player.provenance === "provider"
+            ? "current_squad"
+            : "operator_verified",
+        ...(player.shirtNumber === undefined
+          ? {}
+          : { shirtNumber: player.shirtNumber }),
+        firstObservedAt: timestamp,
+        lastObservedAt: timestamp,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      }),
+    ]),
+  );
+}
+
+async function seedMembershipIndex(
+  teamId: string,
+  playerIds: string[],
+): Promise<void> {
+  const snapshots = await database.getAll(
+    ...playerIds.map((playerId) => database.doc(`players/${playerId}`)),
+  );
+  await seedSuggestionIndex(
+    teamId,
+    snapshots.map((snapshot) => {
+      const player = snapshot.data()!;
+      return {
+        id: snapshot.id,
+        name: String(player.displayName),
+        provenance: player.identityProvenance as
+          "provider" | "operator_verified",
+        ...(player.externalProviderId
+          ? { externalId: String(player.externalProviderId) }
+          : {}),
+      };
+    }),
+  );
 }
