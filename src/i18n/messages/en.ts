@@ -423,6 +423,12 @@ export const enMessages = {
     },
     addStarter: "Add starter",
     addSubstitute: "Add substitute",
+    newPlayer: "New player",
+    potentialDuplicates:
+      "Review the possible duplicates shown in the roster before creating an identity.",
+    playerPosition: "Position (optional)",
+    shirtNumber: "Shirt number (optional)",
+    optionalField: "Not specified",
     internalIdentity: "Add verified internal identity",
     advancedActions: "Exceptional actions",
     internalIdentityHelp:
@@ -445,7 +451,9 @@ export const enMessages = {
       "Keep players here while participation evidence remains insufficient.",
     groupEmpty: "There are no players in this group yet.",
     move: "Move",
+    dragHandle: "Drag",
     dragPlayer: "Move {player}",
+    moveDestination: "Destination for {player}",
     dragInstructions:
       "Press space to pick up a player, use arrow keys to move, and press space to drop. You can also use the action buttons.",
     dragStarted: "Picked up {player}.",
@@ -525,6 +533,22 @@ export const enMessages = {
     coachConflictError:
       "The existing assignment or identity conflicts with the proposal.",
     reconciliation: "Provider reconciliation",
+    identityReconciliation: "Reconcile identity",
+    identityReconciliationTitle: "Player identity reconciliation",
+    identityReconciliationHelp:
+      "Compare a verified internal identity with a genuine API-Football ID. The system never decides by name.",
+    searchManualPlayer: "Search verified internal player",
+    selectedCanonicalPlayer: "Selected canonical identity: {player}",
+    apiFootballPlayerId: "Genuine API-Football ID",
+    samePerson: "They are the same person",
+    notSamePerson: "They are not the same person",
+    cancel: "Cancel",
+    identityComparison: "Identity comparison",
+    manualIdentity: "Canonical internal identity",
+    providerIdentity: "API-Football identity",
+    exactChanges: "Exact proposed changes",
+    applyIdentityDecision: "Apply verified decision",
+    identityReconciliationApplied: "The identity decision was applied.",
     reconciliationStatuses: {
       matched: "Provider evidence matches",
       provider_missing: "The provider has not published the lineup yet",

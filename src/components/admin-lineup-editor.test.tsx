@@ -64,6 +64,42 @@ describe("admin lineup editor", () => {
     ).toBeVisible();
   });
 
+  it("opens an accessible destination picker from Mover", async () => {
+    const user = userEvent.setup();
+    renderEditor(detail("preparing_rating"));
+    const player = screen.getByText("Jugador 12").closest("li");
+    expect(player).not.toBeNull();
+
+    await user.click(
+      within(player!).getByRole("button", {
+        name: new RegExp(`^${messages.move}$`),
+      }),
+    );
+    const destinations = within(player!).getByRole("group", {
+      name: messages.moveDestination.replace("{player}", "Jugador 12"),
+    });
+    expect(
+      within(destinations).getByRole("button", { name: messages.starters }),
+    ).toBeDisabled();
+    await user.click(
+      within(destinations).getByRole("button", {
+        name: messages.enteredSubstitutes,
+      }),
+    );
+
+    const movedPlayer = screen.getByText("Jugador 12").closest("li");
+    expect(
+      within(movedPlayer!).getByLabelText(messages.entryMinute),
+    ).toBeVisible();
+    expect(
+      screen.getByText(
+        messages.playerMoved
+          .replace("{player}", "Jugador 12")
+          .replace("{group}", messages.enteredSubstitutes),
+      ),
+    ).toBeVisible();
+  });
+
   it("restores the preloaded evidence after a local draft change", async () => {
     const user = userEvent.setup();
     renderEditor(detail("preparing_rating"));
@@ -200,17 +236,25 @@ describe("admin lineup editor", () => {
     const matchDetail = detail("preparing_rating");
     matchDetail.participants = matchDetail.participants.slice(0, 10);
     matchDetail.players = matchDetail.players.slice(0, 10);
+    const fetchMock = vi.fn(async (input: string | URL | Request) =>
+      String(input).includes("internal-id")
+        ? {
+            ok: true,
+            json: async () => ({
+              playerId: `player-internal-${"a".repeat(32)}`,
+              identityAllocationToken: "signed-allocation",
+            }),
+          }
+        : { ok: true, json: async () => ({ players: [] }) },
+    );
+    vi.stubGlobal("fetch", fetchMock);
     renderEditor(matchDetail);
 
-    const advanced = screen
-      .getByText(messages.advancedActions)
+    const createPlayer = screen
+      .getByText(messages.newPlayer)
       .closest("details");
-    expect(advanced).not.toHaveAttribute("open");
-    await user.click(screen.getByText(messages.internalIdentity));
-    await user.type(
-      screen.getByLabelText(messages.internalPlayerId),
-      "internal-player",
-    );
+    expect(createPlayer).not.toHaveAttribute("open");
+    await user.click(screen.getByText(messages.newPlayer));
     await user.type(
       screen.getByLabelText(messages.playerName),
       "Jugador Verificado",
@@ -225,6 +269,10 @@ describe("admin lineup editor", () => {
     expect(addStarter).toBeEnabled();
     await user.click(addStarter);
     expect(screen.getByText("11/11")).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/players/internal-id",
+      expect.objectContaining({ method: "POST" }),
+    );
   });
 
   it("prevents a twelfth starter and keeps substitute participation explicit", async () => {

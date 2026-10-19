@@ -12,6 +12,7 @@ import {
   hashAdminLineupDraft,
   type AdminLineupDraftAction,
 } from "@/lib/server/admin-lineup-draft-action";
+import { verifyInternalPlayerAllocationToken } from "@/lib/server/admin-player-identity-allocation";
 
 import { getServerFirestore } from "./server";
 
@@ -220,6 +221,17 @@ function validateDraftInput(input: AdminLineupDraftInput): void {
           participant.enteredAtMinute > 130))
     ) {
       throw new Error("Lineup draft input is invalid.");
+    }
+    if (
+      participant.createInternalIdentity !==
+      verifyInternalPlayerAllocationToken(participant.identityAllocationToken, {
+        playerId: participant.playerId,
+        ownerId: input.ownerId,
+        matchId: input.matchId,
+        trackedTeamId: input.trackedTeamId,
+      })
+    ) {
+      throw new Error("Internal Player allocation is invalid.");
     }
     ids.add(participant.playerId);
     if (participant.squadRole === "starter") starters += 1;

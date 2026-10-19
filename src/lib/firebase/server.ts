@@ -22,6 +22,7 @@ import {
   buildPlayerCatalog,
   type PlayerCatalog,
 } from "@/application/player-history";
+import { resolvePersistedPlayerProviderAlias } from "@/application/reconcile-player-identities";
 import {
   membershipFromParticipant,
   membershipFromPlayer,
@@ -67,9 +68,15 @@ import type {
 } from "@/domain/ports";
 import {
   canonicalPlayerIdMap,
+  mergePlayerForProviderSync,
   playerProviderAliasId,
   providerEntityId,
 } from "@/domain/player-identity";
+import { selectDurableVerifiedLineupReconciliation } from "@/domain/verified-lineup-reconciliation";
+import {
+  getEffectiveVotingWindow,
+  getVotingWindowState,
+} from "@/domain/voting-window";
 import {
   readIndexedTeamPlayers,
   readPublishedTeamHistory,
@@ -77,11 +84,6 @@ import {
   TeamPlayerMembershipIndexIncompleteError,
   type TeamPlayerIndexObserver,
 } from "@/lib/firebase/team-player-membership-index";
-import { selectDurableVerifiedLineupReconciliation } from "@/domain/verified-lineup-reconciliation";
-import {
-  getEffectiveVotingWindow,
-  getVotingWindowState,
-} from "@/domain/voting-window";
 import {
   adminChallengeDocumentId,
   adminCoachAssignmentAuditId,
@@ -1798,9 +1800,7 @@ export class AdminFootballSyncStore
         const existing = playerSnapshots[index].exists
           ? fromDocument<Player>(playerSnapshots[index])
           : undefined;
-        return existing === undefined
-          ? player
-          : { ...existing, ...player, createdAt: existing.createdAt };
+        return mergePlayerForProviderSync(existing, player);
       });
       const counts = writeCounts(
         playerSnapshots.map((snapshot) =>
@@ -1843,8 +1843,14 @@ export class AdminFootballSyncStore
           return proposed;
         }
         const existing = fromDocument<PlayerProviderAlias>(snapshot);
-        assertMatchingPlayerProviderAlias(existing, proposed);
-        return existing;
+        const resolved = resolvePersistedPlayerProviderAlias(
+          existing,
+          proposed,
+        );
+        if (!isDeepStrictEqual(existing, resolved)) {
+          transaction.set(snapshot.ref, toDocument(resolved));
+        }
+        return resolved;
       });
     });
   }
@@ -2582,23 +2588,6 @@ function comparable(value: object): string {
       Object.entries(copy).sort(([a], [b]) => a.localeCompare(b)),
     ),
   );
-}
-
-function assertMatchingPlayerProviderAlias(
-  existing: PlayerProviderAlias,
-  proposed: PlayerProviderAlias,
-): void {
-  if (
-    existing.canonicalPlayerId !== proposed.canonicalPlayerId ||
-    existing.canonicalExternalProviderPlayerId !==
-      proposed.canonicalExternalProviderPlayerId ||
-    existing.externalProvider !== proposed.externalProvider ||
-    existing.externalProviderPlayerId !== proposed.externalProviderPlayerId
-  ) {
-    throw new Error(
-      `Player provider alias ${proposed.id} conflicts with its persisted canonical identity.`,
-    );
-  }
 }
 
 function preserveVerifiedParticipants(

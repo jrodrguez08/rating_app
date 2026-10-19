@@ -29,6 +29,26 @@
       ]
     },
     {
+      "collectionGroup": "participants",
+      "fieldPath": "playerId",
+      "indexes": [
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION_GROUP"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "lineupDrafts",
+      "fieldPath": "ownerId",
+      "indexes": [
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION_GROUP"
+        }
+      ]
+    },
+    {
       "collectionGroup": "results",
       "fieldPath": "teamId",
       "indexes": [

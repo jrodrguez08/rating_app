@@ -5,6 +5,7 @@ import { getMessages } from "@/i18n/messages";
 import type { AdminCoachAction } from "@/lib/server/admin-coach-action";
 import type { AdminLifecycleAction } from "@/lib/server/admin-lifecycle-action";
 import type { AdminLineupDraftAction } from "@/lib/server/admin-lineup-draft-action";
+import type { AdminPlayerIdentityAction } from "@/lib/server/admin-player-identity-action";
 import type {
   AdminLineupAction,
   AdminLineupParticipantAction,
@@ -139,11 +140,37 @@ export function parseAdminLifecycleAction(
   };
 }
 
+export function parseAdminPlayerIdentityAction(
+  value: unknown,
+): AdminPlayerIdentityAction {
+  if (!isRecord(value)) throw new AdminAuthorizationError(403);
+  for (const key of [
+    "canonicalPlayerId",
+    "trackedTeamId",
+    "externalProvider",
+    "externalProviderPlayerId",
+    "decision",
+    "verificationSource",
+    "verificationReason",
+  ] as const) {
+    if (typeof value[key] !== "string") throw new AdminAuthorizationError(403);
+  }
+  if (
+    value.externalProvider !== "api-football" ||
+    !["match", "nonmatch"].includes(String(value.decision))
+  ) {
+    throw new AdminAuthorizationError(403);
+  }
+  return value as unknown as AdminPlayerIdentityAction;
+}
+
 function parseLineupParticipant(value: unknown): AdminLineupParticipantAction {
   if (
     !isRecord(value) ||
     typeof value.playerId !== "string" ||
     typeof value.createInternalIdentity !== "boolean" ||
+    (value.identityAllocationToken !== undefined &&
+      typeof value.identityAllocationToken !== "string") ||
     (value.playerName !== undefined && typeof value.playerName !== "string") ||
     !["starter", "substitute"].includes(String(value.squadRole)) ||
     ![
@@ -167,6 +194,9 @@ function parseLineupParticipant(value: unknown): AdminLineupParticipantAction {
     playerId: value.playerId,
     ...(value.playerName === undefined ? {} : { playerName: value.playerName }),
     createInternalIdentity: value.createInternalIdentity,
+    ...(value.identityAllocationToken === undefined
+      ? {}
+      : { identityAllocationToken: value.identityAllocationToken }),
     squadRole: value.squadRole as AdminLineupParticipantAction["squadRole"],
     participationStatus:
       value.participationStatus as AdminLineupParticipantAction["participationStatus"],

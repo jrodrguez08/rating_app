@@ -117,3 +117,30 @@ export function playerProviderAliasTransition(
     `Player provider alias ${proposed.id} conflicts with its persisted canonical identity.`,
   );
 }
+
+export function resolvePersistedPlayerProviderAlias(
+  existing: PlayerProviderAlias | undefined,
+  proposed: PlayerProviderAlias,
+): PlayerProviderAlias {
+  if (!existing) return proposed;
+  const proposedIsDefaultSelfAlias =
+    proposed.canonicalPlayerId ===
+      providerEntityId(
+        "player",
+        proposed.externalProvider,
+        proposed.externalProviderPlayerId,
+      ) &&
+    proposed.canonicalExternalProviderPlayerId ===
+      proposed.externalProviderPlayerId;
+  if (
+    proposedIsDefaultSelfAlias &&
+    existing.externalProvider === proposed.externalProvider &&
+    existing.externalProviderPlayerId === proposed.externalProviderPlayerId
+  ) {
+    return existing;
+  }
+  const transition = playerProviderAliasTransition(existing, proposed);
+  return transition === "unchanged"
+    ? existing
+    : { ...proposed, createdAt: existing.createdAt };
+}

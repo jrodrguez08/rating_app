@@ -32,18 +32,30 @@ import {
   type AdminLineupParticipantAction,
 } from "@/lib/server/admin-lineup-action";
 import { adminChallengeDocumentId } from "@/lib/server/admin-coach-action";
+import { issueInternalPlayerAllocationToken } from "@/lib/server/admin-player-identity-allocation";
 
 const projectId = process.env.GCLOUD_PROJECT ?? "demo-rating-app-local";
 const app = initializeApp({ projectId }, `verified-lineup-${Date.now()}`);
 const database = getFirestore(app);
 const service = new AdminVerifiedLineupService(database);
+const originalPassphraseConfiguration = process.env.ADMIN_PASSPHRASE_SCRYPT;
 
 beforeAll(() => {
   if (!process.env.FIRESTORE_EMULATOR_HOST) {
     throw new Error("FIRESTORE_EMULATOR_HOST is required.");
   }
+  process.env.ADMIN_PASSPHRASE_SCRYPT ||= "test-allocation-signing-key".repeat(
+    4,
+  );
 });
-afterAll(() => deleteApp(app));
+afterAll(async () => {
+  if (originalPassphraseConfiguration === undefined) {
+    delete process.env.ADMIN_PASSPHRASE_SCRYPT;
+  } else {
+    process.env.ADMIN_PASSPHRASE_SCRYPT = originalPassphraseConfiguration;
+  }
+  await deleteApp(app);
+});
 
 describe("verified lineup preparation persistence", () => {
   it("previews without writes and atomically applies a verified lineup", async () => {
@@ -176,10 +188,17 @@ describe("verified lineup preparation persistence", () => {
   it("creates an internal-only canonical Player without inventing provider identity", async () => {
     const matchId = "lineup-internal-player";
     const input = await seedScenario(matchId);
+    const playerId = `player-internal-${"a".repeat(32)}`;
     input.participants[11] = {
-      playerId: "internal-reviewed-player",
+      playerId,
       playerName: "Jugador verificado",
       createInternalIdentity: true,
+      identityAllocationToken: issueInternalPlayerAllocationToken({
+        playerId,
+        ownerId: input.operatorId,
+        matchId,
+        trackedTeamId: input.trackedTeamId,
+      }),
       squadRole: "substitute",
       participationStatus: "confirmed_substitute",
       enteredAtMinute: 72,
@@ -189,9 +208,7 @@ describe("verified lineup preparation persistence", () => {
 
     await service.applyAuthorized(input, token);
 
-    const player = (
-      await database.doc("players/internal-reviewed-player").get()
-    ).data();
+    const player = (await database.doc(`players/${playerId}`).get()).data();
     expect(player).toMatchObject({
       displayName: "Jugador verificado",
       identityProvenance: "operator_verified",
@@ -199,9 +216,7 @@ describe("verified lineup preparation persistence", () => {
     });
     expect(player).not.toHaveProperty("externalProviderId");
     const participant = (
-      await database
-        .doc(`matches/${matchId}/participants/internal-reviewed-player`)
-        .get()
+      await database.doc(`matches/${matchId}/participants/${playerId}`).get()
     ).data();
     expect(participant).not.toHaveProperty("externalProviderPlayerId");
   });
@@ -770,7 +785,9 @@ async function seedScenario(
     { length: participantCount },
     (_, index) => {
       const number = String(index + 1).padStart(2, "0");
-      const playerId = `player-${matchId}-${number}`;
+      const playerId = internalOnly
+        ? `player-internal-${index.toString(16).padStart(32, "0")}`
+        : `player-${matchId}-${number}`;
       if (!internalOnly) {
         batch.set(database.doc(`players/${playerId}`), {
           displayName: `Jugador ${index + 1}`,
@@ -786,6 +803,16 @@ async function seedScenario(
         playerId,
         createInternalIdentity: internalOnly,
         ...(internalOnly ? { playerName: `Jugador ${index + 1}` } : {}),
+        ...(internalOnly
+          ? {
+              identityAllocationToken: issueInternalPlayerAllocationToken({
+                playerId,
+                ownerId: "owner-verified",
+                matchId,
+                trackedTeamId: teamId,
+              }),
+            }
+          : {}),
         squadRole: index < 11 ? ("starter" as const) : ("substitute" as const),
         participationStatus:
           index < 11

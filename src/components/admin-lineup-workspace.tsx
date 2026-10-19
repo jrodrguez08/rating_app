@@ -1,6 +1,7 @@
 "use client";
 
 import { useDraggable, useDroppable } from "@dnd-kit/core";
+import { useState } from "react";
 
 import type { PlayerPosition } from "@/domain/models";
 import type { Messages } from "@/i18n/messages";
@@ -142,6 +143,7 @@ function ParticipantCard({
   updateEntryMinute: (playerId: string, minute?: number) => void;
 }) {
   const lane = laneFor(participant);
+  const [showDestinations, setShowDestinations] = useState(false);
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({ id: participant.playerId });
   const style = transform
@@ -185,19 +187,59 @@ function ParticipantCard({
             · {detailProvenance(participant, messages)}
           </span>
         </span>
-        <button
-          className="button-utility min-h-11 shrink-0 px-3"
-          type="button"
-          aria-label={messages.dragPlayer.replace(
+        <span className="flex shrink-0 flex-wrap gap-2">
+          <button
+            className="button-utility min-h-11 px-3"
+            type="button"
+            aria-expanded={showDestinations}
+            onClick={() => setShowDestinations((current) => !current)}
+          >
+            {messages.move}
+          </button>
+          <button
+            className="button-utility min-h-11 px-3"
+            type="button"
+            aria-label={messages.dragPlayer.replace(
+              "{player}",
+              participant.playerName,
+            )}
+            {...listeners}
+            {...attributes}
+          >
+            {messages.dragHandle}
+          </button>
+        </span>
+      </div>
+      {showDestinations ? (
+        <div
+          className="border-accent game-inset flex flex-wrap gap-2 p-3"
+          role="group"
+          aria-label={messages.moveDestination.replace(
             "{player}",
             participant.playerName,
           )}
-          {...listeners}
-          {...attributes}
         >
-          {messages.move}
-        </button>
-      </div>
+          {(["starters", "available", "entered", "unconfirmed"] as const).map(
+            (destination) => (
+              <button
+                className="button-utility min-h-11 px-3"
+                type="button"
+                key={destination}
+                disabled={
+                  destination === lane ||
+                  (destination === "starters" && starterCount >= 11)
+                }
+                onClick={() => {
+                  move(participant.playerId, destination);
+                  setShowDestinations(false);
+                }}
+              >
+                {lineupLaneTitle(destination, messages)}
+              </button>
+            ),
+          )}
+        </div>
+      ) : null}
       {lane === "entered" ? (
         <label className="grid gap-2 text-sm">
           <span>{messages.entryMinute}</span>
