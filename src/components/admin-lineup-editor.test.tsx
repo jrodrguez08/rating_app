@@ -1,10 +1,4 @@
-import {
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -12,6 +6,10 @@ import { getMessages } from "@/i18n/messages";
 import type { AdminMatchDetail } from "@/lib/firebase/admin-console";
 
 import { AdminLineupEditor } from "./admin-lineup-editor";
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: vi.fn() }),
+}));
 
 const messages = getMessages("es").admin;
 
@@ -41,7 +39,7 @@ describe("admin lineup editor", () => {
       screen.getByRole("button", { name: "Mover a Jugador 12" }),
     ).toHaveAttribute("aria-roledescription", "draggable");
     expect(
-      screen.getByRole("button", { name: messages.preview }),
+      screen.getByRole("button", { name: messages.applyLineup }),
     ).toBeEnabled();
   });
 
@@ -156,7 +154,7 @@ describe("admin lineup editor", () => {
 
     expect(screen.getByText("11/11")).toBeVisible();
     expect(
-      screen.getByRole("button", { name: messages.preview }),
+      screen.getByRole("button", { name: messages.applyLineup }),
     ).toBeEnabled();
   });
 
@@ -197,7 +195,7 @@ describe("admin lineup editor", () => {
 
     expect(screen.getByText("1/11")).toBeVisible();
     expect(
-      screen.getByRole("button", { name: messages.preview }),
+      screen.getByRole("button", { name: messages.applyLineup }),
     ).toBeDisabled();
   });
 
@@ -314,20 +312,24 @@ describe("admin lineup editor", () => {
               json: async () => ({ plan: {}, previewToken: "preview-token" }),
             };
           }
+          if (String(input).includes("/api/admin/lineup/authorize")) {
+            return { ok: true, json: async () => ({ authorized: true }) };
+          }
+          if (String(input).includes("/api/admin/lineup/apply")) {
+            return { ok: true, json: async () => ({ auditId: "audit" }) };
+          }
           return { ok: true, json: async () => ({ players: [] }) };
         }),
     );
     renderEditor(matchDetail);
 
     await user.type(
-      screen.getByLabelText(messages.evidence),
-      "https://example.com/fixture",
+      screen.getByLabelText(messages.passphrase),
+      "owner passphrase",
     );
-    await user.type(
-      screen.getByLabelText(messages.reason),
-      "Retraso API-Football",
+    await user.click(
+      screen.getByRole("button", { name: messages.applyLineup }),
     );
-    await user.click(screen.getByRole("button", { name: messages.preview }));
 
     await waitFor(() => expect(previewBody).toBeDefined());
     const submitted = previewBody as {
@@ -468,62 +470,43 @@ describe("admin lineup editor", () => {
     expect(screen.getByText(messages.draftStatuses.saved)).toBeVisible();
   });
 
-  it("clears the passphrase and reveals exact confirmation after authorization", async () => {
+  it("confirms the lineup through one owner form without technical evidence fields", async () => {
     const user = userEvent.setup();
-    let resolveAuthorization:
-      | ((value: { ok: boolean; json: () => Promise<unknown> }) => void)
-      | undefined;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((input: string | URL | Request) => {
-        const path = String(input);
-        if (path.includes("/api/admin/players?")) {
-          return Promise.resolve(jsonResponse({ players: [] }));
-        }
-        if (path.endsWith("/preview")) {
-          return Promise.resolve(
-            jsonResponse({
-              previewToken: "lineup-preview",
-              plan: {
-                participantCreates: 0,
-                participantUpdates: 0,
-                participantDeletes: 0,
-              },
-            }),
-          );
-        }
-        if (path.endsWith("/authorize")) {
-          return new Promise((resolve) => {
-            resolveAuthorization = resolve;
-          });
-        }
-        throw new Error(`Unexpected request: ${path}`);
-      }),
-    );
+    const fetchMock = vi.fn((input: string | URL | Request) => {
+      const path = String(input);
+      if (path.includes("/api/admin/players?")) {
+        return Promise.resolve(jsonResponse({ players: [] }));
+      }
+      if (path.endsWith("/preview")) {
+        return Promise.resolve(
+          jsonResponse({ previewToken: "lineup-preview", plan: {} }),
+        );
+      }
+      if (path.endsWith("/authorize")) {
+        return Promise.resolve(jsonResponse({ authorized: true }));
+      }
+      if (path.endsWith("/apply")) {
+        return Promise.resolve(jsonResponse({ auditId: "lineup-audit" }));
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
     renderEditor(detail("preparing_rating"));
 
-    await user.click(screen.getByText(messages.confirmVerifiedLineup));
-    fireEvent.change(screen.getByLabelText(messages.evidence), {
-      target: { value: "https://evidence.example.test/lineup" },
-    });
-    fireEvent.change(screen.getByLabelText(messages.reason), {
-      target: {
-        value: "Evidencia independiente revisada para este partido.",
-      },
-    });
-    await user.click(screen.getByRole("button", { name: messages.preview }));
-    const passphrase = await screen.findByLabelText(messages.passphrase);
-    fireEvent.change(passphrase, {
-      target: { value: "independent-secret" },
-    });
-    await user.click(screen.getByRole("button", { name: messages.authorize }));
-    resolveAuthorization?.(jsonResponse({ authorized: true }));
-
+    expect(screen.queryByLabelText(messages.evidence)).not.toBeInTheDocument();
     expect(
-      await screen.findByText(messages.authorizationSuccess),
-    ).toBeVisible();
-    expect(passphrase).toHaveValue("");
-    expect(screen.getByLabelText(messages.confirmation)).toBeVisible();
+      screen.queryByLabelText(messages.confirmation),
+    ).not.toBeInTheDocument();
+    await user.type(
+      screen.getByLabelText(messages.passphrase),
+      "independent-secret",
+    );
+    await user.click(
+      screen.getByRole("button", { name: messages.applyLineup }),
+    );
+
+    expect(await screen.findByText(/lineup-audit/)).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 });
 

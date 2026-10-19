@@ -680,6 +680,7 @@ function isParticipated(
 }
 
 function validHttpsUrl(value: string): boolean {
+  if (value === "authenticated-owner") return true;
   try {
     const url = new URL(value);
     return url.protocol === "https:" && !url.username && !url.password;

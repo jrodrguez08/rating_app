@@ -7,122 +7,75 @@ import type { AdminMatchDetail } from "@/lib/firebase/admin-console";
 
 import { AdminManualVotingPanel } from "./admin-manual-voting";
 
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+
 const messages = getMessages("es").admin;
+afterEach(() => vi.unstubAllGlobals());
 
 describe("manual voting admin panel", () => {
-  afterEach(() => vi.unstubAllGlobals());
-
-  it("blocks preview until the authoritative lineup and coach are ready", () => {
-    renderPanel({
-      ...detail(),
-      match: {
-        ...detail().match,
-        confirmedStarterCount: 10,
-        verification: undefined,
-      },
-    });
+  it("blocks opening until the verified lineup and coach are ready", () => {
+    const value = detail();
+    value.match.confirmedStarterCount = 10;
+    value.match.verification = undefined;
+    renderPanel(value);
 
     expect(
       screen.getByText(messages.manualVotingMissingEvidence),
     ).toBeVisible();
     expect(
-      screen.queryByRole("button", { name: messages.preview }),
+      screen.queryByRole("button", { name: messages.openVotingNow }),
     ).not.toBeInTheDocument();
   });
 
-  it.each([
-    ["postponed", messages.manualVotingStatusBlocked.postponed],
-    ["suspended", messages.manualVotingStatusBlocked.suspended],
-    ["cancelled", messages.manualVotingStatusBlocked.cancelled],
-    ["abandoned", messages.manualVotingStatusBlocked.abandoned],
-  ] as const)("explains why %s cannot open voting", (status, explanation) => {
-    renderPanel({
-      ...detail(),
-      match: { ...detail().match, status },
-    });
-
-    expect(screen.getByText(explanation)).toBeVisible();
-    expect(
-      screen.queryByRole("button", { name: messages.preview }),
-    ).not.toBeInTheDocument();
-  });
-
-  it.each(["scheduled", "live"] as const)(
-    "explains independent final-whistle confirmation for %s",
-    async (status) => {
-      const user = userEvent.setup();
-      renderPanel({
-        ...detail(),
-        match: { ...detail().match, status },
-      });
-
+  it.each(["postponed", "suspended", "cancelled", "abandoned"] as const)(
+    "explains why %s cannot open voting",
+    (status) => {
+      const value = detail();
+      value.match.status = status;
+      renderPanel(value);
       expect(
-        screen.getByText(messages.manualVotingProviderDelay),
+        screen.getByText(messages.manualVotingStatusBlocked[status]),
       ).toBeVisible();
-      await user.click(screen.getByLabelText(messages.finalWhistleAttestation));
-      expect(
-        screen.getByRole("button", { name: messages.preview }),
-      ).toBeEnabled();
     },
   );
 
-  it("previews, authorizes, and applies only after exact confirmation", async () => {
+  it("uses one explicit confirmation and no evidence, ID, or exact-string fields", async () => {
     const user = userEvent.setup();
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(
-        response({
-          previewToken: "preview-token",
-          plan: {
-            providerStatus: "live",
-            verificationSource: "https://example.com/final",
-            proposedOpensAt: "2026-10-20T02:00:00.000Z",
-            proposedClosesAt: "2026-10-20T04:00:00.000Z",
-            durationMinutes: 120,
-            verifiedStarterCount: 11,
-            confirmedSubstituteCount: 1,
-            excludedSubstituteCount: 2,
-            verifiedCoachId: "coach-1",
-          },
-        }),
-      )
+      .mockResolvedValueOnce(response({ previewToken: "preview", plan: {} }))
       .mockResolvedValueOnce(response({ authorized: true }))
-      .mockResolvedValueOnce(
-        response({ applied: true, auditId: "manual-voting-audit" }),
-      );
+      .mockResolvedValueOnce(response({ applied: true, auditId: "audit" }));
     vi.stubGlobal("fetch", fetchMock);
     renderPanel(detail());
 
-    await user.type(
-      screen.getByLabelText(messages.finalWhistleEvidence),
-      "https://example.com/final",
-    );
-    await user.type(
-      screen.getByLabelText(messages.reason),
-      "Acta revisada del partido",
-    );
+    expect(
+      screen.queryByLabelText(messages.finalWhistleEvidence),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByLabelText(messages.confirmation),
+    ).not.toBeInTheDocument();
     await user.click(screen.getByLabelText(messages.finalWhistleAttestation));
-    await user.click(screen.getByRole("button", { name: messages.preview }));
-    expect(await screen.findByText(messages.manualVotingPreview)).toBeVisible();
-
     await user.type(
       screen.getByLabelText(messages.passphrase),
       "owner passphrase",
     );
-    await user.click(screen.getByRole("button", { name: messages.authorize }));
-    const apply = await screen.findByRole("button", {
-      name: messages.openVotingNow,
-    });
-    expect(apply).toBeDisabled();
-    await user.type(
-      screen.getByLabelText(messages.confirmation),
-      "open-voting:match-manual",
+    await user.click(
+      screen.getByRole("button", { name: messages.openVotingNow }),
     );
-    expect(apply).toBeEnabled();
-    await user.click(apply);
 
-    expect(await screen.findByText(/manual-voting-audit/)).toBeVisible();
+    expect(await screen.findByText(messages.manualVotingOpened)).toBeVisible();
     expect(fetchMock).toHaveBeenCalledTimes(3);
+    const applyBody = JSON.parse(String(fetchMock.mock.calls[2][1]?.body));
+    expect(applyBody.confirmation).toBe("open-voting:match-manual");
+  });
+
+  it("defaults to a two-hour window and offers an exact Costa Rica close", async () => {
+    const user = userEvent.setup();
+    renderPanel(detail());
+    expect(screen.getByLabelText(messages.defaultVotingClose)).toBeChecked();
+    await user.click(screen.getByLabelText(messages.customVotingClose));
+    expect(screen.getByLabelText(messages.costaRicaCloseTime)).toBeVisible();
   });
 });
 
@@ -146,22 +99,17 @@ function detail(): AdminMatchDetail {
       awayTeamName: "Visitante",
       status: "live",
       ratingState: "preparing_rating",
-      participantCount: 14,
-      rateableParticipantCount: 12,
+      participantCount: 21,
+      rateableParticipantCount: 16,
       confirmedStarterCount: 11,
-      confirmedSubstituteCount: 1,
-      unconfirmedOrUnusedCount: 2,
-      headCoachReady: true,
+      confirmedSubstituteCount: 5,
+      unconfirmedOrUnusedCount: 5,
+      headCoachReady: false,
       lineupProvenance: "operator_verified",
-      assignment: {
-        coachId: "coach-1",
-        coachName: "Director",
-        provenance: "operator_verified",
-      },
       verification: {
         coachId: "coach-1",
-        verificationSource: "https://example.com/coach",
-        verificationReason: "Acta revisada",
+        verificationSource: "authenticated-owner",
+        verificationReason: "Confirmado por propietario",
         verifiedAt: "2026-10-20T01:00:00.000Z",
       },
     },

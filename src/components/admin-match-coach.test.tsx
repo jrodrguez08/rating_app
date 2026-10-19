@@ -20,10 +20,20 @@ describe("match-specific verified coach panel", () => {
     "allows a canonical coach preview while provider status is %s",
     async (status) => {
       const user = userEvent.setup();
-      const fetchMock = vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({ plan: {}, previewToken: "preview" }),
-      });
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ plan: {}, previewToken: "preview" }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ authorized: true }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ auditId: "audit" }),
+        });
       vi.stubGlobal("fetch", fetchMock);
       render(
         <AdminMatchCoachPanel
@@ -37,15 +47,17 @@ describe("match-specific verified coach panel", () => {
         screen.getByLabelText(messages.existingCoach),
         "coach-existing",
       );
+      expect(
+        screen.queryByLabelText(messages.manualCoachId),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByLabelText(messages.evidence),
+      ).not.toBeInTheDocument();
       await user.type(
-        screen.getByLabelText(messages.evidence),
-        "https://example.com/coach",
+        screen.getByLabelText(messages.passphrase),
+        "owner passphrase",
       );
-      await user.type(
-        screen.getByLabelText(messages.reason),
-        "Acta oficial revisada",
-      );
-      await user.click(screen.getByRole("button", { name: messages.preview }));
+      await user.click(screen.getByRole("button", { name: messages.apply }));
 
       expect(fetchMock).toHaveBeenCalledWith(
         "/api/admin/coach-assignment/preview",
@@ -53,6 +65,7 @@ describe("match-specific verified coach panel", () => {
           body: expect.stringContaining('"matchId":"match-coach"'),
         }),
       );
+      expect(fetchMock).toHaveBeenCalledTimes(3);
     },
   );
 });

@@ -5,10 +5,12 @@ import {
   manualVotingStatusEligibility,
 } from "@/domain/manual-voting";
 import type {
+  Coach,
   CoachAssignment,
   ManualFinalWhistleAttestation,
   Match,
   MatchParticipant,
+  Team,
   VerifiedCoachAssignment,
   VerifiedLineupReconciliation,
   VerifiedLineupSnapshot,
@@ -41,6 +43,7 @@ export interface AdminManualVotingPlan {
   confirmedSubstituteCount: number;
   excludedSubstituteCount: number;
   verifiedCoachId: string;
+  coachAssignmentRepaired: boolean;
   reconciliationStatus?: VerifiedLineupReconciliation["status"];
 }
 
@@ -103,6 +106,7 @@ export class AdminManualVotingService {
       const coachReference = this.database.doc(
         `matches/${input.matchId}/coachAssignments/head-coach`,
       );
+      const teamReference = this.database.doc(`teams/${input.trackedTeamId}`);
       const reconciliationReference = this.database.doc(
         `matches/${input.matchId}/lineupReconciliations/provider`,
       );
@@ -171,6 +175,7 @@ export class AdminManualVotingService {
         lineupSnapshot,
         verifiedCoachSnapshot,
         coachSnapshot,
+        teamSnapshot,
         reconciliationSnapshot,
         attestationSnapshot,
         resultSnapshot,
@@ -182,6 +187,7 @@ export class AdminManualVotingService {
         transaction.get(lineupReference),
         transaction.get(verifiedCoachReference),
         transaction.get(coachReference),
+        transaction.get(teamReference),
         transaction.get(reconciliationReference),
         transaction.get(attestationReference),
         transaction.get(resultReference),
@@ -302,7 +308,7 @@ export class AdminManualVotingService {
           "Verified lineup materialization is incomplete.",
         );
       }
-      if (!verifiedCoachSnapshot.exists || !coachSnapshot.exists) {
+      if (!verifiedCoachSnapshot.exists) {
         throw new AdminManualVotingRejectedError(
           "A verified head coach is required.",
         );
@@ -310,14 +316,26 @@ export class AdminManualVotingService {
       const verifiedCoach = fromSnapshot<VerifiedCoachAssignment>(
         verifiedCoachSnapshot,
       );
-      const coach = fromSnapshot<CoachAssignment>(coachSnapshot);
       requireBinding(verifiedCoach, input);
+      const canonicalCoachSnapshot = await transaction.get(
+        this.database.doc(`coaches/${verifiedCoach.coachId}`),
+      );
+      if (!canonicalCoachSnapshot.exists) {
+        throw new AdminManualVotingRejectedError(
+          "The verified head coach identity is missing.",
+        );
+      }
+      const canonicalCoach = fromSnapshot<Coach>(canonicalCoachSnapshot);
+      const coach = coachSnapshot.exists
+        ? fromSnapshot<CoachAssignment>(coachSnapshot)
+        : undefined;
       if (
         verifiedCoach.provenance !== "operator_verified" ||
-        coach.matchId !== input.matchId ||
-        coach.teamId !== input.trackedTeamId ||
-        coach.coachId !== verifiedCoach.coachId ||
-        coach.provenance !== "operator_verified"
+        (coach !== undefined &&
+          (coach.matchId !== input.matchId ||
+            coach.teamId !== input.trackedTeamId ||
+            coach.coachId !== verifiedCoach.coachId ||
+            coach.provenance !== "operator_verified"))
       ) {
         throw new AdminManualVotingRejectedError(
           "Verified head coach materialization is invalid.",
@@ -353,12 +371,38 @@ export class AdminManualVotingService {
         verifiedStarterCount: starters.length,
         confirmedSubstituteCount: confirmedSubstitutes.length,
         excludedSubstituteCount: excludedSubstitutes.length,
-        verifiedCoachId: coach.coachId,
+        verifiedCoachId: verifiedCoach.coachId,
+        coachAssignmentRepaired: coach === undefined,
         ...(reconciliation
           ? { reconciliationStatus: reconciliation.status }
           : {}),
       };
       if (!challengeReference || !auditReference || !auditId) return plan;
+
+      if (!coach) {
+        const team = teamSnapshot.exists
+          ? fromSnapshot<Team>(teamSnapshot)
+          : undefined;
+        const externalProviderTeamId =
+          match.trackedTeamExternalProviderId ?? team?.externalProviderId;
+        if (!externalProviderTeamId) {
+          throw new AdminManualVotingRejectedError(
+            "Tracked Team provider identity is missing.",
+          );
+        }
+        const repairedAssignment: CoachAssignment = {
+          matchId: input.matchId,
+          teamId: input.trackedTeamId,
+          externalProviderTeamId,
+          coachId: verifiedCoach.coachId,
+          coachName: canonicalCoach.displayName,
+          role: "head-coach",
+          provenance: "operator_verified",
+          createdAt: trustedAt.toISOString(),
+          updatedAt: trustedAt.toISOString(),
+        };
+        transaction.create(coachReference, toDocument(repairedAssignment));
+      }
 
       const attestation: ManualFinalWhistleAttestation = {
         matchId: input.matchId,
@@ -411,7 +455,8 @@ export class AdminManualVotingService {
 function validateInput(input: AdminManualVotingInput) {
   if (
     input.finalWhistleConfirmed !== true ||
-    !/^https:\/\//i.test(input.verificationSource) ||
+    (input.verificationSource !== "authenticated-owner" &&
+      !/^https:\/\//i.test(input.verificationSource)) ||
     input.verificationReason.trim().length < 10 ||
     !["default", "custom"].includes(input.closeMode)
   ) {

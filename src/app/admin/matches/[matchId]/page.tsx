@@ -3,7 +3,6 @@ import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 
 import { AdminLineupEditor } from "@/components/admin-lineup-editor";
-import { AdminLifecycleActionPanel } from "@/components/admin-lifecycle-action";
 import { AdminMatchCoachPanel } from "@/components/admin-match-coach";
 import { AdminManualVotingPanel } from "@/components/admin-manual-voting";
 import { initialClub } from "@/config/club";
@@ -57,22 +56,46 @@ export default async function AdminMatchPage({
         </p>
       </header>
       <div className="grid gap-6">
-        <AdminMatchCoachPanel
-          detail={detail}
-          messages={messages}
-          teamId={initialClub.teamId}
-        />
+        {detail.match.verifiedLineup ? (
+          <section className="card grid gap-3 p-5">
+            <p className="eyebrow">1–2 / 4</p>
+            <h2 className="score-font text-xl">{messages.playerSelection}</h2>
+            <p className="text-success" role="status">
+              ✓ {messages.confirmedStarters}:{" "}
+              {detail.match.confirmedStarterCount}/11
+              {" · "}
+              {messages.confirmedSubstitutes}:{" "}
+              {detail.match.confirmedSubstituteCount}
+            </p>
+          </section>
+        ) : (
+          <AdminLineupEditor
+            detail={detail}
+            messages={messages}
+            teamId={initialClub.teamId}
+          />
+        )}
+        {detail.match.verification ? (
+          <section className="card grid gap-3 p-5">
+            <p className="eyebrow">3 / 4</p>
+            <h2 className="score-font text-xl">{messages.coach}</h2>
+            <p className="text-success" role="status">
+              ✓{" "}
+              {detail.match.assignment?.coachName ??
+                detail.coaches?.find(
+                  (coach) => coach.id === detail.match.verification?.coachId,
+                )?.name ??
+                messages.verifiedAssignment}
+            </p>
+          </section>
+        ) : (
+          <AdminMatchCoachPanel
+            detail={detail}
+            messages={messages}
+            teamId={initialClub.teamId}
+          />
+        )}
         <AdminManualVotingPanel
-          detail={detail}
-          messages={messages}
-          teamId={initialClub.teamId}
-        />
-        <AdminLifecycleActionPanel
-          match={detail.match}
-          messages={messages}
-          teamId={initialClub.teamId}
-        />
-        <AdminLineupEditor
           detail={detail}
           messages={messages}
           teamId={initialClub.teamId}

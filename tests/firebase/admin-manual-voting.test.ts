@@ -30,6 +30,52 @@ beforeAll(() => {
 afterAll(() => deleteApp(app));
 
 describe("manual voting persistence", () => {
+  it("repairs fixture 1551706 verified coach materialization and opens the reported 11/5/5 lineup atomically", async () => {
+    const input = await seed(
+      "match-10a50b08075ca1f0646e5b6d",
+      "finished",
+      {},
+      {
+        verifiedCoachOnly: true,
+        confirmedSubstituteCount: 5,
+        unusedSubstituteCount: 5,
+        internalPlayer: true,
+      },
+    );
+    const assignmentReference = database.doc(
+      `matches/${input.matchId}/coachAssignments/head-coach`,
+    );
+    const before = await assignmentReference.get();
+    expect(before.exists).toBe(false);
+
+    await expect(service.preview(input)).resolves.toMatchObject({
+      verifiedStarterCount: 11,
+      confirmedSubstituteCount: 5,
+      excludedSubstituteCount: 5,
+      verifiedCoachId: "coach-manual",
+      coachAssignmentRepaired: true,
+    });
+    expect((await assignmentReference.get()).exists).toBe(false);
+
+    const token = await seedChallenge(input);
+    await expect(service.applyAuthorized(input, token)).resolves.toMatchObject({
+      disposition: "committed",
+    });
+    expect((await assignmentReference.get()).data()).toMatchObject({
+      matchId: input.matchId,
+      teamId: input.trackedTeamId,
+      coachId: "coach-manual",
+      coachName: "Director Manual",
+      provenance: "operator_verified",
+    });
+    expect(
+      (await database.doc(`matches/${input.matchId}`).get()).data(),
+    ).toMatchObject({
+      ratingState: "rating_ready",
+      votingOpeningMode: "manual",
+    });
+  });
+
   it.each(["scheduled", "live", "finished"] as const)(
     "opens atomically from %s without provider evidence and preserves eligibility",
     async (status) => {
@@ -360,6 +406,10 @@ async function seed(
     wrongBinding?: boolean;
     missingPlayer?: boolean;
     conflictingCoach?: boolean;
+    verifiedCoachOnly?: boolean;
+    confirmedSubstituteCount?: number;
+    unusedSubstituteCount?: number;
+    internalPlayer?: boolean;
     wrongTeamBinding?: boolean;
   } = {},
 ): Promise<AdminManualVotingInput> {
@@ -383,33 +433,42 @@ async function seed(
     updatedAt: now,
   });
   const starterCount = options.starterCount ?? 11;
-  const participants = Array.from({ length: 13 }, (_, index) => {
-    const playerId = `player-${matchId}-${index + 1}`;
-    const starter = index < starterCount;
-    const confirmedSubstitute = index === 11;
-    return {
-      playerId,
-      playerName: `Jugador ${index + 1}`,
-      squadRole: starter ? ("starter" as const) : ("substitute" as const),
-      participationStatus: starter
-        ? ("confirmed_starter" as const)
-        : confirmedSubstitute
-          ? ("confirmed_substitute" as const)
-          : ("unused_substitute" as const),
-      participated: starter || confirmedSubstitute,
-      identityProvenance: "provider" as const,
-      verificationSource: "https://example.com/lineup",
-      verificationReason: "Acta oficial revisada.",
-      verifiedBy: "owner-manual",
-      verifiedAt: now,
-    };
-  });
+  const confirmedSubstituteCount = options.confirmedSubstituteCount ?? 1;
+  const unusedSubstituteCount = options.unusedSubstituteCount ?? 1;
+  const participants = Array.from(
+    { length: 11 + confirmedSubstituteCount + unusedSubstituteCount },
+    (_, index) => {
+      const playerId = `player-${matchId}-${index + 1}`;
+      const starter = index < starterCount;
+      const confirmedSubstitute =
+        index >= 11 && index < 11 + confirmedSubstituteCount;
+      return {
+        playerId,
+        playerName: `Jugador ${index + 1}`,
+        squadRole: starter ? ("starter" as const) : ("substitute" as const),
+        participationStatus: starter
+          ? ("confirmed_starter" as const)
+          : confirmedSubstitute
+            ? ("confirmed_substitute" as const)
+            : ("unused_substitute" as const),
+        participated: starter || confirmedSubstitute,
+        identityProvenance:
+          options.internalPlayer && index === 0
+            ? ("operator_verified" as const)
+            : ("provider" as const),
+        verificationSource: "https://example.com/lineup",
+        verificationReason: "Acta oficial revisada.",
+        verifiedBy: "owner-manual",
+        verifiedAt: now,
+      };
+    },
+  );
   const batch = database.batch();
   for (const participant of participants) {
     if (!(options.missingPlayer && participant === participants[0])) {
       batch.set(database.doc(`players/${participant.playerId}`), {
         displayName: participant.playerName,
-        identityProvenance: "provider",
+        identityProvenance: participant.identityProvenance,
         createdAt: now,
         updatedAt: now,
       });
@@ -446,6 +505,12 @@ async function seed(
     updatedAt: now,
   });
   if (!options.omitCoach) {
+    batch.set(database.doc("coaches/coach-manual"), {
+      displayName: "Director Manual",
+      identityProvenance: "operator_verified",
+      createdAt: now,
+      updatedAt: now,
+    });
     batch.set(
       database.doc(`matches/${matchId}/verifiedCoachAssignments/head-coach`),
       {
@@ -463,17 +528,22 @@ async function seed(
         updatedAt: now,
       },
     );
-    batch.set(database.doc(`matches/${matchId}/coachAssignments/head-coach`), {
-      matchId,
-      teamId,
-      externalProviderTeamId: "815",
-      coachId: options.conflictingCoach ? "coach-other" : "coach-manual",
-      coachName: "Director Manual",
-      role: "head-coach",
-      provenance: "operator_verified",
-      createdAt: now,
-      updatedAt: now,
-    });
+    if (!options.verifiedCoachOnly) {
+      batch.set(
+        database.doc(`matches/${matchId}/coachAssignments/head-coach`),
+        {
+          matchId,
+          teamId,
+          externalProviderTeamId: "815",
+          coachId: options.conflictingCoach ? "coach-other" : "coach-manual",
+          coachName: "Director Manual",
+          role: "head-coach",
+          provenance: "operator_verified",
+          createdAt: now,
+          updatedAt: now,
+        },
+      );
+    }
   }
   if (options.conflict) {
     batch.set(
