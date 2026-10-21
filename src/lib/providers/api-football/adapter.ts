@@ -6,6 +6,7 @@ import type {
   ProviderHeadCoach,
   ProviderMatchContext,
   ProviderMatchEvidence,
+  ProviderMatchObservation,
   ProviderMatchParticipant,
   ProviderParticipantContext,
   ProviderSquadPlayer,
@@ -468,6 +469,91 @@ export class ApiFootballAdapter
     };
   }
 
+  async inspectMatchEvidence(
+    externalFixtureId: string,
+    externalTeamId: string,
+    fixtureKickoffAt?: string,
+  ): Promise<ProviderMatchObservation> {
+    const [fixture, lineups, players, events] = await Promise.all([
+      this.getFixture(externalFixtureId),
+      this.request("/fixtures/lineups", { fixture: externalFixtureId }),
+      this.request("/fixtures/players", { fixture: externalFixtureId }),
+      this.request("/fixtures/events", { fixture: externalFixtureId }),
+    ]);
+    if (
+      fixture.homeTeam.externalProviderId !== externalTeamId &&
+      fixture.awayTeam.externalProviderId !== externalTeamId
+    ) {
+      throw new ProviderError(
+        "tracked-team-missing",
+        `Tracked Team ${externalTeamId} is missing from fixture ${externalFixtureId}.`,
+      );
+    }
+    this.logLineupSummary(lineups, externalTeamId);
+    this.logPlayerStatisticsSummary(players, externalTeamId);
+    this.logEventSummary(events, externalTeamId);
+    const observed = this.parseObservedLineup(
+      lineups,
+      externalFixtureId,
+      externalTeamId,
+    );
+    const participants = new Map(
+      observed.participants.map((participant) => [
+        participant.externalPlayerId,
+        { ...participant },
+      ]),
+    );
+    if (participants.size > 0) {
+      this.reconcilePlayerStatistics(participants, players, externalTeamId);
+    }
+    const substitutionReconciliation =
+      participants.size > 0
+        ? this.reconcileSubstitutions(participants, events, externalTeamId)
+        : {
+            relevant: this.countTrackedSubstitutions(events, externalTeamId),
+            matched: 0,
+            confirmationsAdded: 0,
+          };
+    let coach: ProviderMatchObservation["coach"] = {
+      status: "unavailable",
+      reason: "coach-missing",
+    };
+    if (observed.coach !== null) {
+      try {
+        coach = {
+          status: "resolved",
+          value: await this.resolveLineupCoach(
+            observed.coach,
+            externalTeamId,
+            fixtureKickoffAt,
+          ),
+        };
+      } catch (error) {
+        if (
+          error instanceof ProviderError &&
+          (error.code === "coach-missing" || error.code === "ambiguous-coach")
+        ) {
+          coach = { status: "unavailable", reason: error.code };
+        } else {
+          throw error;
+        }
+      }
+    }
+    return {
+      fixture,
+      lineupStatus: observed.status,
+      starterCount: observed.starterCount,
+      substituteCount: observed.substituteCount,
+      participants: [...participants.values()],
+      playerStatisticsAvailable: this.hasTrackedTeamEntry(
+        players,
+        externalTeamId,
+      ),
+      substitutionEventsAvailable: substitutionReconciliation.relevant > 0,
+      coach,
+    };
+  }
+
   async getLineupContext(
     externalFixtureId: string,
     externalTeamId: string,
@@ -797,7 +883,43 @@ export class ApiFootballAdapter
     participants: ProviderMatchParticipant[];
     coach: Record<string, unknown> | null;
   } | null {
-    if (lineups.length === 0) return null;
+    const observed = this.parseObservedLineup(
+      lineups,
+      externalFixtureId,
+      externalTeamId,
+    );
+    if (observed.status === "missing" || !observed.fieldsComplete) return null;
+    if (observed.status === "partial") {
+      throw new ProviderError(
+        "lineup-unavailable",
+        `Tracked Team lineup for fixture ${externalFixtureId} is incomplete (${observed.starterCount} starters, ${observed.substituteCount} substitutes).`,
+      );
+    }
+    return { participants: observed.participants, coach: observed.coach };
+  }
+
+  private parseObservedLineup(
+    lineups: unknown[],
+    externalFixtureId: string,
+    externalTeamId: string,
+  ): {
+    status: "missing" | "partial" | "available";
+    fieldsComplete: boolean;
+    participants: ProviderMatchParticipant[];
+    starterCount: number;
+    substituteCount: number;
+    coach: Record<string, unknown> | null;
+  } {
+    if (lineups.length === 0) {
+      return {
+        status: "missing",
+        fieldsComplete: false,
+        participants: [],
+        starterCount: 0,
+        substituteCount: 0,
+        coach: null,
+      };
+    }
     const trackedLineups = lineups.filter((value) => {
       const lineup = record(value, "lineup");
       const team = record(lineup.team, "lineup.team");
@@ -815,34 +937,40 @@ export class ApiFootballAdapter
       );
     }
     const lineup = record(trackedLineups[0], "tracked lineup");
-    if (lineup.startXI === undefined || lineup.substitutes === undefined) {
-      return null;
-    }
     const participants = new Map<string, ProviderMatchParticipant>();
-    this.addLineupPlayers(
-      participants,
-      lineup.startXI,
-      "starter",
-      externalTeamId,
-    );
-    this.addLineupPlayers(
-      participants,
-      lineup.substitutes,
-      "substitute",
-      externalTeamId,
-    );
+    if (lineup.startXI !== undefined) {
+      this.addLineupPlayers(
+        participants,
+        lineup.startXI,
+        "starter",
+        externalTeamId,
+      );
+    }
+    if (lineup.substitutes !== undefined) {
+      this.addLineupPlayers(
+        participants,
+        lineup.substitutes,
+        "substitute",
+        externalTeamId,
+      );
+    }
     const starterCount = [...participants.values()].filter(
       (participant) => participant.squadRole === "starter",
     ).length;
     const substituteCount = participants.size - starterCount;
-    if (starterCount !== 11 || substituteCount === 0) {
-      throw new ProviderError(
-        "lineup-unavailable",
-        `Tracked Team lineup for fixture ${externalFixtureId} is incomplete (${starterCount} starters, ${substituteCount} substitutes).`,
-      );
-    }
+    const status =
+      starterCount === 11 && substituteCount > 0
+        ? "available"
+        : participants.size > 0
+          ? "partial"
+          : "missing";
     return {
+      status,
+      fieldsComplete:
+        lineup.startXI !== undefined && lineup.substitutes !== undefined,
       participants: [...participants.values()],
+      starterCount,
+      substituteCount,
       coach:
         lineup.coach === null || lineup.coach === undefined
           ? null
@@ -1183,6 +1311,29 @@ export class ApiFootballAdapter
       }
     }
     return { relevant, matched, confirmationsAdded };
+  }
+
+  private hasTrackedTeamEntry(
+    values: unknown[],
+    externalTeamId: string,
+  ): boolean {
+    return values.some((value) => {
+      if (!isRecord(value) || !isRecord(value.team)) return false;
+      return String(value.team.id) === externalTeamId;
+    });
+  }
+
+  private countTrackedSubstitutions(
+    value: unknown,
+    externalTeamId: string,
+  ): number {
+    if (!Array.isArray(value)) return 0;
+    return value.filter((event) => {
+      if (!isRecord(event) || String(event.type).toLowerCase() !== "subst") {
+        return false;
+      }
+      return isRecord(event.team) && String(event.team.id) === externalTeamId;
+    }).length;
   }
 
   private parseFixtureTeam(value: unknown, label: string) {

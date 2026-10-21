@@ -448,6 +448,61 @@ export const esMessages = {
       "La sincronización fue solicitada recientemente. Espere un minuto antes de repetirla.",
     lifecycleTargetError:
       "Este partido ya no es el objetivo actual del ciclo. Actualice la consola.",
+    providerCheck: {
+      eyebrow: "Consulta histórica",
+      title: "Datos tardíos de API-Football",
+      description:
+        "Compruebe qué publica ahora el proveedor sin cambiar la evidencia verificada, los votos ni los resultados.",
+      action: "Comprobar datos de API-Football",
+      checking: "Consultando API-Football…",
+      unavailable:
+        "Disponible cuando la votación terminó y los resultados están publicados.",
+      checkedAt: "Última comprobación",
+      requestCount: "Solicitudes al proveedor",
+      providerFixtureStatus: "Estado del fixture en API-Football",
+      localEvidence: "Evidencia local",
+      providerEvidence: "API-Football ahora",
+      starters: "Once titular",
+      participatingSubstitutes: "Suplentes que participaron",
+      coach: "Director técnico",
+      noPlayers: "Sin jugadores disponibles",
+      noCoach: "Sin director técnico disponible",
+      enteredMinute: "entró al min {minute}",
+      exitedMinute: "salió al min {minute}",
+      statuses: {
+        missing: "API-Football todavía no ofrece una alineación utilizable.",
+        partial: "API-Football ofrece información parcial o sin confirmar.",
+        available: "La información disponible coincide con la evidencia local.",
+        differences:
+          "Hay diferencias con la evidencia local. Revíselas sin modificar el historial.",
+        stale:
+          "El proveedor todavía muestra un estado anterior al final del partido.",
+        provider_error:
+          "API-Football no respondió correctamente. La evidencia local permanece sin cambios.",
+      },
+      missingTitle: "Información faltante o incompleta",
+      missing: {
+        lineup: "Alineación del equipo",
+        complete_starting_xi: "Once titular completo",
+        substitute_participation: "Participación y minutos de suplentes",
+        coach: "Director técnico del fixture",
+        identity_mapping: "Identidad canónica confirmada",
+        provider_final_status: "Estado final del fixture",
+      },
+      differencesTitle: "Diferencias para revisión humana",
+      differences: {
+        missing_provider_player: "No aparece en la evidencia del proveedor",
+        unexpected_provider_player:
+          "Aparece solo en la evidencia del proveedor",
+        role_mismatch: "Figura con un rol distinto",
+        participation_mismatch: "La participación no coincide",
+        coach_mismatch: "El director técnico no coincide",
+      },
+      source: {
+        operator_verified: "Verificación manual del propietario",
+        persisted_history: "Historial persistido del partido",
+      },
+    },
     match: "Partido",
     lifecycle: "Estado del ciclo",
     preparingState: "Preparando calificación",

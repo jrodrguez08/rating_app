@@ -91,6 +91,18 @@ export interface ProviderMatchEvidence extends ProviderParticipantContext {
     | { status: "unavailable"; reason: "coach-missing" | "ambiguous-coach" };
 }
 
+export interface ProviderMatchObservation extends ProviderParticipantContext {
+  fixture: ProviderFixture;
+  lineupStatus: "missing" | "partial" | "available";
+  starterCount: number;
+  substituteCount: number;
+  playerStatisticsAvailable: boolean;
+  substitutionEventsAvailable: boolean;
+  coach:
+    | { status: "resolved"; value: ProviderHeadCoach }
+    | { status: "unavailable"; reason: "coach-missing" | "ambiguous-coach" };
+}
+
 export interface ProviderSquadPlayer {
   externalPlayerId: string;
   name: string;
@@ -173,6 +185,11 @@ export interface FootballDataProvider {
     baseline?: ProviderParticipantContext,
     fixtureKickoffAt?: string,
   ): Promise<ProviderMatchEvidence>;
+  inspectMatchEvidence?(
+    externalFixtureId: string,
+    externalTeamId: string,
+    fixtureKickoffAt?: string,
+  ): Promise<ProviderMatchObservation>;
   getLineupContext(
     externalFixtureId: string,
     externalTeamId: string,

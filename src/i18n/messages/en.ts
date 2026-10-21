@@ -438,6 +438,60 @@ export const enMessages = {
       "Synchronization was requested recently. Wait one minute before repeating it.",
     lifecycleTargetError:
       "This match is no longer the current lifecycle target. Refresh the console.",
+    providerCheck: {
+      eyebrow: "Historical check",
+      title: "Late API-Football data",
+      description:
+        "Check what the provider publishes now without changing verified evidence, votes, or results.",
+      action: "Check API-Football data",
+      checking: "Checking API-Football…",
+      unavailable:
+        "Available after voting has ended and results are published.",
+      checkedAt: "Last checked",
+      requestCount: "Provider requests",
+      providerFixtureStatus: "API-Football fixture status",
+      localEvidence: "Local evidence",
+      providerEvidence: "API-Football now",
+      starters: "Starting XI",
+      participatingSubstitutes: "Substitutes who participated",
+      coach: "Head coach",
+      noPlayers: "No players available",
+      noCoach: "No head coach available",
+      enteredMinute: "entered at min {minute}",
+      exitedMinute: "left at min {minute}",
+      statuses: {
+        missing: "API-Football still has no usable lineup.",
+        partial: "API-Football has partial or unconfirmed information.",
+        available: "The available information agrees with local evidence.",
+        differences:
+          "There are differences from local evidence. Review them without changing history.",
+        stale:
+          "The provider still shows a status from before the match finished.",
+        provider_error:
+          "API-Football did not respond correctly. Local evidence remains unchanged.",
+      },
+      missingTitle: "Missing or incomplete information",
+      missing: {
+        lineup: "Team lineup",
+        complete_starting_xi: "Complete starting XI",
+        substitute_participation: "Substitute participation and minutes",
+        coach: "Fixture head coach",
+        identity_mapping: "Confirmed canonical identity",
+        provider_final_status: "Final fixture status",
+      },
+      differencesTitle: "Differences for human review",
+      differences: {
+        missing_provider_player: "Missing from provider evidence",
+        unexpected_provider_player: "Present only in provider evidence",
+        role_mismatch: "Reported with a different role",
+        participation_mismatch: "Participation does not agree",
+        coach_mismatch: "Head coach does not agree",
+      },
+      source: {
+        operator_verified: "Owner verified evidence",
+        persisted_history: "Persisted match history",
+      },
+    },
     match: "Match",
     lifecycle: "Lifecycle state",
     preparingState: "Preparing ratings",
