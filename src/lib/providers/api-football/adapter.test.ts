@@ -36,6 +36,23 @@ function matchContextFetcher(
   });
 }
 
+function inspectionFetcher(payload = matchContextResponse) {
+  return vi.fn<typeof fetch>().mockImplementation(async (input) => {
+    const pathname = new URL(String(input)).pathname;
+    if (pathname === "/fixtures") {
+      return response(
+        fixtureResponse.filter((value) => String(value.fixture.id) === "5001"),
+      );
+    }
+    const fixture = payload[0];
+    if (pathname === "/fixtures/lineups") return response(fixture.lineups);
+    if (pathname === "/fixtures/players") return response(fixture.players);
+    if (pathname === "/fixtures/events") return response(fixture.events);
+    if (pathname === "/coachs") return response([]);
+    throw new Error(`Unexpected inspection request: ${pathname}`);
+  });
+}
+
 describe("ApiFootballAdapter", () => {
   it("requires a server-side API key", () => {
     expect(() => new ApiFootballAdapter(" ")).toThrowError(
@@ -441,6 +458,70 @@ describe("ApiFootballAdapter", () => {
         ),
       ]),
     );
+  });
+
+  it("inspects complete match evidence without invoking lifecycle persistence", async () => {
+    const adapter = new ApiFootballAdapter("test-key", inspectionFetcher());
+
+    const observation = await adapter.inspectMatchEvidence(
+      "5001",
+      "1234",
+      "2026-08-23T17:00:00.000Z",
+    );
+
+    expect(observation).toMatchObject({
+      lineupStatus: "available",
+      starterCount: 11,
+      substituteCount: 2,
+      playerStatisticsAvailable: true,
+      substitutionEventsAvailable: true,
+      coach: { status: "resolved", value: { name: "Herediano Coach" } },
+    });
+    expect(observation.participants).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          externalPlayerId: "20",
+          participated: true,
+          enteredAtMinute: 65,
+        }),
+      ]),
+    );
+    expect(adapter.requestCount).toBe(4);
+  });
+
+  it("returns missing and partial lineup observations without weakening lifecycle parsing", async () => {
+    const empty = structuredClone(matchContextResponse);
+    empty[0].lineups = [];
+    const missing = await new ApiFootballAdapter(
+      "test-key",
+      inspectionFetcher(empty),
+    ).inspectMatchEvidence("5001", "1234");
+    expect(missing).toMatchObject({
+      lineupStatus: "missing",
+      starterCount: 0,
+      substituteCount: 0,
+      participants: [],
+      coach: { status: "unavailable", reason: "coach-missing" },
+    });
+
+    const incomplete = structuredClone(matchContextResponse);
+    incomplete[0].lineups[0].startXI.pop();
+    const partial = await new ApiFootballAdapter(
+      "test-key",
+      inspectionFetcher(incomplete),
+    ).inspectMatchEvidence("5001", "1234");
+    expect(partial).toMatchObject({
+      lineupStatus: "partial",
+      starterCount: 10,
+      substituteCount: 2,
+    });
+
+    await expect(
+      new ApiFootballAdapter(
+        "test-key",
+        matchContextFetcher(incomplete),
+      ).getMatchContext("5001", "1234"),
+    ).rejects.toMatchObject({ code: "lineup-unavailable" });
   });
 
   it.each([null, "not-a-number"])(

@@ -80,10 +80,18 @@ export function requireLifecycleRuntimeConfig(
   environment: Environment = process.env,
 ) {
   const cronSecret = required(environment, "CRON_SECRET");
-  const apiFootballKey = required(environment, "API_FOOTBALL_KEY");
+  const provider = requireApiFootballRuntimeConfig(environment);
   return {
     cronSecret,
-    apiFootballKey,
+    ...provider,
+  };
+}
+
+export function requireApiFootballRuntimeConfig(
+  environment: Environment = process.env,
+) {
+  return {
+    apiFootballKey: required(environment, "API_FOOTBALL_KEY"),
     firebaseAdmin: readFirebaseAdminRuntimeConfig(environment),
   };
 }

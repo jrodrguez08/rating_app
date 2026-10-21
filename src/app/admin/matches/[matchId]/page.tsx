@@ -6,6 +6,7 @@ import { AdminDashboardLink } from "@/components/admin-dashboard-link";
 import { AdminLineupEditor } from "@/components/admin-lineup-editor";
 import { AdminMatchCoachPanel } from "@/components/admin-match-coach";
 import { AdminManualVotingPanel } from "@/components/admin-manual-voting";
+import { AdminProviderCheck } from "@/components/admin-provider-check";
 import { initialClub } from "@/config/club";
 import { getMessages } from "@/i18n/messages";
 import { AdminConsoleService } from "@/lib/firebase/admin-console";
@@ -99,6 +100,11 @@ export default async function AdminMatchPage({
         )}
         <AdminManualVotingPanel
           detail={detail}
+          messages={messages}
+          teamId={initialClub.teamId}
+        />
+        <AdminProviderCheck
+          match={detail.match}
           messages={messages}
           teamId={initialClub.teamId}
         />
