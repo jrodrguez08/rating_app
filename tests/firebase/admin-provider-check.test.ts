@@ -3,7 +3,11 @@ import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { coachProviderAliasId } from "@/domain/coach-identity";
-import { playerProviderAliasId } from "@/domain/player-identity";
+import {
+  playerProviderAliasId,
+  providerEntityId,
+} from "@/domain/player-identity";
+import { proposedPlayerProviderAlias } from "@/config/player-identity-reconciliations";
 import type {
   FootballDataProvider,
   ProviderMatchObservation,
@@ -11,7 +15,17 @@ import type {
 } from "@/domain/ports";
 import type { AdminProviderCheckRejectedError } from "@/lib/firebase/admin-provider-check";
 import { AdminProviderCheckService } from "@/lib/firebase/admin-provider-check";
+import {
+  AdminPlayerIdentityService,
+  type AdminPlayerIdentityInput,
+} from "@/lib/firebase/admin-player-identity";
+import { AdminFootballSyncStore } from "@/lib/firebase/server";
 import { ProviderError } from "@/lib/providers/api-football/errors";
+import { adminChallengeDocumentId } from "@/lib/server/admin-coach-action";
+import {
+  adminPlayerIdentityResourceId,
+  hashAdminPlayerIdentityAction,
+} from "@/lib/server/admin-player-identity-action";
 
 const projectId = process.env.GCLOUD_PROJECT ?? "demo-rating-app-local";
 const app = initializeApp({ projectId }, `admin-provider-check-${Date.now()}`);
@@ -60,7 +74,146 @@ describe("read-only post-match provider check", () => {
     expect(report.local.participatingSubstitutes).toHaveLength(5);
     expect(report.provider.starters).toHaveLength(11);
     expect(report.provider.participatingSubstitutes).toHaveLength(5);
+    expect(report.persisted).toBe(true);
+    expect(
+      (
+        await database
+          .doc(`matches/${fixture.matchId}/providerObservations/api-football`)
+          .get()
+      ).data(),
+    ).toMatchObject({
+      externalFixtureId: fixture.externalFixtureId,
+      starterCount: 11,
+      substituteCount: 10,
+      lineupStatus: "available",
+    });
+    await expect(
+      new AdminProviderCheckService(undefined, database).readPersisted({
+        matchId: fixture.matchId,
+        trackedTeamId: teamId,
+        externalFixtureId: fixture.externalFixtureId,
+      }),
+    ).resolves.toMatchObject({
+      status: "available",
+      persisted: true,
+      provider: { coachName: "Jafet Soto" },
+    });
     expect(await protectedHistory(fixture.matchId)).toEqual(before);
+  });
+
+  it("persists a late provider Player, exposes both identities, and reuses the reviewed alias", async () => {
+    const fixture = await seedFinalized("daniel-gonzalez");
+    const manualPlayerId = `player-internal-${createHash("md5").update(fixture.matchId).digest("hex")}`;
+    const externalPlayerId = "700012";
+    const providerPlayerId = providerEntityId(
+      "player",
+      "api-football",
+      externalPlayerId,
+    );
+    await replaceWithManualPlayer(fixture.matchId, manualPlayerId);
+    const value = observation(fixture.externalFixtureId);
+    value.participants[11] = {
+      ...value.participants[11],
+      externalPlayerId,
+      name: "Daniel Gonz\u00e1lez",
+      position: "midfielder",
+    };
+
+    await new AdminProviderCheckService(fakeProvider(value), database).check(
+      fixture.input,
+    );
+
+    expect(
+      (await database.doc(`players/${providerPlayerId}`).get()).data(),
+    ).toMatchObject({
+      displayName: "Daniel Gonz\u00e1lez",
+      identityProvenance: "provider",
+      externalProvider: "api-football",
+      externalProviderId: externalPlayerId,
+    });
+    expect(
+      (
+        await database
+          .doc(`teams/${teamId}/playerMemberships/${providerPlayerId}`)
+          .get()
+      ).data(),
+    ).toMatchObject({ source: "provider_observation" });
+    expect(
+      (
+        await database
+          .doc(
+            `playerProviderAliases/${playerProviderAliasId("api-football", externalPlayerId)}`,
+          )
+          .get()
+      ).exists,
+    ).toBe(false);
+
+    const identityService = new AdminPlayerIdentityService(database);
+    const suggestions = await identityService.suggestions(teamId);
+    expect(suggestions.suggestions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          first: expect.objectContaining({ id: manualPlayerId }),
+          second: expect.objectContaining({ id: providerPlayerId }),
+          suggestedCanonicalPlayerId: manualPlayerId,
+        }),
+      ]),
+    );
+    const input: AdminPlayerIdentityInput = {
+      firstPlayerId: manualPlayerId,
+      secondPlayerId: providerPlayerId,
+      canonicalPlayerId: manualPlayerId,
+      trackedTeamId: teamId,
+      decision: "match",
+      operatorId: fixture.input.operatorId,
+    };
+    await expect(identityService.preview(input)).resolves.toMatchObject({
+      status: "safe",
+      canApply: true,
+      canonical: { playerId: manualPlayerId, hasProtectedHistory: true },
+    });
+    const historyBefore = await selectedHistory(fixture.matchId);
+    const token = await seedIdentityChallenge(input);
+
+    await identityService.applyAuthorized(input, token);
+
+    expect(
+      (
+        await database
+          .doc(
+            `playerProviderAliases/${playerProviderAliasId("api-football", externalPlayerId)}`,
+          )
+          .get()
+      ).data(),
+    ).toMatchObject({ canonicalPlayerId: manualPlayerId });
+    expect(
+      (await database.doc(`players/${providerPlayerId}`).get()).exists,
+    ).toBe(true);
+    const resolved = await new AdminFootballSyncStore(
+      database,
+    ).resolvePlayerProviderAliases([
+      proposedPlayerProviderAlias(
+        "api-football",
+        externalPlayerId,
+        "2026-10-21T13:00:00.000Z",
+      ),
+    ]);
+    expect(resolved[0].canonicalPlayerId).toBe(manualPlayerId);
+    expect(await selectedHistory(fixture.matchId)).toEqual(historyBefore);
+    await expect(
+      new AdminProviderCheckService(undefined, database).readPersisted({
+        matchId: fixture.matchId,
+        trackedTeamId: teamId,
+        externalFixtureId: fixture.externalFixtureId,
+      }),
+    ).resolves.toMatchObject({
+      persisted: true,
+      provider: {
+        participatingSubstitutes: expect.arrayContaining([
+          { name: "Daniel Gonz\u00e1lez", enteredAtMinute: 61 },
+        ]),
+      },
+    });
   });
 
   it("distinguishes partial, missing, and stale evidence", async () => {
@@ -111,6 +264,86 @@ describe("read-only post-match provider check", () => {
     expect(staleReport.missingEvidence).toContain("provider_final_status");
   });
 
+  it("retains stronger evidence across later partial, missing, and failed checks", async () => {
+    const fixture = await seedFinalized("retained");
+    await new AdminProviderCheckService(
+      fakeProvider(observation(fixture.externalFixtureId)),
+      database,
+    ).check(fixture.input);
+    const first = (
+      await database
+        .doc(`matches/${fixture.matchId}/providerObservations/api-football`)
+        .get()
+    ).data()!;
+
+    const partial = observation(fixture.externalFixtureId);
+    partial.lineupStatus = "partial";
+    partial.participants = partial.participants.slice(0, 12);
+    partial.starterCount = 11;
+    partial.substituteCount = 1;
+    partial.coach = { status: "unavailable", reason: "coach-missing" };
+    await new AdminProviderCheckService(fakeProvider(partial), database).check({
+      ...fixture.input,
+      operatorId: `${fixture.input.operatorId}-partial`,
+    });
+    const afterPartial = (
+      await database
+        .doc(`matches/${fixture.matchId}/providerObservations/api-football`)
+        .get()
+    ).data()!;
+    expect(afterPartial.participants).toHaveLength(21);
+    expect(afterPartial.coach).toEqual(first.coach);
+    expect(afterPartial.latestLineupStatus).toBe("partial");
+
+    const missing = observation(fixture.externalFixtureId);
+    missing.lineupStatus = "missing";
+    missing.participants = [];
+    missing.starterCount = 0;
+    missing.substituteCount = 0;
+    missing.coach = { status: "unavailable", reason: "coach-missing" };
+    await new AdminProviderCheckService(fakeProvider(missing), database).check({
+      ...fixture.input,
+      operatorId: `${fixture.input.operatorId}-missing`,
+    });
+    const afterMissing = (
+      await database
+        .doc(`matches/${fixture.matchId}/providerObservations/api-football`)
+        .get()
+    ).data()!;
+    expect(afterMissing.participants).toEqual(afterPartial.participants);
+    expect(afterMissing.coach).toEqual(first.coach);
+    expect(afterMissing.latestLineupStatus).toBe("missing");
+    await expect(
+      new AdminProviderCheckService(undefined, database).readPersisted({
+        matchId: fixture.matchId,
+        trackedTeamId: teamId,
+        externalFixtureId: fixture.externalFixtureId,
+      }),
+    ).resolves.toMatchObject({
+      status: "missing",
+      retainedEarlierEvidence: true,
+      provider: {
+        starters: expect.arrayContaining([{ name: "Player 1" }]),
+        coachName: "Jafet Soto",
+      },
+    });
+
+    await new AdminProviderCheckService(
+      fakeProvider(new ProviderError("request-failed", "upstream")),
+      database,
+    ).check({
+      ...fixture.input,
+      operatorId: `${fixture.input.operatorId}-error`,
+    });
+    expect(
+      (
+        await database
+          .doc(`matches/${fixture.matchId}/providerObservations/api-football`)
+          .get()
+      ).data(),
+    ).toEqual(afterMissing);
+  });
+
   it("reports conflicting players and coach without changing history", async () => {
     const fixture = await seedFinalized("conflict");
     const value = observation(fixture.externalFixtureId);
@@ -142,6 +375,23 @@ describe("read-only post-match provider check", () => {
         { type: "coach_mismatch", name: "Different Coach" },
       ]),
     );
+    const providerCoachId = providerEntityId("coach", "api-football", "999002");
+    expect(
+      (await database.doc(`coaches/${providerCoachId}`).get()).data(),
+    ).toMatchObject({
+      displayName: "Different Coach",
+      identityProvenance: "provider",
+      externalProviderId: "999002",
+    });
+    expect(
+      (
+        await database
+          .doc(
+            `coachProviderAliases/${coachProviderAliasId("api-football", "999002")}`,
+          )
+          .get()
+      ).exists,
+    ).toBe(false);
     expect(await protectedHistory(fixture.matchId)).toEqual(before);
   });
 
@@ -438,6 +688,144 @@ function fakeProvider(
   } as unknown as FootballDataProvider;
 }
 
+async function replaceWithManualPlayer(
+  matchId: string,
+  manualPlayerId: string,
+): Promise<void> {
+  const lineupReference = database.doc(
+    `matches/${matchId}/verifiedLineups/current`,
+  );
+  const lineupSnapshot = await lineupReference.get();
+  const lineup = lineupSnapshot.data()!;
+  const verifiedParticipants = (
+    lineup.participants as Array<Record<string, unknown>>
+  ).map((participant) => {
+    if (participant.playerId !== "canonical-player-12") return participant;
+    const retained = { ...participant };
+    delete retained.externalProviderPlayerId;
+    return {
+      ...retained,
+      playerId: manualPlayerId,
+      playerName: "D. Gonzalez",
+      identityProvenance: "operator_verified",
+    };
+  });
+  await lineupReference.set({ ...lineup, participants: verifiedParticipants });
+  await database
+    .doc(`matches/${matchId}/participants/canonical-player-12`)
+    .delete();
+  await database.doc(`matches/${matchId}/participants/${manualPlayerId}`).set({
+    matchId,
+    playerId: manualPlayerId,
+    teamId,
+    externalProviderTeamId: "815",
+    playerName: "D. Gonzalez",
+    squadRole: "substitute",
+    starter: false,
+    participated: true,
+    participationStatus: "confirmed_substitute",
+    identityProvenance: "operator_verified",
+    participationProvenance: "operator_verified",
+    enteredAtMinute: 61,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await database.doc(`players/${manualPlayerId}`).set({
+    displayName: "D. Gonzalez",
+    identityProvenance: "operator_verified",
+    currentTeamId: teamId,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await database
+    .doc(`teams/${teamId}/playerMemberships/${manualPlayerId}`)
+    .set({
+      teamId,
+      displayName: "D. Gonzalez",
+      searchName: "d gonzalez",
+      searchPrefixes: ["d", "d ", "d g"],
+      source: "operator_verified",
+      sourceMatchId: matchId,
+      firstObservedAt: now,
+      lastObservedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+  await database.doc(`teams/${teamId}/playerMembershipIndex/state`).set({
+    teamId,
+    status: "complete",
+    schemaVersion: 1,
+    baselineMembershipCount: 22,
+    blockingIssueCount: 0,
+    auditedAt: now,
+  });
+  const ballotReference = database.doc(`matches/${matchId}/ballots/voter-1`);
+  const ballot = (await ballotReference.get()).data()!;
+  const ratings = { ...(ballot.playerRatings as Record<string, number>) };
+  delete ratings["canonical-player-12"];
+  ratings[manualPlayerId] = 8;
+  await ballotReference.set({ ...ballot, playerRatings: ratings });
+  const resultReference = database.doc(`matches/${matchId}/results/summary`);
+  const result = (await resultReference.get()).data()!;
+  await resultReference.set({
+    ...result,
+    playerResults: {
+      [manualPlayerId]: {
+        playerId: manualPlayerId,
+        playerName: "D. Gonzalez",
+        average: 8,
+        voteCount: 1,
+      },
+    },
+    mvpPlayerIds: [manualPlayerId],
+  });
+}
+
+async function seedIdentityChallenge(
+  input: AdminPlayerIdentityInput,
+): Promise<string> {
+  const token = createHash("sha256")
+    .update(`${input.operatorId}:${input.canonicalPlayerId}`)
+    .digest("base64url");
+  await database
+    .doc(`adminActionChallenges/${adminChallengeDocumentId(token)}`)
+    .set({
+      operatorUid: input.operatorId,
+      resourceId: adminPlayerIdentityResourceId(input),
+      actionHash: hashAdminPlayerIdentityAction(input),
+      createdAt: Timestamp.now(),
+      expiresAt: Timestamp.fromMillis(Date.now() + 60_000),
+    });
+  return token;
+}
+
+async function selectedHistory(matchId: string) {
+  const [match, lineup, participant, ballot, result, verifiedCoach, coach] =
+    await Promise.all([
+      database.doc(`matches/${matchId}`).get(),
+      database.doc(`matches/${matchId}/verifiedLineups/current`).get(),
+      database.collection(`matches/${matchId}/participants`).get(),
+      database.doc(`matches/${matchId}/ballots/voter-1`).get(),
+      database.doc(`matches/${matchId}/results/summary`).get(),
+      database
+        .doc(`matches/${matchId}/verifiedCoachAssignments/head-coach`)
+        .get(),
+      database.doc(`matches/${matchId}/coachAssignments/head-coach`).get(),
+    ]);
+  return {
+    match: match.data(),
+    lineup: lineup.data(),
+    participants: participant.docs.map((document) => [
+      document.id,
+      document.data(),
+    ]),
+    ballot: ballot.data(),
+    result: result.data(),
+    verifiedCoach: verifiedCoach.data(),
+    coach: coach.data(),
+  };
+}
+
 async function protectedHistory(matchId: string) {
   const roster = participants(matchId);
   const [
@@ -492,3 +880,4 @@ async function protectedHistory(matchId: string) {
     ]),
   };
 }
+import { createHash } from "node:crypto";

@@ -10,6 +10,7 @@ import { AdminProviderCheck } from "@/components/admin-provider-check";
 import { initialClub } from "@/config/club";
 import { getMessages } from "@/i18n/messages";
 import { AdminConsoleService } from "@/lib/firebase/admin-console";
+import { AdminProviderCheckService } from "@/lib/firebase/admin-provider-check";
 import {
   ADMIN_SESSION_COOKIE,
   verifyAdminSession,
@@ -40,6 +41,14 @@ export default async function AdminMatchPage({
   const detail = await new AdminConsoleService().detail(matchId, ownerId);
   if (!detail) notFound();
   const messages = getMessages("es").admin;
+  const persistedProviderReport =
+    detail.match.ratingState === "rating_closed"
+      ? await new AdminProviderCheckService().readPersisted({
+          matchId: detail.match.id,
+          trackedTeamId: initialClub.teamId,
+          externalFixtureId: detail.match.externalFixtureId,
+        })
+      : null;
   return (
     <main
       className="page-shell py-8"
@@ -107,6 +116,7 @@ export default async function AdminMatchPage({
           match={detail.match}
           messages={messages}
           teamId={initialClub.teamId}
+          initialReport={persistedProviderReport}
         />
       </div>
     </main>

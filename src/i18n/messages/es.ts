@@ -354,6 +354,7 @@ export const esMessages = {
     votingClosesAt: "Cierre",
     timeRemaining: "Tiempo restante",
     viewResults: "Ver resultados",
+    administerMatch: "Administrar partido",
     backToDashboard: "← Volver al dashboard",
     unrecognizedDiagnostic:
       "El ciclo requiere revisión. Actualice el partido para obtener el motivo actual.",
@@ -458,6 +459,9 @@ export const esMessages = {
       unavailable:
         "Disponible cuando la votación terminó y los resultados están publicados.",
       checkedAt: "Última comprobación",
+      evidenceSavedAt: "Evidencia conservada desde",
+      retainedNotice:
+        "La respuesta más reciente fue menos completa; se conserva la evidencia anterior para comparación.",
       requestCount: "Solicitudes al proveedor",
       providerFixtureStatus: "Estado del fixture en API-Football",
       localEvidence: "Evidencia local",

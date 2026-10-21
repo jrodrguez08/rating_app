@@ -345,6 +345,7 @@ export const enMessages = {
     votingClosesAt: "Closes",
     timeRemaining: "Time remaining",
     viewResults: "View results",
+    administerMatch: "Manage match",
     backToDashboard: "← Back to dashboard",
     unrecognizedDiagnostic:
       "The lifecycle requires review. Refresh the match to obtain the current reason.",
@@ -448,6 +449,9 @@ export const enMessages = {
       unavailable:
         "Available after voting has ended and results are published.",
       checkedAt: "Last checked",
+      evidenceSavedAt: "Evidence retained since",
+      retainedNotice:
+        "The latest response was less complete; earlier evidence is retained for comparison.",
       requestCount: "Provider requests",
       providerFixtureStatus: "API-Football fixture status",
       localEvidence: "Local evidence",

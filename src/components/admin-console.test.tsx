@@ -161,7 +161,7 @@ describe("admin console", () => {
     expect(screen.queryByText(/match-/)).not.toBeInTheDocument();
   });
 
-  it("uses one valid context-specific destination for each match", () => {
+  it("keeps each match action and adds administration access to published results", () => {
     render(<AdminConsole messages={messages} overview={dashboardOverview()} />);
 
     expect(matchLink("Cartaginés", messages.prepareMatch)).toHaveAttribute(
@@ -179,6 +179,10 @@ describe("admin console", () => {
     expect(matchLink("Alajuelense", messages.viewResults)).toHaveAttribute(
       "href",
       "/matches/published/results",
+    );
+    expect(matchLink("Alajuelense", messages.administerMatch)).toHaveAttribute(
+      "href",
+      "/admin/matches/published",
     );
     expect(matchLink("Liberia", messages.inspect)).toHaveAttribute(
       "href",
@@ -244,7 +248,6 @@ describe("admin console", () => {
 function matchLink(teamName: string, actionName: string) {
   const card = matchCard(teamName);
   expect(card).not.toBeNull();
-  expect(within(card!).getAllByRole("link")).toHaveLength(1);
   return within(card!).getByRole("link", { name: actionName });
 }
 

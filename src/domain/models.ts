@@ -226,11 +226,68 @@ export interface TeamPlayerMembership {
   displayName: string;
   searchName: string;
   searchPrefixes: string[];
-  source: "current_squad" | "match_participant" | "operator_verified";
+  source:
+    | "current_squad"
+    | "provider_observation"
+    | "match_participant"
+    | "operator_verified";
   sourceMatchId?: EntityId;
   shirtNumber?: number;
   firstObservedAt: string;
   lastObservedAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProviderMatchObservationSnapshot {
+  id: EntityId;
+  matchId: EntityId;
+  trackedTeamId: EntityId;
+  externalProvider: "api-football";
+  externalFixtureId: string;
+  externalTeamId: string;
+  fixture: {
+    externalCompetitionId: string;
+    providerSeason: number;
+    status: MatchStatus;
+    kickoffAt: string;
+    homeTeam: MatchTeamSnapshot;
+    awayTeam: MatchTeamSnapshot;
+    score: { home: number | null; away: number | null };
+  };
+  lineupStatus: "missing" | "partial" | "available";
+  starterCount: number;
+  substituteCount: number;
+  playerStatisticsAvailable: boolean;
+  substitutionEventsAvailable: boolean;
+  providerRequests: number;
+  latestLineupStatus: "missing" | "partial" | "available";
+  participants: Array<{
+    externalTeamId: string;
+    externalPlayerId: string;
+    name: string;
+    shirtNumber?: number;
+    position?: PlayerPosition;
+    squadRole: SquadRole;
+    participated: boolean;
+    enteredAtMinute?: number;
+    exitedAtMinute?: number;
+    captain?: boolean;
+  }>;
+  coach:
+    | {
+        status: "resolved";
+        externalTeamId: string;
+        externalCoachId: string;
+        name: string;
+        photoUrl?: string;
+      }
+    | {
+        status: "unavailable";
+        reason: "coach-missing" | "ambiguous-coach";
+      };
+  observedAt: string;
+  evidenceObservedAt: string;
   createdAt: string;
   updatedAt: string;
 }

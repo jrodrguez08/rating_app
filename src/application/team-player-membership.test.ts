@@ -28,6 +28,25 @@ describe("Team Player membership evidence", () => {
       lastObservedAt: "2026-02-01T00:00:00.000Z",
     });
   });
+
+  it("keeps provider observations discoverable without weakening participation evidence", () => {
+    const observed = membership({
+      source: "provider_observation",
+      sourceMatchId: "match-observed",
+    });
+    const participant = membership({
+      source: "match_participant",
+      sourceMatchId: "match-participated",
+    });
+
+    expect(mergeTeamPlayerMembership(undefined, observed).source).toBe(
+      "provider_observation",
+    );
+    expect(mergeTeamPlayerMembership(observed, participant)).toMatchObject({
+      source: "match_participant",
+      sourceMatchId: "match-participated",
+    });
+  });
 });
 
 function membership(
