@@ -727,7 +727,7 @@ export const esMessages = {
     identityReconciliation: "Conciliar identidades",
     identityReconciliationTitle: "Conciliar identidades",
     identityReconciliationHelp:
-      "Revise duplicados sugeridos o seleccione dos jugadores. El sistema nunca los consolida automáticamente.",
+      "Seleccione una pareja, revise ambas identidades una sola vez y autorice su decisión. El sistema nunca las consolida automáticamente.",
     possibleDuplicates: "Posibles duplicados",
     possibleDuplicatesHelp:
       "API-Football publicó jugadores que podrían corresponder a identidades creadas manualmente.",
@@ -737,6 +737,16 @@ export const esMessages = {
     noPendingDuplicates: "Sin duplicados pendientes.",
     waitingForProviderPlayers: "Esperando información de API-Football.",
     reviewLater: "Revisar después",
+    reviewSuggestedPair: "Revisar esta sugerencia",
+    identityReviewStep: "Revisión de la pareja seleccionada",
+    editIdentitySelection: "Cambiar selección",
+    selectedIdentities: "Identidades seleccionadas",
+    checkingProtectedHistory: "Comprobando historial protegido…",
+    protectedHistoryPending: "Historial por comprobar",
+    keepCanonicalIdentity: "Conservar como identidad canónica",
+    recommendedIdentity: "Recomendado por seguridad",
+    unsafeIdentityChoice:
+      "No puede conservar esta identidad porque dejaría fuera el historial protegido.",
     chooseCanonicalPlayer: "Elija el jugador que desea conservar",
     keepPlayer: "Conservar este jugador",
     removePlayer: "Quitar jugador",
@@ -763,7 +773,7 @@ export const esMessages = {
     identityCoachesTab: "Directores técnicos",
     coachIdentityTitle: "Conciliar directores técnicos",
     coachIdentityHelp:
-      "Compare sugerencias o seleccione dos directores técnicos. La decisión siempre es suya.",
+      "Seleccione una pareja, revise ambas identidades una sola vez y autorice su decisión. La decisión siempre es suya.",
     coachPossibleDuplicatesHelp:
       "API-Football publicó directores técnicos que podrían corresponder a registros creados manualmente.",
     manualCoachSelection: "Seleccionar directores técnicos",

@@ -13,28 +13,47 @@ const providerId = "coach-provider-jafet";
 describe("admin Coach identity reconciliation", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("reviews and applies a suggestion without exposing technical identities", async () => {
+  it("uses the same guided review and authorization for a suggestion", async () => {
     const user = userEvent.setup();
     const fetchMock = apiMock();
     vi.stubGlobal("fetch", fetchMock);
     document.cookie = "rating_admin_csrf=test-csrf";
     renderComponent();
 
-    expect(await screen.findByText("Jafet Soto")).toBeVisible();
-    expect(screen.getByText("J. Soto")).toBeVisible();
+    expect(await screen.findByText(/Jafet Soto/)).toBeVisible();
+    await user.click(
+      screen.getByRole("button", { name: messages.reviewSuggestedPair }),
+    );
+    const review = await screen.findByRole("heading", {
+      name: messages.coachIdentityComparison,
+    });
+    expect(review).toHaveFocus();
+    expect(screen.getAllByRole("radio")).toHaveLength(2);
+    expect(
+      screen.getByRole("radio", {
+        name: new RegExp(
+          `Jafet Soto.*${messages.sourceManual}.*${messages.protectedHistory}`,
+        ),
+      }),
+    ).toBeChecked();
+    expect(
+      screen.getByRole("radio", {
+        name: new RegExp(`J\\. Soto.*${messages.sourceProvider}`),
+      }),
+    ).toBeDisabled();
     expect(screen.queryByText(manualId)).not.toBeInTheDocument();
     expect(screen.queryByText(providerId)).not.toBeInTheDocument();
 
-    await user.click(
-      screen.getByLabelText(`${messages.keepCoach}: Jafet Soto`),
-    );
-    await user.click(screen.getByRole("button", { name: messages.samePerson }));
+    const samePerson = screen.getByRole("button", {
+      name: messages.samePerson,
+    });
+    await waitFor(() => expect(samePerson).toBeEnabled());
+    await user.click(samePerson);
     expect(await screen.findByText(messages.safeIdentityLink)).toBeVisible();
     await user.type(screen.getByLabelText(messages.passphrase), "passphrase");
     await user.click(
       screen.getByRole("button", { name: messages.consolidateCoaches }),
     );
-
     await waitFor(() => expect(screen.getByText(/audit-coach/)).toBeVisible());
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/admin/coach-identities/apply",
@@ -44,45 +63,76 @@ describe("admin Coach identity reconciliation", () => {
     );
   });
 
-  it("keeps manual selection available while provider data is pending", async () => {
+  it("keeps manual search secondary and returns with both selections", async () => {
     const user = userEvent.setup();
     vi.stubGlobal(
       "fetch",
       apiMock({ providerDataAvailable: false, suggestions: [] }),
     );
     renderComponent();
-
     expect(
       await screen.findByText(messages.waitingForProviderCoaches),
     ).toBeVisible();
+    const toggle = screen.getByRole("button", {
+      name: messages.manualCoachSelection,
+    });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await user.click(toggle);
+    expect(await screen.findByLabelText(messages.searchCoaches)).toHaveFocus();
     const options = await screen.findAllByRole("button", {
       name: /Director (manual|proveedor)/,
     });
     await user.click(options[0]);
     await user.click(options[1]);
-    expect(options[0]).toBeDisabled();
-    expect(options[1]).toBeDisabled();
+    expect(
+      await screen.findByRole("heading", {
+        name: messages.coachIdentityComparison,
+      }),
+    ).toHaveFocus();
+    await user.click(
+      screen.getByRole("button", { name: messages.editIdentitySelection }),
+    );
+    expect(await screen.findByLabelText(messages.searchCoaches)).toHaveFocus();
+    expect(
+      screen.getByRole("list", { name: messages.selectedIdentities }),
+    ).toBeVisible();
   });
 
-  it("preserves both selected Coaches after a recoverable preview error", async () => {
+  it("retains the pair after a recoverable preview error", async () => {
     const user = userEvent.setup();
-    vi.stubGlobal("fetch", apiMock(undefined, true));
+    vi.stubGlobal("fetch", apiMock(undefined, 2));
     renderComponent();
-    const options = await screen.findAllByRole("button", {
-      name: /Director (manual|proveedor)/,
-    });
-    await user.click(options[0]);
-    await user.click(options[1]);
     await user.click(
-      screen.getByLabelText(`${messages.keepCoach}: Director manual`),
+      await screen.findByRole("button", { name: messages.reviewSuggestedPair }),
     );
-    await user.click(screen.getByRole("button", { name: messages.reviewPair }));
-
+    const samePerson = await screen.findByRole("button", {
+      name: messages.samePerson,
+    });
+    await waitFor(() => expect(samePerson).toBeEnabled());
+    await user.click(samePerson);
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Revise el historial protegido",
     );
-    expect(options[0]).toBeDisabled();
-    expect(options[1]).toBeDisabled();
+    expect(screen.getAllByRole("radio")).toHaveLength(2);
+  });
+
+  it("keeps different-person authorization in the unified review", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", apiMock());
+    renderComponent();
+    await user.click(
+      await screen.findByRole("button", { name: messages.reviewSuggestedPair }),
+    );
+    const different = await screen.findByRole("button", {
+      name: messages.coachesDifferent,
+    });
+    await waitFor(() => expect(different).toBeEnabled());
+    await user.click(different);
+    expect(
+      await screen.findByRole("button", {
+        name: messages.confirmDifferentCoaches,
+      }),
+    ).toBeVisible();
   });
 });
 
@@ -107,9 +157,14 @@ function apiMock(
       },
     ],
   },
-  previewFails = false,
+  failPreviewAt?: number,
 ) {
-  return vi.fn(async (input: string | URL | Request) => {
+  let previewCount = 0;
+  const identities = new Map([
+    [manualId, coach(manualId, "Jafet Soto", "operator_verified")],
+    [providerId, coach(providerId, "J. Soto", "provider")],
+  ]);
+  return vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const path = String(input);
     if (path.endsWith("/suggestions")) return response(suggestionResult);
     if (path.includes("/api/admin/coach-identities?")) {
@@ -121,18 +176,33 @@ function apiMock(
       });
     }
     if (path.endsWith("/preview")) {
-      if (previewFails) {
+      previewCount += 1;
+      if (previewCount === failPreviewAt) {
         return response({ error: "Revise el historial protegido" }, 409);
       }
+      const action = JSON.parse(String(init?.body)) as {
+        firstCoachId: string;
+        secondCoachId: string;
+        canonicalCoachId: string;
+        decision: "match" | "nonmatch";
+      };
+      const first =
+        identities.get(action.firstCoachId) ??
+        coach(action.firstCoachId, "Director manual", "operator_verified");
+      const second =
+        identities.get(action.secondCoachId) ??
+        coach(action.secondCoachId, "Director proveedor", "provider");
+      const canonical = action.canonicalCoachId === first.id ? first : second;
+      const duplicate = canonical.id === first.id ? second : first;
       return response({
         previewToken: "preview-token",
         plan: {
-          decision: "match",
-          status: "safe",
+          decision: action.decision,
+          status: action.decision === "match" ? "safe" : "confirmed_different",
           canApply: true,
-          explanation: "Se puede vincular.",
-          canonical: evidence(manualId, "Director manual", "operator_verified"),
-          duplicate: evidence(providerId, "Director proveedor", "provider"),
+          explanation: "La operación conserva el historial existente.",
+          canonical: evidence(canonical),
+          duplicate: evidence(duplicate),
           proposedChanges: [],
           warnings: [],
         },
@@ -149,24 +219,15 @@ function coach(
   name: string,
   identityProvenance: "provider" | "operator_verified",
 ) {
-  return {
-    id,
-    name,
-    identityProvenance,
-    teamCount: 1,
-    matchCount: 2,
-  };
+  return { id, name, identityProvenance, teamCount: 1, matchCount: 2 };
 }
 
-function evidence(
-  id: string,
-  name: string,
-  identityProvenance: "provider" | "operator_verified",
-) {
+function evidence(value: ReturnType<typeof coach>) {
   return {
-    ...coach(id, name, identityProvenance),
-    hasProtectedHistory: false,
-    verifiedAssignments: identityProvenance === "operator_verified" ? 1 : 0,
+    ...value,
+    hasProtectedHistory: value.identityProvenance === "operator_verified",
+    verifiedAssignments:
+      value.identityProvenance === "operator_verified" ? 1 : 0,
   };
 }
 
