@@ -471,3 +471,49 @@ After deployment, use this smoke test for fixture `1551706` and Match `match-10a
 7. If API-Football supplies a stable D. Gonzalez identity while the voted record remains operator-created, open **Jugadores → Conciliar identidades**. Require both records to be independently selectable, preview the provider-to-manual link, retain the manual identity that owns the published history, authorize once, and inspect the deterministic alias and audit. Confirm both source Player documents remain, the historical ballot/result and verified lineup remain unchanged, and a later emulator or real provider ingestion resolves the provider ID to the retained manual identity. Do not reconcile from name similarity alone.
 
 No production Firestore migration is needed to deploy the feature. Roll back by deploying the previous reviewed application build; preserve additive provider observations, identity records, memberships, reviews, aliases, and audits for investigation. If request volume or provider quota differs from the documented four-call baseline or optional fifth coach lookup, disable use of the action and inspect sanitized `admin.provider_check` and provider quota logs before retrying.
+
+## Private ChatGPT MCP connection (Phase 1)
+
+This section configures an optional owner-only read connection. Deployment of the code does not connect ChatGPT automatically.
+
+### Prerequisites and environment
+
+Deploy the Firestore indexes before enabling the endpoint. In Vercel, configure these server-only values for the target environment:
+
+- `MCP_PUBLIC_ORIGIN`: the canonical HTTPS origin, without a path.
+- `MCP_OAUTH_CLIENT_ID`: a stable confidential OAuth client identifier entered in ChatGPT.
+- `MCP_OAUTH_CLIENT_SECRET`: at least 32 random characters; store only as a secret.
+- `MCP_OAUTH_REDIRECT_URIS`: the exact redirect URI shown by ChatGPT. Separate an intentional preview URI with a comma; do not use wildcards.
+
+The MCP resource URL is `<MCP_PUBLIC_ORIGIN>/api/mcp`, its only scope is `rating:read`, and OAuth discovery is available at `/.well-known/oauth-authorization-server` and `/.well-known/oauth-protected-resource`.
+
+Current ChatGPT custom MCP connections support Streamable HTTP and OAuth. Authenticated custom servers are expected to use authorization code flow with PKCE; ChatGPT does not use an arbitrary API-key header or client-credentials grant for this connection. See the official [custom MCP server guide](https://developers.openai.com/api/docs/guides/custom-mcp-server), [app authentication guide](https://developers.openai.com/plugins/build/auth), and [MCP connector guide](https://developers.openai.com/api/docs/guides/tools-connectors-mcp).
+
+### Connect from ChatGPT
+
+1. Sign in to `/admin` as the configured owner in the browser that will complete OAuth. The owner session cookie uses `SameSite=Lax` so it can authorize the top-level OAuth redirect; all admin mutations still require their existing Origin and CSRF checks.
+2. In ChatGPT connector management, create a custom MCP connection using the MCP resource URL and OAuth authentication.
+3. Enter `MCP_OAUTH_CLIENT_ID` and `MCP_OAUTH_CLIENT_SECRET`. Copy the exact redirect URI ChatGPT displays into `MCP_OAUTH_REDIRECT_URIS`, update the deployment environment, and redeploy if necessary.
+4. Start or retry the connection. The authorization endpoint verifies the existing owner session, exact client, exact redirect, resource audience, `rating:read` scope, state, and PKCE S256 challenge before returning a one-use code.
+5. Confirm tool discovery lists only `list_matches`, `get_match_results`, `search_players`, `get_player_statistics`, and `get_coach_statistics`.
+
+Example questions include “Muéstrame los últimos cinco partidos publicados”, “Busca a este jugador por apellido”, “Resume las calificaciones publicadas de este Player”, and “¿Qué calificaciones publicadas tiene este Coach?”. Results are compact structured data; private ballots and voter IDs are never returned.
+
+### Production smoke test
+
+After deployment and connection, verify all of the following:
+
+1. An unauthenticated POST to `/api/mcp` returns an OAuth bearer challenge and no application data.
+2. `list_matches` with `kind: published` returns a bounded page and a continuation when applicable.
+3. `get_match_results` returns only a final published summary; an open or unpublished Match reports unavailable or locked.
+4. `search_players` resolves a reviewed provider alias to the canonical Player.
+5. Player and Coach statistics contain only published Match summaries and never contain `voterId`, ballot paths, raw provider IDs, or operator evidence.
+6. Firestore application documents are unchanged after all five tool calls. OAuth code and token collections may change only during connect, refresh, or disconnect.
+
+### Limitations, troubleshooting, and revocation
+
+- Match and Player history depend on the deployed composite indexes and a complete Team Player membership index. An index error requires deploying `firestore.indexes.json`; an incomplete membership index requires the existing controlled backfill before Player tools can answer.
+- Player and Coach statistics include only immutable published summaries. Coach output deliberately does not claim a complete historical ranking. Missing canonical documents or unresolved aliases are not inferred from matching names.
+- A 401 at the authorization endpoint means the owner session is missing, expired, revoked, or not the exact verified password owner. Sign in to `/admin` and retry the connection.
+- `invalid_grant` means the code expired, was already consumed, the redirect/resource changed, or PKCE verification failed. Restart the connection rather than reusing the code.
+- Disconnect the custom connector in ChatGPT to call the revocation endpoint. Removing the MCP environment values disables discovery, token issuance, and tool access immediately. Rotating the client secret blocks refresh; existing one-hour access grants then expire naturally.
