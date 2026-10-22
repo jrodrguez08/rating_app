@@ -17,12 +17,16 @@ export function AdminProviderCheck({
   match,
   messages,
   teamId,
+  initialReport,
 }: {
   match: AdminMatchOperation;
   messages: AdminMessages;
   teamId: string;
+  initialReport?: AdminProviderCheckReport | null;
 }) {
-  const [report, setReport] = useState<AdminProviderCheckReport | null>(null);
+  const [report, setReport] = useState<AdminProviderCheckReport | null>(
+    initialReport ?? null,
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const eligible = match.ratingState === "rating_closed";
@@ -98,6 +102,9 @@ export function AdminProviderCheck({
           <p className={statusClass(report.status)} role="status">
             {labels.statuses[report.status]}
           </p>
+          {report.retainedEarlierEvidence ? (
+            <p className="text-warning text-sm">{labels.retainedNotice}</p>
+          ) : null}
           <dl className="game-inset grid gap-2 p-4 text-sm sm:grid-cols-2">
             <div>
               <dt className="text-muted">{labels.checkedAt}</dt>
@@ -108,6 +115,17 @@ export function AdminProviderCheck({
                 })}
               </dd>
             </div>
+            {report.evidenceObservedAt ? (
+              <div>
+                <dt className="text-muted">{labels.evidenceSavedAt}</dt>
+                <dd className="font-bold">
+                  {formatDate(report.evidenceObservedAt, "es", {
+                    dateStyle: "short",
+                    timeStyle: "medium",
+                  })}
+                </dd>
+              </div>
+            ) : null}
             <div>
               <dt className="text-muted">{labels.requestCount}</dt>
               <dd className="font-bold">{report.providerRequests}</dd>
@@ -272,6 +290,10 @@ function hasReport(
     typeof value.report.checkedAt === "string" &&
     "providerRequests" in value.report &&
     typeof value.report.providerRequests === "number" &&
+    "persisted" in value.report &&
+    typeof value.report.persisted === "boolean" &&
+    "retainedEarlierEvidence" in value.report &&
+    typeof value.report.retainedEarlierEvidence === "boolean" &&
     "local" in value.report &&
     "provider" in value.report &&
     "differences" in value.report &&

@@ -19,6 +19,8 @@ describe("admin post-match provider check", () => {
           status: "differences",
           checkedAt: "2026-10-21T12:00:00.000Z",
           providerRequests: 4,
+          persisted: true,
+          retainedEarlierEvidence: false,
           localEvidenceSource: "operator_verified",
           local: {
             starters: [{ name: "Aarón Salazar" }],
@@ -82,6 +84,42 @@ describe("admin post-match provider check", () => {
       screen.getByRole("button", { name: messages.providerCheck.action }),
     ).toBeDisabled();
     expect(screen.getByText(messages.providerCheck.unavailable)).toBeVisible();
+  });
+
+  it("renders a persisted comparison immediately after navigation or reload", () => {
+    render(
+      <AdminProviderCheck
+        match={finalizedMatch()}
+        messages={messages}
+        teamId="club-sport-herediano"
+        initialReport={{
+          status: "partial",
+          checkedAt: "2026-10-21T12:00:00.000Z",
+          evidenceObservedAt: "2026-10-21T11:59:00.000Z",
+          providerRequests: 4,
+          persisted: true,
+          retainedEarlierEvidence: false,
+          localEvidenceSource: "operator_verified",
+          local: {
+            starters: [{ name: "D. Gonz\u00e1lez" }],
+            participatingSubstitutes: [],
+            coachName: "Jafet Soto",
+          },
+          provider: {
+            starters: [{ name: "Daniel Gonz\u00e1lez" }],
+            participatingSubstitutes: [],
+          },
+          differences: [],
+          missingEvidence: ["coach"],
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Daniel Gonz\u00e1lez")).toBeVisible();
+    expect(screen.getByText(messages.providerCheck.noCoach)).toBeVisible();
+    expect(
+      screen.getByText(messages.providerCheck.evidenceSavedAt),
+    ).toBeVisible();
   });
 });
 

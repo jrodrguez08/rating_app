@@ -114,7 +114,9 @@ function membershipSourceRank(source: TeamPlayerMembership["source"]): number {
       return 3;
     case "match_participant":
       return 2;
-    case "current_squad":
+    case "provider_observation":
       return 1;
+    case "current_squad":
+      return 0;
   }
 }

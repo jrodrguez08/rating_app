@@ -302,6 +302,14 @@ function AdminMatchCard({
       >
         {action.label}
       </Link>
+      {match.votingPresentation === "published" ? (
+        <Link
+          className="button-utility inline-flex min-h-11 w-full items-center justify-center px-4 sm:w-fit"
+          href={`/admin/matches/${encodeURIComponent(match.id)}`}
+        >
+          {messages.administerMatch}
+        </Link>
+      ) : null}
     </li>
   );
 }
