@@ -815,6 +815,28 @@ export const esMessages = {
   footer: {
     supporting: "Creado para aficionados. Listo para crecer club por club.",
   },
+  mcp: {
+    matchResultsLocked: "Los resultados todavía no están publicados.",
+    matchResultsUnavailable: "No hay un resultado final publicado disponible.",
+    coachHistoryLimitation:
+      "Las estadísticas reflejan únicamente resultados publicados; no forman una clasificación histórica de entrenadores.",
+    toolFailure: "No fue posible completar la consulta de solo lectura.",
+    authorizeSignIn:
+      "Inicie sesión como propietario en /admin y vuelva a conectar ChatGPT.",
+    authorizeFailure: "No fue posible autorizar la conexión.",
+    tools: {
+      listMatches:
+        "Lista partidos persistidos del club con paginación acotada.",
+      matchResults:
+        "Obtiene únicamente el resultado agregado publicado de un partido; nunca incluye papeletas ni votantes.",
+      searchPlayers:
+        "Busca Players canónicos del club usando el índice mantenido y sus alias revisados.",
+      playerStatistics:
+        "Obtiene estadísticas del Player basadas únicamente en resultados publicados.",
+      coachStatistics:
+        "Obtiene calificaciones históricas publicadas de un Coach y declara sus límites.",
+    },
+  },
   operatorNotification: {
     subject: "Votaci\u00f3n abierta: {home} vs. {away}",
     intro: "La votaci\u00f3n ya est\u00e1 abierta para {home} vs. {away}.",

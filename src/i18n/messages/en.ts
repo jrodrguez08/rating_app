@@ -799,6 +799,26 @@ export const enMessages = {
   footer: {
     supporting: "Built for supporters. Ready to grow club by club.",
   },
+  mcp: {
+    matchResultsLocked: "Results have not been published yet.",
+    matchResultsUnavailable: "No published final result is available.",
+    coachHistoryLimitation:
+      "Statistics include published results only and do not form a historical coach ranking.",
+    toolFailure: "The read-only query could not be completed.",
+    authorizeSignIn: "Sign in as the owner at /admin, then reconnect ChatGPT.",
+    authorizeFailure: "The connection could not be authorized.",
+    tools: {
+      listMatches: "Lists persisted club matches with bounded pagination.",
+      matchResults:
+        "Returns only a published aggregate match result; it never includes ballots or voters.",
+      searchPlayers:
+        "Searches canonical club Players through the maintained index and reviewed aliases.",
+      playerStatistics:
+        "Returns Player statistics derived only from published results.",
+      coachStatistics:
+        "Returns published historical Coach ratings and states their limitations.",
+    },
+  },
   operatorNotification: {
     subject: "Voting is open: {home} vs {away}",
     intro: "Voting is now open for {home} vs {away}.",

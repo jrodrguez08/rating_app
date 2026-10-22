@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
     const response = adminJson({ authenticated: true });
     response.cookies.set(ADMIN_SESSION_COOKIE, session, {
       httpOnly: true,
-      sameSite: "strict",
+      sameSite: "lax",
       secure: secureCookies,
       path: "/",
       maxAge: ADMIN_SESSION_MAX_AGE_MS / 1000,

@@ -58,7 +58,9 @@ export async function searchIndexedTeamPlayers(
   query: string,
   cursor?: string,
   observe?: TeamPlayerIndexObserver,
+  pageSize = ADMIN_PLAYER_PAGE_SIZE,
 ): Promise<{ players: IndexedTeamPlayer[]; nextCursor?: string }> {
+  const boundedPageSize = Math.min(Math.max(Math.trunc(pageSize), 1), 20);
   await requireCompleteIndex(database, teamId, observe);
   const normalizedQuery = normalizePlayerSearch(query).slice(0, 80);
   let membershipQuery = database
@@ -72,16 +74,14 @@ export async function searchIndexedTeamPlayers(
     );
   }
   if (cursor) membershipQuery = membershipQuery.startAfter(cursor);
-  const snapshot = await membershipQuery
-    .limit(ADMIN_PLAYER_PAGE_SIZE + 1)
-    .get();
+  const snapshot = await membershipQuery.limit(boundedPageSize + 1).get();
   observe?.({ kind: "membership_query", documents: snapshot.size });
-  const page = snapshot.docs.slice(0, ADMIN_PLAYER_PAGE_SIZE);
+  const page = snapshot.docs.slice(0, boundedPageSize);
   const { players } = await resolveMemberships(database, teamId, page, observe);
   const lastDocument = page.at(-1);
   return {
     players,
-    ...(snapshot.size > ADMIN_PLAYER_PAGE_SIZE && lastDocument
+    ...(snapshot.size > boundedPageSize && lastDocument
       ? { nextCursor: lastDocument.id }
       : {}),
   };

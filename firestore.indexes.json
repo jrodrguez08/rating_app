@@ -9,6 +9,23 @@
       ]
     },
     {
+      "collectionGroup": "matches",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "trackedTeamId", "order": "ASCENDING" },
+        { "fieldPath": "kickoffAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "matches",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "trackedTeamId", "order": "ASCENDING" },
+        { "fieldPath": "ratingState", "order": "ASCENDING" },
+        { "fieldPath": "kickoffAt", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "participants",
       "queryScope": "COLLECTION",
       "fields": [

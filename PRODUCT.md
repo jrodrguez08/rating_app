@@ -97,3 +97,11 @@ After the Coach identity release is deployed with its declared indexes, that sam
 The surface is dormant until the owner Firebase email/password account and all server secrets are configured. Supporter anonymous identity continues in the default Firebase browser app; admin sign-in uses a named in-memory Auth app and exchanges its ID token for a server session before immediately signing out locally.
 
 Admin sign-in displays one accessible busy state from Firebase password authentication through ID-token exchange, server-session creation, and console refresh. The lifecycle request remains visible on every Match readiness panel; ineligible states disable it and explain the persisted reason without changing server eligibility.
+
+## Private ChatGPT read access (Phase 1)
+
+The deployable Phase 1 MCP capability gives the authenticated owner a compact, read-only view of persisted Matches, published aggregate results, canonical Players, published Player history, and published Coach ratings. It is an optional external-client surface; the web application remains complete without ChatGPT and no chat interface is embedded in Rating App.
+
+The MCP surface never exposes ballots, voter identities, unpublished aggregates, provider credentials, operator evidence details, or administrative controls. It cannot open or close voting, synchronize providers, reconcile identities, or mutate application records. Late or incomplete data is reported honestly. Coach history is a published-rating summary and is not presented as a complete historical ranking.
+
+The capability requires a deployed HTTPS endpoint plus an owner-approved OAuth connection before it is usable. Shipping the endpoint alone does not mean ChatGPT is connected.
