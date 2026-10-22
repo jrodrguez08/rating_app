@@ -714,7 +714,7 @@ export const enMessages = {
     identityReconciliation: "Reconcile identities",
     identityReconciliationTitle: "Reconcile identities",
     identityReconciliationHelp:
-      "Review suggested duplicates or select two players. The system never consolidates them automatically.",
+      "Select a pair, review both identities once, and authorize your decision. The system never consolidates them automatically.",
     possibleDuplicates: "Possible duplicates",
     possibleDuplicatesHelp:
       "API-Football published Players that may match manually created identities.",
@@ -724,6 +724,16 @@ export const enMessages = {
     noPendingDuplicates: "No pending duplicates.",
     waitingForProviderPlayers: "Waiting for API-Football information.",
     reviewLater: "Review later",
+    reviewSuggestedPair: "Review this suggestion",
+    identityReviewStep: "Selected pair review",
+    editIdentitySelection: "Change selection",
+    selectedIdentities: "Selected identities",
+    checkingProtectedHistory: "Checking protected history…",
+    protectedHistoryPending: "History pending review",
+    keepCanonicalIdentity: "Keep as canonical identity",
+    recommendedIdentity: "Recommended for safety",
+    unsafeIdentityChoice:
+      "This identity cannot be kept because protected history would be left behind.",
     chooseCanonicalPlayer: "Choose the player identity to keep",
     keepPlayer: "Keep this player",
     removePlayer: "Remove player",
@@ -750,7 +760,7 @@ export const enMessages = {
     identityCoachesTab: "Head coaches",
     coachIdentityTitle: "Reconcile head coaches",
     coachIdentityHelp:
-      "Compare suggestions or select two head coaches. The decision is always yours.",
+      "Select a pair, review both identities once, and authorize your decision. The decision is always yours.",
     coachPossibleDuplicatesHelp:
       "API-Football published head coaches that may match manually created records.",
     manualCoachSelection: "Select head coaches",

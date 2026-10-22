@@ -1,7 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type RefObject,
+} from "react";
 
 import type { Messages } from "@/i18n/messages";
 import type { AdminPlayerOption } from "@/lib/firebase/admin-console";
@@ -18,6 +25,7 @@ import { isPlayerSearchResponse } from "./admin-lineup-draft";
 import { PlayerAvatar } from "./player-avatar";
 
 type AdminMessages = Messages["admin"];
+type SelectionOrigin = "suggestion" | "manual";
 
 export function AdminPlayerIdentityReconciliation({
   messages,
@@ -31,14 +39,19 @@ export function AdminPlayerIdentityReconciliation({
   const [suggestions, setSuggestions] = useState<
     PlayerIdentitySuggestionResult | undefined
   >();
-  const [deferredSuggestions, setDeferredSuggestions] = useState<Set<string>>(
-    new Set(),
-  );
+  const [deferred, setDeferred] = useState<Set<string>>(new Set());
+  const [manualOpen, setManualOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [players, setPlayers] = useState<AdminPlayerOption[]>([]);
   const [nextCursor, setNextCursor] = useState<string>();
   const [selected, setSelected] = useState<PlayerIdentityOption[]>([]);
-  const [canonicalPlayerId, setCanonicalPlayerId] = useState("");
+  const [origin, setOrigin] = useState<SelectionOrigin>("suggestion");
+  const [reviewing, setReviewing] = useState(false);
+  const [canonicalId, setCanonicalId] = useState("");
+  const [recommendedId, setRecommendedId] = useState("");
+  const [evidence, setEvidence] = useState<Record<string, IdentityEvidence>>(
+    {},
+  );
   const [action, setAction] = useState<AdminPlayerIdentityAction | null>(null);
   const [plan, setPlan] = useState<AdminPlayerIdentityPlan | null>(null);
   const [previewToken, setPreviewToken] = useState("");
@@ -46,6 +59,8 @@ export function AdminPlayerIdentityReconciliation({
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState("");
   const [outcome, setOutcome] = useState("");
+  const reviewHeading = useRef<HTMLHeadingElement>(null);
+  const searchInput = useRef<HTMLInputElement>(null);
 
   const loadSuggestions = useCallback(async () => {
     try {
@@ -95,15 +110,21 @@ export function AdminPlayerIdentityReconciliation({
   }, [loadSuggestions]);
 
   useEffect(() => {
+    if (!manualOpen || reviewing) return;
     const controller = new AbortController();
-    const timer = window.setTimeout(() => {
-      void loadPlayers(undefined, controller.signal);
-    }, 200);
+    const timer = window.setTimeout(
+      () => void loadPlayers(undefined, controller.signal),
+      200,
+    );
     return () => {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [loadPlayers]);
+  }, [loadPlayers, manualOpen, reviewing]);
+
+  useEffect(() => {
+    if (reviewing) reviewHeading.current?.focus();
+  }, [reviewing]);
 
   async function post(path: string, body: unknown) {
     setError("");
@@ -133,45 +154,91 @@ export function AdminPlayerIdentityReconciliation({
     return result as Record<string, unknown>;
   }
 
-  function choosePlayer(player: PlayerIdentityOption) {
-    setPlan(null);
-    setAction(null);
-    setOutcome("");
-    setSelected((current) => {
-      if (current.some(({ id }) => id === player.id)) return current;
-      const next = current.length === 2 ? [player] : [...current, player];
-      setCanonicalPlayerId(next.length === 1 ? next[0].id : "");
-      return next;
-    });
-  }
-
-  function chooseSuggestion(
-    suggestion: PlayerIdentitySuggestion,
-    decision: "match" | "nonmatch",
-  ) {
-    const selectedCanonicalPlayerId = isSelectedPair(selected, suggestion)
-      ? canonicalPlayerId
-      : suggestion.suggestedCanonicalPlayerId;
-    void createPreview(
-      [suggestion.first, suggestion.second],
-      selectedCanonicalPlayerId,
-      decision,
-    );
-  }
-
-  async function createPreview(
+  function buildAction(
     pair: PlayerIdentityOption[],
-    canonicalId: string,
+    keeperId: string,
     decision: "match" | "nonmatch",
-  ) {
-    if (pair.length !== 2 || !canonicalId) return;
-    const nextAction: AdminPlayerIdentityAction = {
+  ): AdminPlayerIdentityAction {
+    return {
       firstPlayerId: pair[0].id,
       secondPlayerId: pair[1].id,
-      canonicalPlayerId: canonicalId,
+      canonicalPlayerId: keeperId,
       trackedTeamId: teamId,
       decision,
     };
+  }
+
+  function rememberEvidence(nextPlan: AdminPlayerIdentityPlan) {
+    setEvidence({
+      [nextPlan.canonical.playerId]: nextPlan.canonical,
+      [nextPlan.duplicate.playerId]: nextPlan.duplicate,
+    });
+    setRecommendedId(nextPlan.suggestedCanonicalPlayerId);
+  }
+
+  async function beginReview(
+    pair: PlayerIdentityOption[],
+    preferredId: string,
+    selectionOrigin: SelectionOrigin,
+  ) {
+    setSelected(pair);
+    setOrigin(selectionOrigin);
+    setCanonicalId(preferredId);
+    setRecommendedId(preferredId);
+    setEvidence({});
+    setPlan(null);
+    setAction(null);
+    setOutcome("");
+    setReviewing(true);
+    setBusy(true);
+    try {
+      const result = await post(
+        "/api/admin/player-identities/preview",
+        buildAction(pair, preferredId, "match"),
+      );
+      const nextPlan = result.plan as AdminPlayerIdentityPlan;
+      rememberEvidence(nextPlan);
+      if (pair.some(({ id }) => id === nextPlan.suggestedCanonicalPlayerId)) {
+        setCanonicalId(nextPlan.suggestedCanonicalPlayerId);
+      }
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : messages.genericError,
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function chooseSuggestion(suggestion: PlayerIdentitySuggestion) {
+    void beginReview(
+      [suggestion.first, suggestion.second],
+      suggestion.suggestedCanonicalPlayerId,
+      "suggestion",
+    );
+  }
+
+  function choosePlayer(player: PlayerIdentityOption) {
+    if (selected.some(({ id }) => id === player.id)) return;
+    const next = [...selected, player].slice(-2);
+    setSelected(next);
+    setPlan(null);
+    setAction(null);
+    setOutcome("");
+    if (next.length === 1) {
+      setCanonicalId(next[0].id);
+      return;
+    }
+    const preferredId =
+      next.find(
+        ({ identityProvenance }) => identityProvenance === "operator_verified",
+      )?.id ?? next[0].id;
+    void beginReview(next, preferredId, "manual");
+  }
+
+  async function createPreview(decision: "match" | "nonmatch") {
+    if (selected.length !== 2 || !canonicalId) return;
+    const nextAction = buildAction(selected, canonicalId, decision);
     setBusy(true);
     setOutcome("");
     try {
@@ -179,8 +246,10 @@ export function AdminPlayerIdentityReconciliation({
         "/api/admin/player-identities/preview",
         nextAction,
       );
+      const nextPlan = result.plan as AdminPlayerIdentityPlan;
+      rememberEvidence(nextPlan);
       setAction(nextAction);
-      setPlan(result.plan as AdminPlayerIdentityPlan);
+      setPlan(nextPlan);
       setPreviewToken(String(result.previewToken));
     } catch (caught) {
       setError(
@@ -210,10 +279,7 @@ export function AdminPlayerIdentityReconciliation({
       setOutcome(
         `${messages.identityReconciliationApplied} ${messages.audit}: ${String(result.auditId)}`,
       );
-      setPlan(null);
-      setAction(null);
-      setSelected([]);
-      setCanonicalPlayerId("");
+      resetSelection();
       await loadSuggestions();
     } catch (caught) {
       setError(
@@ -224,10 +290,43 @@ export function AdminPlayerIdentityReconciliation({
     }
   }
 
+  function resetSelection() {
+    setReviewing(false);
+    setSelected([]);
+    setCanonicalId("");
+    setRecommendedId("");
+    setEvidence({});
+    setPlan(null);
+    setAction(null);
+    setPreviewToken("");
+  }
+
+  function editSelection() {
+    setReviewing(false);
+    setPlan(null);
+    setAction(null);
+    setPreviewToken("");
+    if (origin === "manual") {
+      setManualOpen(true);
+      window.setTimeout(() => searchInput.current?.focus(), 0);
+    }
+  }
+
+  function reviewLater() {
+    if (origin === "suggestion" && selected.length === 2) {
+      setDeferred(
+        (current) =>
+          new Set([...current, pairKey(selected[0].id, selected[1].id)]),
+      );
+      resetSelection();
+      return;
+    }
+    editSelection();
+  }
+
   const visibleSuggestions =
     suggestions?.suggestions.filter(
-      ({ first, second }) =>
-        !deferredSuggestions.has(pairKey(first.id, second.id)),
+      ({ first, second }) => !deferred.has(pairKey(first.id, second.id)),
     ) ?? [];
 
   return (
@@ -243,6 +342,190 @@ export function AdminPlayerIdentityReconciliation({
         <p className="text-muted mt-2">{messages.identityReconciliationHelp}</p>
       </header>
 
+      {!reviewing ? (
+        <IdentitySelection
+          messages={messages}
+          suggestions={suggestions}
+          visibleSuggestions={visibleSuggestions}
+          busy={busy}
+          manualOpen={manualOpen}
+          setManualOpen={setManualOpen}
+          search={search}
+          setSearch={setSearch}
+          searchInput={searchInput}
+          players={players}
+          selected={selected}
+          chooseSuggestion={chooseSuggestion}
+          deferSuggestion={(suggestion) =>
+            setDeferred(
+              (current) =>
+                new Set([
+                  ...current,
+                  pairKey(suggestion.first.id, suggestion.second.id),
+                ]),
+            )
+          }
+          choosePlayer={choosePlayer}
+          removePlayer={(playerId) => {
+            const next = selected.filter(({ id }) => id !== playerId);
+            setSelected(next);
+            setCanonicalId(next[0]?.id ?? "");
+          }}
+          nextCursor={nextCursor}
+          searching={searching}
+          loadMore={() => void loadPlayers(nextCursor)}
+        />
+      ) : (
+        <section
+          className="card grid gap-5 p-5"
+          aria-labelledby="identity-review"
+        >
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="eyebrow">{messages.identityReviewStep}</p>
+              <h2
+                ref={reviewHeading}
+                id="identity-review"
+                className="score-font mt-1 text-xl outline-none"
+                tabIndex={-1}
+              >
+                {messages.identityComparison}
+              </h2>
+            </div>
+            <button
+              className="button-utility min-h-11 px-4"
+              type="button"
+              disabled={busy}
+              onClick={editSelection}
+            >
+              {messages.editIdentitySelection}
+            </button>
+          </div>
+          {busy && !plan ? (
+            <p className="game-inset p-4" role="status">
+              {messages.checkingProtectedHistory}
+            </p>
+          ) : null}
+          <fieldset className="grid gap-4 sm:grid-cols-2">
+            <legend className="mb-3 font-bold">
+              {messages.chooseCanonicalPlayer}
+            </legend>
+            {selected.map((player) => (
+              <PlayerReviewCard
+                key={player.id}
+                player={player}
+                evidence={evidence[player.id]}
+                messages={messages}
+                teamName={teamName}
+                checked={canonicalId === player.id}
+                recommended={recommendedId === player.id}
+                disabled={
+                  Object.values(evidence).filter(
+                    ({ hasProtectedHistory }) => hasProtectedHistory,
+                  ).length === 1 && !evidence[player.id]?.hasProtectedHistory
+                }
+                onChange={() => {
+                  setCanonicalId(player.id);
+                  setPlan(null);
+                  setAction(null);
+                  setPreviewToken("");
+                }}
+              />
+            ))}
+          </fieldset>
+          {!plan ? (
+            <div className="flex flex-wrap gap-3">
+              <button
+                className="button-primary min-h-11 px-4"
+                type="button"
+                disabled={!canonicalId || busy}
+                onClick={() => void createPreview("match")}
+              >
+                {messages.samePerson}
+              </button>
+              <button
+                className="button-secondary min-h-11 px-4"
+                type="button"
+                disabled={!canonicalId || busy}
+                onClick={() => void createPreview("nonmatch")}
+              >
+                {messages.notSamePerson}
+              </button>
+              <button
+                className="button-utility min-h-11 px-4"
+                type="button"
+                disabled={busy}
+                onClick={reviewLater}
+              >
+                {messages.reviewLater}
+              </button>
+            </div>
+          ) : (
+            <Authorization
+              messages={messages}
+              action={action}
+              plan={plan}
+              busy={busy}
+              onSubmit={confirmDecision}
+            />
+          )}
+        </section>
+      )}
+      {error ? (
+        <p className="card border-danger p-4 text-danger" role="alert">
+          {error}
+        </p>
+      ) : null}
+      {outcome ? (
+        <p className="card border-success p-4 text-success" role="status">
+          {outcome}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function IdentitySelection({
+  messages,
+  suggestions,
+  visibleSuggestions,
+  busy,
+  manualOpen,
+  setManualOpen,
+  search,
+  setSearch,
+  searchInput,
+  players,
+  selected,
+  chooseSuggestion,
+  deferSuggestion,
+  choosePlayer,
+  removePlayer,
+  nextCursor,
+  searching,
+  loadMore,
+}: {
+  messages: AdminMessages;
+  suggestions?: PlayerIdentitySuggestionResult;
+  visibleSuggestions: PlayerIdentitySuggestion[];
+  busy: boolean;
+  manualOpen: boolean;
+  setManualOpen: (value: boolean) => void;
+  search: string;
+  setSearch: (value: string) => void;
+  searchInput: RefObject<HTMLInputElement | null>;
+  players: AdminPlayerOption[];
+  selected: PlayerIdentityOption[];
+  chooseSuggestion: (suggestion: PlayerIdentitySuggestion) => void;
+  deferSuggestion: (suggestion: PlayerIdentitySuggestion) => void;
+  choosePlayer: (player: PlayerIdentityOption) => void;
+  removePlayer: (playerId: string) => void;
+  nextCursor?: string;
+  searching: boolean;
+  loadMore: () => void;
+}) {
+  return (
+    <>
       <section className="card grid gap-4 p-5" aria-labelledby="suggestions">
         <div>
           <h2 id="suggestions" className="score-font text-xl">
@@ -261,80 +544,31 @@ export function AdminPlayerIdentityReconciliation({
               : messages.waitingForProviderPlayers}
           </p>
         ) : (
-          <ul className="grid gap-4">
+          <ul className="grid gap-3">
             {visibleSuggestions.map((suggestion) => (
               <li
-                className="game-inset grid gap-4 p-4"
+                className="game-inset grid gap-3 p-4"
                 key={pairKey(suggestion.first.id, suggestion.second.id)}
               >
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <PlayerCard
-                    messages={messages}
-                    player={suggestion.first}
-                    teamName={teamName}
-                  />
-                  <PlayerCard
-                    messages={messages}
-                    player={suggestion.second}
-                    teamName={teamName}
-                  />
-                </div>
-                <fieldset className="grid gap-2">
-                  <legend className="font-bold">
-                    {messages.chooseCanonicalPlayer}
-                  </legend>
-                  {[suggestion.first, suggestion.second].map((player) => (
-                    <label
-                      className="flex min-h-11 items-center gap-3"
-                      key={player.id}
-                    >
-                      <input
-                        type="radio"
-                        name={`suggestion-${pairKey(suggestion.first.id, suggestion.second.id)}`}
-                        checked={
-                          isSelectedPair(selected, suggestion) &&
-                          canonicalPlayerId === player.id
-                        }
-                        onChange={() => {
-                          setSelected([suggestion.first, suggestion.second]);
-                          setCanonicalPlayerId(player.id);
-                          setPlan(null);
-                          setAction(null);
-                        }}
-                      />
-                      {messages.keepPlayer}: {player.name}
-                    </label>
-                  ))}
-                </fieldset>
+                <p className="break-words font-bold">
+                  {suggestion.first.name}
+                  <span className="text-muted block font-normal sm:inline">
+                    {` (${sourceLabel(messages, suggestion.first.identityProvenance)}) ↔ ${suggestion.second.name} (${sourceLabel(messages, suggestion.second.identityProvenance)})`}
+                  </span>
+                </p>
                 <div className="flex flex-wrap gap-3">
                   <button
                     className="button-primary min-h-11 px-4"
                     type="button"
-                    disabled={busy || !isSelectedPair(selected, suggestion)}
-                    onClick={() => chooseSuggestion(suggestion, "match")}
-                  >
-                    {messages.samePerson}
-                  </button>
-                  <button
-                    className="button-secondary min-h-11 px-4"
-                    type="button"
                     disabled={busy}
-                    onClick={() => chooseSuggestion(suggestion, "nonmatch")}
+                    onClick={() => chooseSuggestion(suggestion)}
                   >
-                    {messages.notSamePerson}
+                    {messages.reviewSuggestedPair}
                   </button>
                   <button
                     className="button-utility min-h-11 px-4"
                     type="button"
-                    onClick={() =>
-                      setDeferredSuggestions(
-                        (current) =>
-                          new Set([
-                            ...current,
-                            pairKey(suggestion.first.id, suggestion.second.id),
-                          ]),
-                      )
-                    }
+                    onClick={() => deferSuggestion(suggestion)}
                   >
                     {messages.reviewLater}
                   </button>
@@ -344,265 +578,166 @@ export function AdminPlayerIdentityReconciliation({
           </ul>
         )}
       </section>
-
-      <section className="card grid gap-4 p-5" aria-labelledby="manual-pair">
-        <div>
-          <h2 id="manual-pair" className="score-font text-xl">
-            {messages.manualPlayerSelection}
-          </h2>
-          <p className="text-muted mt-2 text-sm">
-            {messages.manualPlayerSelectionHelp}
-          </p>
-        </div>
-        <label className="grid gap-2">
-          <span>{messages.searchPlayers}</span>
-          <input
-            className="game-inset min-h-11 px-3"
-            type="search"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-          />
-        </label>
-        <ul className="game-inset grid max-h-72 gap-2 overflow-auto p-3">
-          {players.map((player) => {
-            const selectedPlayer = selected.some(({ id }) => id === player.id);
-            return (
-              <li key={player.id}>
-                <button
-                  className="button-utility flex min-h-11 w-full items-center gap-3 px-3 text-left"
-                  type="button"
-                  aria-pressed={selectedPlayer}
-                  disabled={selectedPlayer}
-                  onClick={() => choosePlayer(player)}
-                >
-                  <PlayerAvatar
-                    name={player.name}
-                    photoUrl={player.photoUrl}
-                    size="compact"
-                    label={messages.playerAvatar.replace(
-                      "{player}",
-                      player.name,
-                    )}
-                  />
-                  <span className="min-w-0">
-                    <strong className="block truncate">{player.name}</strong>
-                    <span className="text-muted text-sm">
-                      {sourceLabel(messages, player.identityProvenance)}
-                    </span>
-                  </span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-        {nextCursor ? (
-          <button
-            className="button-utility min-h-11 px-4"
-            type="button"
-            disabled={searching}
-            onClick={() => void loadPlayers(nextCursor)}
-          >
-            {searching ? messages.searchingPlayers : messages.loadMorePlayers}
-          </button>
-        ) : null}
-
-        {selected.length > 0 ? (
-          <div className="grid gap-3 sm:grid-cols-2">
-            {selected.map((player) => (
-              <div className="game-inset grid gap-3 p-4" key={player.id}>
-                <PlayerCard
-                  messages={messages}
-                  player={player}
-                  teamName={teamName}
-                />
-                <button
-                  className="button-utility min-h-11 px-3"
-                  type="button"
-                  onClick={() => {
-                    const next = selected.filter(({ id }) => id !== player.id);
-                    setSelected(next);
-                    setCanonicalPlayerId(next[0]?.id ?? "");
-                    setPlan(null);
-                    setAction(null);
-                  }}
-                >
-                  {messages.removePlayer}
-                </button>
-              </div>
-            ))}
+      <section className="card grid gap-4 p-5">
+        <button
+          className="button-secondary flex min-h-11 w-full items-center justify-between px-4 text-left"
+          type="button"
+          aria-expanded={manualOpen}
+          aria-controls="manual-player-selection"
+          onClick={() => {
+            const next = !manualOpen;
+            setManualOpen(next);
+            if (next) window.setTimeout(() => searchInput.current?.focus(), 0);
+          }}
+        >
+          <span>{messages.manualPlayerSelection}</span>
+          <span aria-hidden="true">{manualOpen ? "−" : "+"}</span>
+        </button>
+        {manualOpen ? (
+          <div id="manual-player-selection" className="grid gap-4">
+            <p className="text-muted text-sm">
+              {messages.manualPlayerSelectionHelp}
+            </p>
+            <label className="grid gap-2">
+              <span>{messages.searchPlayers}</span>
+              <input
+                ref={searchInput}
+                className="game-inset min-h-11 px-3"
+                type="search"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+              />
+            </label>
+            {selected.length > 0 ? (
+              <ul
+                className="flex flex-wrap gap-2"
+                aria-label={messages.selectedIdentities}
+              >
+                {selected.map((player) => (
+                  <li key={player.id}>
+                    <button
+                      className="button-utility min-h-11 px-3"
+                      type="button"
+                      onClick={() => removePlayer(player.id)}
+                    >
+                      {player.name} · {messages.removePlayer}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            <ul className="game-inset grid max-h-72 gap-2 overflow-auto p-3">
+              {players.map((player) => {
+                const chosen = selected.some(({ id }) => id === player.id);
+                return (
+                  <li key={player.id}>
+                    <button
+                      className="button-utility flex min-h-11 w-full items-center gap-3 px-3 text-left"
+                      type="button"
+                      aria-pressed={chosen}
+                      disabled={chosen}
+                      onClick={() => choosePlayer(player)}
+                    >
+                      <PlayerAvatar
+                        name={player.name}
+                        photoUrl={player.photoUrl}
+                        size="compact"
+                        label={messages.playerAvatar.replace(
+                          "{player}",
+                          player.name,
+                        )}
+                      />
+                      <span className="min-w-0">
+                        <strong className="block break-words">
+                          {player.name}
+                        </strong>
+                        <span className="text-muted text-sm">
+                          {sourceLabel(messages, player.identityProvenance)}
+                        </span>
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+            {nextCursor ? (
+              <button
+                className="button-utility min-h-11 px-4"
+                type="button"
+                disabled={searching}
+                onClick={loadMore}
+              >
+                {searching
+                  ? messages.searchingPlayers
+                  : messages.loadMorePlayers}
+              </button>
+            ) : null}
           </div>
-        ) : null}
-
-        {selected.length === 2 ? (
-          <fieldset className="game-inset grid gap-3 p-4">
-            <legend className="px-2 font-bold">
-              {messages.chooseCanonicalPlayer}
-            </legend>
-            {selected.map((player) => (
-              <label
-                className="flex min-h-11 items-center gap-3"
-                key={player.id}
-              >
-                <input
-                  type="radio"
-                  name="canonicalPlayer"
-                  checked={canonicalPlayerId === player.id}
-                  onChange={() => {
-                    setCanonicalPlayerId(player.id);
-                    setPlan(null);
-                    setAction(null);
-                  }}
-                />
-                {messages.keepPlayer}: {player.name}
-              </label>
-            ))}
-            <div className="flex flex-wrap gap-3">
-              <button
-                className="button-primary min-h-11 px-4"
-                type="button"
-                disabled={!canonicalPlayerId || busy}
-                onClick={() =>
-                  void createPreview(selected, canonicalPlayerId, "match")
-                }
-              >
-                {messages.reviewPair}
-              </button>
-              <button
-                className="button-secondary min-h-11 px-4"
-                type="button"
-                disabled={!canonicalPlayerId || busy}
-                onClick={() =>
-                  void createPreview(selected, canonicalPlayerId, "nonmatch")
-                }
-              >
-                {messages.notSamePerson}
-              </button>
-            </div>
-          </fieldset>
         ) : null}
       </section>
-
-      {plan && action ? (
-        <section
-          className="card grid gap-5 p-5"
-          aria-labelledby="identity-plan"
-        >
-          <h2 id="identity-plan" className="score-font text-xl">
-            {messages.identityComparison}
-          </h2>
-          <p className="game-inset p-4" role="status">
-            <strong>{statusLabel(messages, plan.status)}</strong>
-            <span className="mt-1 block">{plan.explanation}</span>
-          </p>
-          <div className="grid gap-4 md:grid-cols-2">
-            <EvidenceCard
-              title={`${messages.keepPlayer}: ${plan.canonical.name}`}
-              value={plan.canonical}
-              messages={messages}
-              teamName={teamName}
-            />
-            <EvidenceCard
-              title={plan.duplicate.name}
-              value={plan.duplicate}
-              messages={messages}
-              teamName={teamName}
-            />
-          </div>
-          {plan.warnings.map((warning) => (
-            <p className="border-warning game-inset p-3 text-sm" key={warning}>
-              {warning}
-            </p>
-          ))}
-          {plan.canApply ? (
-            <form className="grid gap-3" onSubmit={confirmDecision}>
-              <label className="grid gap-2">
-                <span>{messages.passphrase}</span>
-                <input
-                  className="game-inset min-h-11 px-3"
-                  name="passphrase"
-                  type="password"
-                  autoComplete="off"
-                  required
-                />
-              </label>
-              <button className="button-primary min-h-11 px-4" disabled={busy}>
-                {busy
-                  ? messages.loading
-                  : action.decision === "match"
-                    ? messages.consolidatePlayers
-                    : messages.confirmDifferentPlayers}
-              </button>
-            </form>
-          ) : null}
-        </section>
-      ) : null}
-      {error ? (
-        <p className="card border-danger p-4 text-danger" role="alert">
-          {error}
-        </p>
-      ) : null}
-      {outcome ? (
-        <p className="card border-success p-4 text-success" role="status">
-          {outcome}
-        </p>
-      ) : null}
-    </div>
+    </>
   );
 }
 
-function PlayerCard({
+function PlayerReviewCard({
   player,
+  evidence,
   messages,
   teamName,
+  checked,
+  recommended,
+  disabled,
+  onChange,
 }: {
   player: PlayerIdentityOption;
+  evidence?: IdentityEvidence;
   messages: AdminMessages;
   teamName: string;
+  checked: boolean;
+  recommended: boolean;
+  disabled: boolean;
+  onChange: () => void;
 }) {
+  const history = evidence
+    ? evidence.hasProtectedHistory
+      ? messages.protectedHistory
+      : messages.noProtectedHistory
+    : messages.protectedHistoryPending;
+  const provenance = sourceLabel(messages, player.identityProvenance);
   return (
-    <article className="flex min-w-0 items-center gap-3">
+    <label
+      className={`game-inset grid gap-3 p-4 ${disabled ? "opacity-70" : "cursor-pointer"}`}
+    >
+      <span className="flex min-h-11 items-start gap-3">
+        <input
+          className="mt-1"
+          type="radio"
+          name="canonicalPlayer"
+          checked={checked}
+          disabled={disabled}
+          onChange={onChange}
+        />
+        <span className="break-words font-bold">
+          {messages.keepCanonicalIdentity}: {player.name} — {provenance} ·{" "}
+          {history}
+        </span>
+      </span>
+      {recommended ? (
+        <span className="status-badge w-fit">
+          {messages.recommendedIdentity}
+        </span>
+      ) : null}
+      {disabled ? (
+        <span className="text-warning text-sm">
+          {messages.unsafeIdentityChoice}
+        </span>
+      ) : null}
       <PlayerAvatar
         name={player.name}
-        photoUrl={player.photoUrl}
-        size="compact"
+        photoUrl={evidence?.photoUrl ?? player.photoUrl}
+        size="profile"
         label={messages.playerAvatar.replace("{player}", player.name)}
       />
-      <div className="min-w-0 text-sm">
-        <h3 className="break-words font-bold">{player.name}</h3>
-        <p className="text-muted">
-          {sourceLabel(messages, player.identityProvenance)} · {teamName}
-        </p>
-        <p className="text-muted">
-          {player.position
-            ? messages.positions[player.position]
-            : messages.metadataUnavailable}
-          {player.shirtNumber ? ` · #${player.shirtNumber}` : ""}
-        </p>
-      </div>
-    </article>
-  );
-}
-
-function EvidenceCard({
-  title,
-  value,
-  messages,
-  teamName,
-}: {
-  title: string;
-  value: IdentityEvidence;
-  messages: AdminMessages;
-  teamName: string;
-}) {
-  return (
-    <article className="game-inset grid gap-3 p-4">
-      <PlayerAvatar
-        name={value.name}
-        photoUrl={value.photoUrl}
-        size="profile"
-        label={messages.playerAvatar.replace("{player}", value.name)}
-      />
-      <h3 className="break-words font-bold">{title}</h3>
       <dl className="grid gap-2 text-sm">
         <div>
           <dt className="text-muted">{messages.playerTeam}</dt>
@@ -611,26 +746,79 @@ function EvidenceCard({
         <div>
           <dt className="text-muted">{messages.playerPosition}</dt>
           <dd>
-            {value.position
-              ? messages.positions[value.position]
+            {player.position
+              ? messages.positions[player.position]
               : messages.metadataUnavailable}
           </dd>
         </div>
         <div>
           <dt className="text-muted">{messages.playerMatches}</dt>
-          <dd>{value.matchCount}</dd>
+          <dd>
+            {evidence ? evidence.matchCount : messages.metadataUnavailable}
+          </dd>
         </div>
         <div>
           <dt className="text-muted">{messages.reconciliation}</dt>
-          <dd>{sourceLabel(messages, value.identityProvenance)}</dd>
+          <dd>{provenance}</dd>
         </div>
       </dl>
-      <p className={value.hasProtectedHistory ? "text-warning" : "text-muted"}>
-        {value.hasProtectedHistory
-          ? messages.protectedHistory
-          : messages.noProtectedHistory}
+      <span
+        className={
+          evidence?.hasProtectedHistory ? "text-warning" : "text-muted"
+        }
+      >
+        {history}
+      </span>
+    </label>
+  );
+}
+
+function Authorization({
+  messages,
+  action,
+  plan,
+  busy,
+  onSubmit,
+}: {
+  messages: AdminMessages;
+  action: AdminPlayerIdentityAction | null;
+  plan: AdminPlayerIdentityPlan;
+  busy: boolean;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <div className="grid gap-4">
+      <p className="game-inset p-4" role="status">
+        <strong>{statusLabel(messages, plan.status)}</strong>
+        <span className="mt-1 block">{plan.explanation}</span>
       </p>
-    </article>
+      {plan.warnings.map((warning) => (
+        <p className="border-warning game-inset p-3 text-sm" key={warning}>
+          {warning}
+        </p>
+      ))}
+      {plan.canApply ? (
+        <form className="grid gap-3" onSubmit={onSubmit}>
+          <label className="grid gap-2">
+            <span>{messages.passphrase}</span>
+            <input
+              className="game-inset min-h-11 px-3"
+              name="passphrase"
+              type="password"
+              autoComplete="off"
+              required
+            />
+          </label>
+          <button className="button-primary min-h-11 px-4" disabled={busy}>
+            {busy
+              ? messages.loading
+              : action?.decision === "match"
+                ? messages.consolidatePlayers
+                : messages.confirmDifferentPlayers}
+          </button>
+        </form>
+      ) : null}
+    </div>
   );
 }
 
@@ -658,17 +846,6 @@ function statusLabel(
 
 function pairKey(first: string, second: string) {
   return [first, second].sort().join(":");
-}
-
-function isSelectedPair(
-  selected: PlayerIdentityOption[],
-  suggestion: PlayerIdentitySuggestion,
-) {
-  return (
-    selected.length === 2 &&
-    pairKey(selected[0].id, selected[1].id) ===
-      pairKey(suggestion.first.id, suggestion.second.id)
-  );
 }
 
 function uniquePlayers(players: AdminPlayerOption[]) {
