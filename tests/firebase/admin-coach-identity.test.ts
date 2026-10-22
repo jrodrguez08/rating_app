@@ -9,7 +9,10 @@ import {
   proposedCoachProviderAlias,
 } from "@/domain/coach-identity";
 import { providerEntityId } from "@/domain/player-identity";
-import { AdminCoachIdentityService } from "@/lib/firebase/admin-coach-identity";
+import {
+  AdminCoachIdentityRejectedError,
+  AdminCoachIdentityService,
+} from "@/lib/firebase/admin-coach-identity";
 import { AdminFootballSyncStore } from "@/lib/firebase/server";
 import { adminChallengeDocumentId } from "@/lib/server/admin-coach-action";
 import {
@@ -34,6 +37,99 @@ beforeAll(() => {
 afterAll(() => deleteApp(app));
 
 describe("admin Coach identity reconciliation", () => {
+  it.each([
+    {
+      id: "missing-canonical",
+      label: "inherits the duplicate photo when the canonical photo is missing",
+      canonicalPhotoUrl: undefined,
+      duplicatePhotoUrl: "https://media.api-sports.io/football/coachs/1001.png",
+      expectedPhotoUrl: "https://media.api-sports.io/football/coachs/1001.png",
+      describesFallback: true,
+    },
+    {
+      id: "existing-canonical",
+      label: "keeps the existing canonical photo",
+      canonicalPhotoUrl: "https://media.api-sports.io/football/coachs/1002.png",
+      duplicatePhotoUrl: "https://media.api-sports.io/football/coachs/1003.png",
+      expectedPhotoUrl: "https://media.api-sports.io/football/coachs/1002.png",
+      describesFallback: false,
+    },
+    {
+      id: "both-missing",
+      label: "adds no photo when neither identity has one",
+      canonicalPhotoUrl: undefined,
+      duplicatePhotoUrl: undefined,
+      expectedPhotoUrl: undefined,
+      describesFallback: false,
+    },
+    {
+      id: "missing-duplicate",
+      label: "keeps the canonical photo when the duplicate has none",
+      canonicalPhotoUrl: "https://media.api-sports.io/football/coachs/1004.png",
+      duplicatePhotoUrl: undefined,
+      expectedPhotoUrl: "https://media.api-sports.io/football/coachs/1004.png",
+      describesFallback: false,
+    },
+  ])("$label", async (photoCase) => {
+    const seed = `photo-${photoCase.id}`;
+    const action = await seedPair("coach-" + seed, "Jafet Soto", "J. Soto", {
+      manualPhotoUrl: photoCase.canonicalPhotoUrl,
+      providerPhotoUrl: photoCase.duplicatePhotoUrl ?? null,
+    });
+    const input = { ...action, operatorId: "owner-coach" };
+    const canonicalReference = database.doc(
+      `coaches/${action.canonicalCoachId}`,
+    );
+    const duplicateReference = database.doc(`coaches/${action.secondCoachId}`);
+    const before = await database.getAll(
+      canonicalReference,
+      duplicateReference,
+    );
+
+    const preview = await service.preview(input);
+
+    expect(
+      preview.proposedChanges.some((change) =>
+        change.includes("Completar la foto"),
+      ),
+    ).toBe(photoCase.describesFallback);
+    const afterPreview = await database.getAll(
+      canonicalReference,
+      duplicateReference,
+    );
+    expect(afterPreview.map((snapshot) => snapshot.data())).toEqual(
+      before.map((snapshot) => snapshot.data()),
+    );
+
+    const token = await seedChallenge(action, `coach-${seed}`);
+    const first = await service.applyAuthorized(input, token);
+    const afterFirst = await database.getAll(
+      canonicalReference,
+      duplicateReference,
+    );
+    const retry = await service.applyAuthorized(input, token);
+    const afterRetry = await database.getAll(
+      canonicalReference,
+      duplicateReference,
+    );
+
+    expect(first.disposition).toBe("committed");
+    expect(retry.disposition).toBe("idempotent_retry");
+    expect(afterRetry.map((snapshot) => snapshot.data())).toEqual(
+      afterFirst.map((snapshot) => snapshot.data()),
+    );
+    expect(afterFirst[0].data()).toMatchObject({
+      displayName: "Jafet Soto",
+      identityProvenance: "operator_verified",
+    });
+    if (photoCase.expectedPhotoUrl === undefined) {
+      expect(afterFirst[0].data()).not.toHaveProperty("photoUrl");
+    } else {
+      expect(afterFirst[0].data()?.photoUrl).toBe(photoCase.expectedPhotoUrl);
+    }
+    expect(afterFirst[1].data()).toEqual(before[1].data());
+  });
+
   it("previews with zero writes and atomically links a late provider Coach", async () => {
     const action = await seedPair("late-provider");
     const before = await counts();
@@ -81,6 +177,7 @@ describe("admin Coach identity reconciliation", () => {
       displayName: "Jafet Soto",
       identityProvenance: "operator_verified",
       externalProviderId: externalId("late-provider"),
+      photoUrl: "https://media.api-sports.io/football/coachs/1.png",
     });
     expect(
       (
@@ -139,6 +236,7 @@ describe("admin Coach identity reconciliation", () => {
     ).toMatchObject({
       displayName: "Jafet Soto",
       identityProvenance: "operator_verified",
+      photoUrl: "https://media.api-sports.io/football/coachs/1.png",
     });
     expect(
       (
@@ -210,6 +308,13 @@ describe("admin Coach identity reconciliation", () => {
     const action = await seedPair("protected-conflict");
     await seedProtectedMatch("protected-manual", action.firstCoachId);
     await seedProtectedMatch("protected-provider", action.secondCoachId);
+    const protectedReferences = [
+      database.doc(`coaches/${action.firstCoachId}`),
+      database.doc(`coaches/${action.secondCoachId}`),
+      database.doc("matches/protected-manual/ballots/voter"),
+      database.doc("matches/protected-provider/ballots/voter"),
+    ];
+    const protectedBefore = await database.getAll(...protectedReferences);
 
     await expect(
       service.preview({ ...action, operatorId: "owner-coach" }),
@@ -217,6 +322,14 @@ describe("admin Coach identity reconciliation", () => {
       status: "history_conflict",
       canApply: false,
     });
+    const token = await seedChallenge(action, "protected-conflict");
+    await expect(
+      service.applyAuthorized({ ...action, operatorId: "owner-coach" }, token),
+    ).rejects.toBeInstanceOf(AdminCoachIdentityRejectedError);
+    const protectedAfter = await database.getAll(...protectedReferences);
+    expect(protectedAfter.map((snapshot) => snapshot.data())).toEqual(
+      protectedBefore.map((snapshot) => snapshot.data()),
+    );
   });
 
   it("blocks identities associated with the same fixture", async () => {
@@ -321,6 +434,10 @@ async function seedPair(
   seed: string,
   manualName = "Jafet Soto",
   providerName = "J. Soto",
+  photos: {
+    manualPhotoUrl?: string;
+    providerPhotoUrl?: string | null;
+  } = {},
 ): Promise<AdminCoachIdentityAction> {
   const manualId = `coach-manual-${seed}`;
   const providerId = providerEntityId(
@@ -332,6 +449,7 @@ async function seedPair(
     database.doc(`coaches/${manualId}`).set({
       displayName: manualName,
       identityProvenance: "operator_verified",
+      ...(photos.manualPhotoUrl ? { photoUrl: photos.manualPhotoUrl } : {}),
       createdAt: timestamp,
       updatedAt: timestamp,
     }),
@@ -340,7 +458,13 @@ async function seedPair(
       identityProvenance: "provider",
       externalProvider: "api-football",
       externalProviderId: externalId(seed),
-      photoUrl: "https://media.api-sports.io/football/coachs/1.png",
+      ...(photos.providerPhotoUrl === null
+        ? {}
+        : {
+            photoUrl:
+              photos.providerPhotoUrl ??
+              "https://media.api-sports.io/football/coachs/1.png",
+          }),
       createdAt: timestamp,
       updatedAt: timestamp,
     }),

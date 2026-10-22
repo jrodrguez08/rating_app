@@ -9,6 +9,7 @@ import {
   proposedCoachProviderAlias,
   resolvePersistedCoachProviderAlias,
 } from "@/domain/coach-identity";
+import { missingCanonicalPhotoUrl } from "@/domain/identity-photo";
 import type {
   Coach,
   CoachAssignment,
@@ -513,17 +514,26 @@ export class AdminCoachIdentityService {
         );
         if (!alias) transaction.create(aliasReference, toDocument(resolved));
         else transaction.set(aliasReference, toDocument(resolved));
-        if (
-          canonical.externalProvider === undefined &&
+        const inheritedPhotoUrl = missingCanonicalPhotoUrl(
+          canonical,
+          duplicate,
+        );
+        const canonicalUpdate = {
+          ...(inheritedPhotoUrl === undefined
+            ? {}
+            : { photoUrl: inheritedPhotoUrl }),
+          ...(canonical.externalProvider === undefined &&
           canonical.externalProviderId === undefined &&
           providerCoach
-        ) {
+            ? {
+                externalProvider: providerCoach.externalProvider,
+                externalProviderId: providerCoach.externalProviderId,
+              }
+            : {}),
+        };
+        if (Object.keys(canonicalUpdate).length > 0) {
           transaction.update(coachReferences[canonicalIndex], {
-            externalProvider: providerCoach.externalProvider,
-            externalProviderId: providerCoach.externalProviderId,
-            ...(canonical.photoUrl === undefined && providerCoach.photoUrl
-              ? { photoUrl: providerCoach.photoUrl }
-              : {}),
+            ...canonicalUpdate,
             updatedAt: Timestamp.fromDate(new Date(timestamp)),
           });
         }
@@ -722,6 +732,11 @@ function buildPlan(values: {
         : [
             `Conservar a ${canonical.displayName} como identidad principal.`,
             "Vincular su identidad de API-Football para futuros partidos.",
+            ...(missingCanonicalPhotoUrl(canonical, duplicate)
+              ? [
+                  `Completar la foto de ${canonical.displayName} con la foto disponible de ${duplicate.displayName}.`,
+                ]
+              : []),
             "Conservar sin cambios las asignaciones, votos y resultados existentes.",
           ],
     warnings: [

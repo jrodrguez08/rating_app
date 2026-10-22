@@ -4,6 +4,7 @@ import { deleteApp, initializeApp } from "firebase-admin/app";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { proposedPlayerProviderAlias } from "@/config/player-identity-reconciliations";
 import {
   providerEntityId,
   playerProviderAliasId,
@@ -13,6 +14,7 @@ import {
   AdminPlayerIdentityService,
   type AdminPlayerIdentityInput,
 } from "@/lib/firebase/admin-player-identity";
+import { AdminFootballSyncStore } from "@/lib/firebase/server";
 import { adminChallengeDocumentId } from "@/lib/server/admin-coach-action";
 import {
   adminPlayerIdentityResourceId,
@@ -33,12 +35,110 @@ beforeAll(() => {
 afterAll(() => deleteApp(app));
 
 describe("admin Player identity reconciliation", () => {
+  it.each([
+    {
+      id: "missing-canonical",
+      label: "inherits the duplicate photo when the canonical photo is missing",
+      canonicalPhotoUrl: undefined,
+      duplicatePhotoUrl:
+        "https://media.api-sports.io/football/players/1001.png",
+      expectedPhotoUrl: "https://media.api-sports.io/football/players/1001.png",
+      describesFallback: true,
+    },
+    {
+      id: "existing-canonical",
+      label: "keeps the existing canonical photo",
+      canonicalPhotoUrl:
+        "https://media.api-sports.io/football/players/1002.png",
+      duplicatePhotoUrl:
+        "https://media.api-sports.io/football/players/1003.png",
+      expectedPhotoUrl: "https://media.api-sports.io/football/players/1002.png",
+      describesFallback: false,
+    },
+    {
+      id: "both-missing",
+      label: "adds no photo when neither identity has one",
+      canonicalPhotoUrl: undefined,
+      duplicatePhotoUrl: undefined,
+      expectedPhotoUrl: undefined,
+      describesFallback: false,
+    },
+    {
+      id: "missing-duplicate",
+      label: "keeps the canonical photo when the duplicate has none",
+      canonicalPhotoUrl:
+        "https://media.api-sports.io/football/players/1004.png",
+      duplicatePhotoUrl: undefined,
+      expectedPhotoUrl: "https://media.api-sports.io/football/players/1004.png",
+      describesFallback: false,
+    },
+  ])("$label", async (photoCase) => {
+    const seed = `photo-${photoCase.id}`;
+    const input = identityInput(seed);
+    const providerPlayerId = await seedIdentityScenario(input, {
+      canonicalPhotoUrl: photoCase.canonicalPhotoUrl,
+      providerPhotoUrl: photoCase.duplicatePhotoUrl,
+    });
+    const canonicalReference = database.doc(
+      `players/${input.canonicalPlayerId}`,
+    );
+    const duplicateReference = database.doc(`players/${providerPlayerId}`);
+    const before = await database.getAll(
+      canonicalReference,
+      duplicateReference,
+    );
+
+    const preview = await service.preview(input);
+
+    expect(
+      preview.proposedChanges.some((change) =>
+        change.includes("Completar la foto"),
+      ),
+    ).toBe(photoCase.describesFallback);
+    const afterPreview = await database.getAll(
+      canonicalReference,
+      duplicateReference,
+    );
+    expect(afterPreview.map((snapshot) => snapshot.data())).toEqual(
+      before.map((snapshot) => snapshot.data()),
+    );
+
+    const token = await seedChallenge(input, seed);
+    const first = await service.applyAuthorized(input, token);
+    const afterFirst = await database.getAll(
+      canonicalReference,
+      duplicateReference,
+    );
+    const retry = await service.applyAuthorized(input, token);
+    const afterRetry = await database.getAll(
+      canonicalReference,
+      duplicateReference,
+    );
+
+    expect(first.disposition).toBe("committed");
+    expect(retry.disposition).toBe("idempotent_retry");
+    expect(afterRetry.map((snapshot) => snapshot.data())).toEqual(
+      afterFirst.map((snapshot) => snapshot.data()),
+    );
+    expect(afterFirst[0].data()).toMatchObject({
+      displayName: "Nombre verificado",
+      identityProvenance: "operator_verified",
+    });
+    if (photoCase.expectedPhotoUrl === undefined) {
+      expect(afterFirst[0].data()).not.toHaveProperty("photoUrl");
+    } else {
+      expect(afterFirst[0].data()?.photoUrl).toBe(photoCase.expectedPhotoUrl);
+    }
+    expect(afterFirst[1].data()).toEqual(before[1].data());
+  });
+
   it("links the provider identity while preserving immutable history", async () => {
     const input = identityInput("link");
     const providerPlayerId = await seedIdentityScenario(input, {
       participant: true,
       draft: true,
       verifiedLineup: true,
+      providerPhotoUrl: "https://media.api-sports.io/football/players/2001.png",
     });
     const verifiedPath = `matches/match-link/verifiedLineups/current`;
     const verifiedBefore = (await database.doc(verifiedPath).get()).data();
@@ -87,6 +187,7 @@ describe("admin Player identity reconciliation", () => {
       displayName: "Nombre verificado",
       identityProvenance: "operator_verified",
       externalProviderId: externalIdFor(input),
+      photoUrl: "https://media.api-sports.io/football/players/2001.png",
     });
     expect(
       (await database.doc(`players/${providerPlayerId}`).get()).exists,
@@ -106,6 +207,35 @@ describe("admin Player identity reconciliation", () => {
     expect(draft?.participants[0]).not.toHaveProperty(
       "identityAllocationToken",
     );
+    const syncStore = new AdminFootballSyncStore(database);
+    const [laterAlias] = await syncStore.resolvePlayerProviderAliases([
+      proposedPlayerProviderAlias(
+        "api-football",
+        externalIdFor(input),
+        "2026-10-20T12:00:00.000Z",
+      ),
+    ]);
+    expect(laterAlias.canonicalPlayerId).toBe(input.canonicalPlayerId);
+    await syncStore.upsertPlayers([
+      {
+        id: laterAlias.canonicalPlayerId,
+        displayName: "Nombre nuevo del proveedor",
+        identityProvenance: "provider",
+        currentTeamId: input.trackedTeamId,
+        externalProvider: "api-football",
+        externalProviderId: laterAlias.canonicalExternalProviderPlayerId,
+        photoUrl: "https://media.api-sports.io/football/players/2999.png",
+        createdAt: "2026-10-20T12:00:00.000Z",
+        updatedAt: "2026-10-20T12:00:00.000Z",
+      },
+    ]);
+    expect(
+      (await database.doc(`players/${input.canonicalPlayerId}`).get()).data(),
+    ).toMatchObject({
+      displayName: "Nombre verificado",
+      identityProvenance: "operator_verified",
+      photoUrl: "https://media.api-sports.io/football/players/2001.png",
+    });
     await expect(
       service.preview({
         ...input,
@@ -220,8 +350,13 @@ describe("admin Player identity reconciliation", () => {
 
   it("rejects reconciliation across protected published history", async () => {
     const input = identityInput("protected");
-    const providerPlayerId = await seedIdentityScenario(input);
-    await database.doc("matches/result-protected/results/summary").set({
+    const providerPlayerId = await seedIdentityScenario(input, {
+      providerPhotoUrl: "https://media.api-sports.io/football/players/3001.png",
+    });
+    const resultReference = database.doc(
+      "matches/result-protected/results/summary",
+    );
+    await resultReference.set({
       matchId: "result-protected",
       teamId: input.trackedTeamId,
       ballotCount: 1,
@@ -242,6 +377,12 @@ describe("admin Player identity reconciliation", () => {
       status: "final",
       generatedAt: Timestamp.now(),
     });
+    const protectedReferences = [
+      database.doc(`players/${input.canonicalPlayerId}`),
+      database.doc(`players/${providerPlayerId}`),
+      resultReference,
+    ];
+    const protectedBefore = await database.getAll(...protectedReferences);
 
     await expect(service.preview(input)).resolves.toMatchObject({
       status: "history_conflict",
@@ -261,6 +402,10 @@ describe("admin Player identity reconciliation", () => {
           .get()
       ).exists,
     ).toBe(false);
+    const protectedAfter = await database.getAll(...protectedReferences);
+    expect(protectedAfter.map((snapshot) => snapshot.data())).toEqual(
+      protectedBefore.map((snapshot) => snapshot.data()),
+    );
   });
 
   it("preserves an active voting window and submitted ballot", async () => {
@@ -456,6 +601,8 @@ async function seedIdentityScenario(
     draft?: boolean;
     verifiedLineup?: boolean;
     providerDocument?: boolean;
+    canonicalPhotoUrl?: string;
+    providerPhotoUrl?: string;
   } = {},
 ): Promise<string> {
   const providerPlayerId = providerEntityId(
@@ -468,6 +615,9 @@ async function seedIdentityScenario(
     displayName: "Nombre verificado",
     identityProvenance: "operator_verified",
     currentTeamId: input.trackedTeamId,
+    ...(options.canonicalPhotoUrl
+      ? { photoUrl: options.canonicalPhotoUrl }
+      : {}),
     createdAt: timestamp,
     updatedAt: timestamp,
   });
@@ -478,6 +628,9 @@ async function seedIdentityScenario(
       currentTeamId: input.trackedTeamId,
       externalProvider: "api-football",
       externalProviderId: externalIdFor(input),
+      ...(options.providerPhotoUrl
+        ? { photoUrl: options.providerPhotoUrl }
+        : {}),
       createdAt: timestamp,
       updatedAt: timestamp,
     });

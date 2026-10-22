@@ -6,6 +6,7 @@ import {
 
 import { playerProviderAliasTransition } from "@/application/reconcile-player-identities";
 import { mergeTeamPlayerMembership } from "@/application/team-player-membership";
+import { missingCanonicalPhotoUrl } from "@/domain/identity-photo";
 import type {
   AdminLineupDraft,
   Match,
@@ -596,13 +597,25 @@ export class AdminPlayerIdentityService {
             updatedAt: timestamp,
           }),
         );
-        if (
-          canonical.identityProvenance === "operator_verified" &&
+        const inheritedPhotoUrl = missingCanonicalPhotoUrl(
+          canonical,
+          duplicate,
+        );
+        const canonicalUpdate = {
+          ...(inheritedPhotoUrl === undefined
+            ? {}
+            : { photoUrl: inheritedPhotoUrl }),
+          ...(canonical.identityProvenance === "operator_verified" &&
           canonical.externalProviderId === undefined
-        ) {
+            ? {
+                externalProvider: duplicateProvider.provider,
+                externalProviderId: duplicateProvider.externalId,
+              }
+            : {}),
+        };
+        if (Object.keys(canonicalUpdate).length > 0) {
           transaction.update(playerReferences[canonicalIndex], {
-            externalProvider: duplicateProvider.provider,
-            externalProviderId: duplicateProvider.externalId,
+            ...canonicalUpdate,
             updatedAt: Timestamp.fromDate(new Date(timestamp)),
           });
         }
@@ -829,6 +842,11 @@ function buildPlan({
         : [
             `Conservar a ${canonical.displayName} como identidad principal.`,
             `Vincular la identidad de API-Football de ${duplicate.displayName}.`,
+            ...(missingCanonicalPhotoUrl(canonical, duplicate)
+              ? [
+                  `Completar la foto de ${canonical.displayName} con la foto disponible de ${duplicate.displayName}.`,
+                ]
+              : []),
             "Conservar sin cambios los jugadores, partidos, votos y resultados históricos.",
             ...(affectedDrafts > 0
               ? [`Actualizar ${affectedDrafts} borrador(es) seguros.`]
