@@ -5,6 +5,10 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { runMatchLifecycle } from "@/application/match-lifecycle";
 import type { FootballDataProvider } from "@/domain/ports";
 import {
+  playerProviderAliasId,
+  providerEntityId,
+} from "@/domain/player-identity";
+import {
   AdminFootballSyncStore,
   AdminResultService,
 } from "@/lib/firebase/server";
@@ -141,6 +145,109 @@ describe("trusted result finalization", () => {
     expect(
       (await database.doc("matches/zero-votes/results/summary").get()).data(),
     ).toMatchObject({ ballotCount: 0, status: "no_votes", mvpPlayerIds: [] });
+  });
+
+  it("builds a read-only canonical podium from the current published summary and hides it after reopen", async () => {
+    const matchId = "published-podium";
+    const legacyPlayerId = providerEntityId("player", "api-football", "99");
+    const canonicalPlayerId = "player-internal-canonical";
+    const timestamp = Timestamp.fromDate(close);
+    await seed(matchId);
+    await database.doc(`matches/${matchId}`).update({
+      ratingState: "rating_closed",
+    });
+    await database.doc(`matches/${matchId}/results/summary`).set({
+      matchId,
+      teamId: "team-1",
+      ballotCount: 3,
+      status: "final",
+      playerResults: {
+        [legacyPlayerId]: {
+          playerId: legacyPlayerId,
+          playerName: "Legacy Player",
+          average: 9,
+          voteCount: 3,
+          order: 0,
+        },
+      },
+      coachResult: {
+        coachId: "coach-1",
+        coachName: "Coach",
+        average: 8,
+        voteCount: 3,
+      },
+      mvpPlayerIds: [legacyPlayerId],
+      generatedAt: timestamp,
+    });
+    await database.doc(`players/${legacyPlayerId}`).set({
+      displayName: "Legacy Player",
+      externalProvider: "api-football",
+      externalProviderId: "99",
+      photoUrl: "https://media.api-sports.io/football/players/99.png",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    await database.doc(`players/${canonicalPlayerId}`).set({
+      displayName: "Canonical Player",
+      photoUrl: "https://media.api-sports.io/football/players/100.png",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    await database
+      .doc(
+        `playerProviderAliases/${playerProviderAliasId("api-football", "99")}`,
+      )
+      .set({
+        canonicalPlayerId,
+        canonicalExternalProviderPlayerId: "100",
+        externalProvider: "api-football",
+        externalProviderPlayerId: "99",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      });
+    const matchBefore = (await database.doc(`matches/${matchId}`).get()).data();
+    const resultBefore = (
+      await database.doc(`matches/${matchId}/results/summary`).get()
+    ).data();
+
+    const page = await reader.getPublishedPageState(matchId, close);
+
+    expect(page).toMatchObject({
+      state: "ready",
+      podium: {
+        score: { home: 2, away: 1 },
+        topThree: [
+          {
+            playerId: canonicalPlayerId,
+            displayName: "Canonical Player",
+            average: 9,
+            isMvp: true,
+            photoUrl: "https://media.api-sports.io/football/players/100.png",
+          },
+        ],
+      },
+    });
+    expect((await database.doc(`matches/${matchId}`).get()).data()).toEqual(
+      matchBefore,
+    );
+    expect(
+      (await database.doc(`matches/${matchId}/results/summary`).get()).data(),
+    ).toEqual(resultBefore);
+
+    await database.doc(`matches/${matchId}`).update({
+      ratingState: "rating_ready",
+      effectiveVotingOpensAt: Timestamp.fromDate(
+        new Date(close.getTime() - 60_000),
+      ),
+      effectiveVotingClosesAt: Timestamp.fromDate(
+        new Date(close.getTime() + 60_000),
+      ),
+      votingReopenedAt: timestamp,
+      votingReopenCount: 1,
+    });
+    expect((await reader.getPublishedPageState(matchId, close)).state).toBe(
+      "locked",
+    );
   });
 
   it("leaves malformed ballots retryable without closing or publishing", async () => {

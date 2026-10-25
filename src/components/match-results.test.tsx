@@ -1,6 +1,7 @@
 import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+import type { PublishedResultPodium } from "@/application/published-result-podium";
 import type { Match, MatchResult } from "@/domain/models";
 import { getMessages } from "@/i18n/messages";
 
@@ -39,6 +40,7 @@ describe("match results UI", () => {
       <MatchResults
         match={match}
         result={result}
+        podium={podium}
         locale="en"
         messages={getMessages("en").results}
       />,
@@ -57,6 +59,16 @@ describe("match results UI", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("Coach Name")).toBeInTheDocument();
     expect(screen.getByText("Based on 2 votes")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Share the podium" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Share results" })).toBeEnabled();
+    expect(
+      screen.getByRole("link", { name: "Download Story" }),
+    ).toHaveAttribute(
+      "href",
+      "https://rating-app-amber.vercel.app/matches/match-1/results/story",
+    );
     expect(document.body.textContent).not.toContain("voter-");
   });
 
@@ -104,6 +116,9 @@ describe("match results UI", () => {
       screen.getByText("No hubo suficientes votos para mostrar resultados."),
     ).toBeInTheDocument();
     expect(screen.queryByRole("list")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "Comparte el podio" }),
+    ).not.toBeInTheDocument();
   });
 });
 
@@ -152,4 +167,34 @@ const result: MatchResult = {
   },
   mvpPlayerIds: ["p1", "p2"],
   generatedAt: "2026-08-29T20:00:00.000Z",
+};
+
+const podiumPlayers = [
+  {
+    playerId: "p1",
+    displayName: "Long Player Name That Wraps",
+    average: 8.5,
+    voteCount: 2,
+    rank: 1,
+    isMvp: true,
+  },
+  {
+    playerId: "p2",
+    displayName: "Second Player",
+    average: 8.5,
+    voteCount: 2,
+    rank: 2,
+    isMvp: true,
+  },
+];
+
+const podium: PublishedResultPodium = {
+  matchId: match.id,
+  homeTeam: match.homeTeam,
+  awayTeam: match.awayTeam,
+  score: { home: 2, away: 1 },
+  publishedMatchDate: match.kickoffAt,
+  generatedAt: result.generatedAt,
+  players: podiumPlayers,
+  topThree: podiumPlayers,
 };
