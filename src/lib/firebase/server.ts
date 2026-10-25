@@ -22,6 +22,11 @@ import {
   buildPlayerCatalog,
   type PlayerCatalog,
 } from "@/application/player-history";
+import {
+  buildPublishedResultPodium,
+  MAX_PUBLISHED_RESULT_PLAYERS,
+  type PublishedResultPodium,
+} from "@/application/published-result-podium";
 import { resolvePersistedPlayerProviderAlias } from "@/application/reconcile-player-identities";
 import {
   membershipFromParticipant,
@@ -176,6 +181,15 @@ export type ResultPageState =
   | { state: "ready"; match: Match; result: MatchResult }
   | { state: "locked" | "preparing" | "unavailable"; match?: Match };
 
+export type PublishedResultPageState =
+  | {
+      state: "ready";
+      match: Match;
+      result: MatchResult;
+      podium: PublishedResultPodium | null;
+    }
+  | { state: "locked" | "preparing" | "unavailable"; match?: Match };
+
 export class AdminResultService {
   constructor(private readonly database = getServerFirestore()) {}
 
@@ -202,6 +216,89 @@ export class AdminResultService {
       return { state: "locked", match };
     }
     return { state: "preparing", match };
+  }
+
+  async getPublishedPageState(
+    matchId: string,
+    now = new Date(),
+  ): Promise<PublishedResultPageState> {
+    const page = await this.getPageState(matchId, now);
+    if (page.state !== "ready") return page;
+    if (page.result.status !== "final") return { ...page, podium: null };
+
+    const resultPlayerIds = Object.keys(page.result.playerResults);
+    if (resultPlayerIds.length > MAX_PUBLISHED_RESULT_PLAYERS) {
+      return { ...page, podium: null };
+    }
+    const playerSnapshots = await this.database.getAll(
+      ...resultPlayerIds.map((playerId) =>
+        this.database.doc(`players/${playerId}`),
+      ),
+    );
+    const sourcePlayers = playerSnapshots
+      .filter((snapshot) => snapshot.exists)
+      .map((snapshot) => fromDocument<Player>(snapshot));
+    const aliasIds = [
+      ...new Set(
+        sourcePlayers
+          .filter(
+            (player) =>
+              player.externalProvider !== undefined &&
+              player.externalProviderId !== undefined,
+          )
+          .map((player) =>
+            playerProviderAliasId(
+              player.externalProvider!,
+              player.externalProviderId!,
+            ),
+          ),
+      ),
+    ];
+    const aliasSnapshots =
+      aliasIds.length === 0
+        ? []
+        : await this.database.getAll(
+            ...aliasIds.map((aliasId) =>
+              this.database.doc(`playerProviderAliases/${aliasId}`),
+            ),
+          );
+    const canonicalPlayerIds = canonicalPlayerIdMap(
+      aliasSnapshots
+        .filter((snapshot) => snapshot.exists)
+        .map((snapshot) => fromDocument<PlayerProviderAlias>(snapshot)),
+    );
+    const sourcePlayerIds = new Set(sourcePlayers.map((player) => player.id));
+    const missingCanonicalIds = [
+      ...new Set(
+        resultPlayerIds
+          .map((playerId) => canonicalPlayerIds.get(playerId) ?? playerId)
+          .filter((playerId) => !sourcePlayerIds.has(playerId)),
+      ),
+    ];
+    const canonicalSnapshots =
+      missingCanonicalIds.length === 0
+        ? []
+        : await this.database.getAll(
+            ...missingCanonicalIds.map((playerId) =>
+              this.database.doc(`players/${playerId}`),
+            ),
+          );
+    const identities = [
+      ...sourcePlayers,
+      ...canonicalSnapshots
+        .filter((snapshot) => snapshot.exists)
+        .map((snapshot) => fromDocument<Player>(snapshot)),
+    ];
+
+    return {
+      ...page,
+      podium: buildPublishedResultPodium({
+        match: page.match,
+        result: page.result,
+        identities,
+        canonicalPlayerIds,
+      }),
+    };
   }
 
   async getVoteComparison(

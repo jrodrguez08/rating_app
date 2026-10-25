@@ -1,25 +1,45 @@
 import Link from "next/link";
 
+import type { PublishedResultPodium } from "@/application/published-result-podium";
+import { siteUrl } from "@/config/site";
 import type { Match, MatchResult, PlayerResult } from "@/domain/models";
 import type { Locale } from "@/i18n/config";
-import { formatDate } from "@/i18n/format";
+import { formatDate, formatRating } from "@/i18n/format";
 import type { Messages } from "@/i18n/messages";
 
 import { Scoreboard } from "./match-archive";
+import { ResultSharing } from "./result-sharing";
 import { VoteComparisonSection } from "./vote-comparison";
 
 export function MatchResults({
   match,
   result,
+  podium,
   locale,
   messages,
 }: {
   match: Match;
   result: MatchResult;
+  podium?: PublishedResultPodium | null;
   locale: Locale;
   messages: Messages["results"];
 }) {
-  const ranked = Object.values(result.playerResults).sort(compareResults);
+  const ranked =
+    podium?.players.map((player) => ({
+      playerId: player.playerId,
+      playerName: player.displayName,
+      average: player.average,
+      voteCount: player.voteCount,
+      order: player.rank - 1,
+      ...(player.position === undefined ? {} : { position: player.position }),
+    })) ?? Object.values(result.playerResults).sort(compareResults);
+  const mvpPlayers =
+    podium?.players.filter((player) => player.isMvp) ??
+    result.mvpPlayerIds.map((id) => ({
+      playerId: id,
+      displayName: result.playerResults[id].playerName,
+      average: result.playerResults[id].average,
+    }));
   const ballotLabel =
     result.ballotCount === 1
       ? messages.basedOnOne
@@ -51,22 +71,45 @@ export function MatchResults({
           <>
             <div className="mt-5 border-2 border-accent bg-surface p-5 text-center shadow-[4px_4px_0_var(--game-shadow)]">
               <p className="score-font text-sm text-accent">
-                {result.mvpPlayerIds.length > 1 ? messages.coMvp : messages.mvp}
+                {mvpPlayers.length > 1 ? messages.coMvp : messages.mvp}
               </p>
-              {result.mvpPlayerIds.map((id) => (
-                <p key={id} className="mt-2 break-words text-lg font-extrabold">
+              {mvpPlayers.map((player) => (
+                <p
+                  key={player.playerId}
+                  className="mt-2 break-words text-lg font-extrabold"
+                >
                   <Link
-                    href={`/players/${encodeURIComponent(id)}`}
+                    href={`/players/${encodeURIComponent(player.playerId)}`}
                     className="underline decoration-2 underline-offset-4"
                   >
-                    {result.playerResults[id].playerName}
+                    {player.displayName}
                   </Link>
                   <span className="score-font ml-3 text-3xl text-accent">
-                    {rating(result.playerResults[id].average)}
+                    {formatRating(player.average, locale)}
                   </span>
                 </p>
               ))}
             </div>
+            {podium ? (
+              <ResultSharing
+                canonicalUrl={
+                  new URL(
+                    `/matches/${encodeURIComponent(match.id)}/results`,
+                    siteUrl,
+                  ).href
+                }
+                storyUrl={
+                  new URL(
+                    `/matches/${encodeURIComponent(match.id)}/results/story`,
+                    siteUrl,
+                  ).href
+                }
+                storyFilename={`rating-app-${match.id}-historia.png`}
+                shareTitle={`${match.homeTeam.name} ${podium.score.home} - ${podium.score.away} ${match.awayTeam.name}`}
+                shareText={messages.sharing.shareText}
+                messages={messages.sharing}
+              />
+            ) : null}
             <h2 className="score-font mt-7 text-xl">{messages.players}</h2>
             <ol className="mt-3 space-y-2">
               {ranked.map((player, index) => (
@@ -92,9 +135,12 @@ export function MatchResults({
                     className="score-font text-2xl text-accent"
                     aria-label={messages.rating
                       .replace("{name}", player.playerName)
-                      .replace("{rating}", rating(player.average))}
+                      .replace(
+                        "{rating}",
+                        formatRating(player.average, locale),
+                      )}
                   >
-                    {rating(player.average)}
+                    {formatRating(player.average, locale)}
                   </span>
                 </li>
               ))}
@@ -106,7 +152,7 @@ export function MatchResults({
                   {result.coachResult.coachName}
                 </p>
                 <span className="score-font text-3xl text-accent">
-                  {rating(result.coachResult.average)}
+                  {formatRating(result.coachResult.average, locale)}
                 </span>
               </div>
             </div>
@@ -167,8 +213,4 @@ function compareResults(left: PlayerResult, right: PlayerResult) {
     left.order - right.order ||
     left.playerId.localeCompare(right.playerId)
   );
-}
-
-function rating(value: number) {
-  return value.toFixed(1);
 }

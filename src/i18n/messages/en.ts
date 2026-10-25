@@ -219,6 +219,22 @@ export const enMessages = {
     basedOnOne: "Based on 1 vote",
     basedOnMany: "Based on {count} votes",
     rating: "Rating for {name}: {rating}",
+    sharing: {
+      title: "Share the podium",
+      description:
+        "Share the results or save a vertical Story image ready to post.",
+      shareText: "The fans picked their best players in Rating App.",
+      shareResults: "Share results",
+      copyLink: "Copy link",
+      downloadStory: "Download Story",
+      viewStory: "View Story",
+      sharing: "Preparing to share...",
+      shared: "Results shared.",
+      copied: "Link copied.",
+      cancelled: "Nothing was shared.",
+      error: "We couldn't share this. Try again.",
+      copyUnavailable: "Copy this link:",
+    },
     comparison: {
       title: "My vote vs the fans",
       description: "Your ratings alongside the community average.",

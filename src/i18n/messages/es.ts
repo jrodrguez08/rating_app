@@ -225,6 +225,22 @@ export const esMessages = {
     basedOnOne: "Basado en 1 voto",
     basedOnMany: "Basado en {count} votos",
     rating: "Calificaci\u00f3n de {name}: {rating}",
+    sharing: {
+      title: "Comparte el podio",
+      description:
+        "Envía los resultados o guarda una historia vertical lista para publicar.",
+      shareText: "La afición eligió sus mejores jugadores en Rating App.",
+      shareResults: "Compartir resultados",
+      copyLink: "Copiar enlace",
+      downloadStory: "Descargar historia",
+      viewStory: "Ver historia",
+      sharing: "Preparando para compartir...",
+      shared: "Resultados compartidos.",
+      copied: "Enlace copiado.",
+      cancelled: "No se compartió nada.",
+      error: "No pudimos compartir. Intenta de nuevo.",
+      copyUnavailable: "Copia este enlace:",
+    },
     comparison: {
       title: "Mi voto vs la afici\u00f3n",
       description: "Tus calificaciones junto a la media de la afici\u00f3n.",

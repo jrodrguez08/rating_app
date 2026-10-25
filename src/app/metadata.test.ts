@@ -1,8 +1,12 @@
 import { readFileSync } from "node:fs";
 
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { siteIdentity } from "@/config/site";
+
+const resultServiceMock = vi.hoisted(() => ({
+  getPublishedPageState: vi.fn(),
+}));
 
 vi.mock("next/font/google", () => ({
   DotGothic16: () => ({ variable: "font-dot-gothic-test" }),
@@ -14,9 +18,9 @@ vi.mock("@/lib/firebase/server", () => ({
   AdminPlayerHistoryService: vi.fn(() => {
     throw new Error("metadata must not access Firebase");
   }),
-  AdminResultService: vi.fn(() => {
-    throw new Error("metadata must not access Firebase");
-  }),
+  AdminResultService: class {
+    getPublishedPageState = resultServiceMock.getPublishedPageState;
+  },
   AdminStandingsService: vi.fn(() => {
     throw new Error("metadata must not access Firebase");
   }),
@@ -36,6 +40,13 @@ import {
   socialImageAlt,
   socialImageSize,
 } from "./social-card/route";
+
+beforeEach(() => {
+  resultServiceMock.getPublishedPageState.mockReset();
+  resultServiceMock.getPublishedPageState.mockResolvedValue({
+    state: "unavailable",
+  });
+});
 
 describe("public app identity metadata", () => {
   it("publishes canonical Spanish root, Open Graph, and Twitter metadata", () => {
@@ -122,7 +133,7 @@ describe("public app identity metadata", () => {
     },
   );
 
-  it("builds dynamic route identity from params without metadata data access", async () => {
+  it("builds safe dynamic route identity from params", async () => {
     const cases = [
       [generateMatchMetadata, "fixture/id", "/matches/fixture%2Fid"],
       [generateResultMetadata, "fixture/id", "/matches/fixture%2Fid/results"],
@@ -143,6 +154,43 @@ describe("public app identity metadata", () => {
         images: [{ url: "/social-card" }],
       });
     }
+  });
+
+  it("publishes match-specific canonical, Open Graph, and Twitter metadata only for a current published podium", async () => {
+    resultServiceMock.getPublishedPageState.mockResolvedValueOnce({
+      state: "ready",
+      match: {
+        homeTeam: { name: "Herediano" },
+        awayTeam: { name: "Pérez Zeledón" },
+      },
+      podium: {
+        score: { home: 2, away: 1 },
+        generatedAt: "2026-10-20T05:00:00.000Z",
+      },
+    });
+
+    const metadata = await generateResultMetadata({
+      params: Promise.resolve({ matchId: "published-match" }),
+    } as never);
+    const image = Array.isArray(metadata.openGraph!.images)
+      ? metadata.openGraph!.images[0]
+      : metadata.openGraph!.images;
+
+    expect(metadata.title).toContain("Herediano 2 - 1 Pérez Zeledón");
+    expect(metadata.alternates!.canonical).toBe(
+      "https://rating-app-amber.vercel.app/matches/published-match/results",
+    );
+    expect(image).toMatchObject({
+      width: 1200,
+      height: 630,
+      url: expect.stringContaining(
+        "/matches/published-match/results/opengraph-image?v=",
+      ),
+    });
+    expect(metadata.twitter).toMatchObject({
+      card: "summary_large_image",
+      images: [expect.stringContaining("/opengraph-image?v=")],
+    });
   });
 
   it("wires the browser icon, Apple touch icon, manifest, and dark browser theme", () => {
