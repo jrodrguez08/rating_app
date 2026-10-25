@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ matchId: string }> },
 ) {
   const { matchId } = await params;
@@ -33,13 +33,19 @@ export async function GET(
         ...STORY_IMAGE_SIZE,
         headers: {
           "Cache-Control": "no-store",
-          "Content-Disposition": `attachment; filename="${storyFilename(matchId)}"`,
+          "Content-Disposition": `${storyDisposition(request)}; filename="${storyFilename(matchId)}"`,
         },
       },
     );
   } catch {
     return unavailableImage();
   }
+}
+
+function storyDisposition(request: Request): "attachment" | "inline" {
+  return new URL(request.url).searchParams.get("view") === "1"
+    ? "inline"
+    : "attachment";
 }
 
 function unavailableImage() {

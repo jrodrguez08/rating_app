@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -73,60 +73,69 @@ describe("result sharing", () => {
     );
   });
 
-  it("shares the Story file when file sharing is supported", async () => {
-    const share = vi.fn().mockResolvedValue(undefined);
-    const canShare = vi.fn().mockReturnValue(true);
-    setNavigator({ share, canShare });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        new Response("png", {
-          status: 200,
-          headers: { "content-type": "image/png" },
-        }),
-      ),
-    );
+  it("offers a deterministic Story download without JavaScript sharing", () => {
+    const canShare = vi.fn();
+    setNavigator({ canShare });
     renderSharing();
 
-    await userEvent.click(
-      screen.getByRole("button", { name: "Compartir historia" }),
-    );
-
-    await waitFor(() => expect(share).toHaveBeenCalled());
-    expect(canShare).toHaveBeenCalledWith(
-      expect.objectContaining({ files: [expect.any(File)] }),
-    );
+    expect(
+      screen.getByRole("link", { name: "Descargar historia" }),
+    ).toHaveAttribute("href", storyUrl);
+    expect(
+      screen.getByRole("link", { name: "Descargar historia" }),
+    ).toHaveAttribute("download", "rating-app-match-1-historia.png");
+    expect(canShare).not.toHaveBeenCalled();
   });
 
-  it("downloads the Story when native file sharing is unavailable", async () => {
+  it("uses an ordinary user-activated link to open the Story", () => {
     setNavigator({});
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        new Response("png", {
-          status: 200,
-          headers: { "content-type": "image/png" },
-        }),
-      ),
-    );
-    const createObjectURL = vi.fn().mockReturnValue("blob:story");
-    const revokeObjectURL = vi.fn();
-    Object.defineProperties(URL, {
-      createObjectURL: { configurable: true, value: createObjectURL },
-      revokeObjectURL: { configurable: true, value: revokeObjectURL },
-    });
-    const click = vi
-      .spyOn(HTMLAnchorElement.prototype, "click")
-      .mockImplementation(() => undefined);
+    const open = vi.spyOn(window, "open");
     renderSharing();
 
-    await userEvent.click(
-      screen.getByRole("button", { name: "Compartir historia" }),
-    );
+    const link = screen.getByRole("link", { name: "Ver historia" });
+    expect(link).toHaveAttribute("href", `${storyUrl}?view=1`);
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    expect(open).not.toHaveBeenCalled();
+  });
 
-    expect(await screen.findByText(/Historia lista/)).toBeVisible();
-    expect(createObjectURL).toHaveBeenCalled();
-    expect(click).toHaveBeenCalled();
+  it("shows no misleading success status for direct Story actions", () => {
+    setNavigator({});
+    renderSharing();
+
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
+    expect(
+      screen.getByRole("link", { name: "Descargar historia" }),
+    ).toBeVisible();
+    expect(screen.getByRole("link", { name: "Ver historia" })).toBeVisible();
+  });
+
+  it("keeps Story fallbacks available without file sharing support", () => {
+    setNavigator({ share: vi.fn() });
+    renderSharing();
+
+    expect(
+      screen.getByRole("link", { name: "Descargar historia" }),
+    ).toBeEnabled();
+    expect(screen.getByRole("link", { name: "Ver historia" })).toBeEnabled();
+  });
+
+  it("does not fetch the Story or create a delayed pop-up", () => {
+    const fetchStory = vi.fn();
+    const open = vi.spyOn(window, "open");
+    vi.stubGlobal("fetch", fetchStory);
+    setNavigator({});
+    renderSharing();
+
+    expect(fetchStory).not.toHaveBeenCalled();
+    expect(open).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("link", { name: "Descargar historia" }),
+    ).toHaveAttribute("href", storyUrl);
+    expect(screen.getByRole("link", { name: "Ver historia" })).toHaveAttribute(
+      "href",
+      `${storyUrl}?view=1`,
+    );
   });
 
   it("keeps every sharing action in a clear keyboard order", async () => {
@@ -142,12 +151,10 @@ describe("result sharing", () => {
     expect(screen.getByRole("button", { name: "Copiar enlace" })).toHaveFocus();
     await user.tab();
     expect(
-      screen.getByRole("button", { name: "Compartir historia" }),
-    ).toHaveFocus();
-    await user.tab();
-    expect(
       screen.getByRole("link", { name: "Descargar historia" }),
     ).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole("link", { name: "Ver historia" })).toHaveFocus();
   });
 });
 

@@ -69,9 +69,28 @@ describe("published result social images", () => {
     expect(response.headers.get("content-disposition")).toContain(
       "rating-app-match-1-historia.png",
     );
+    expect(response.headers.get("content-disposition")).toMatch(/^attachment;/);
     const image = await response.arrayBuffer();
     expect(image.byteLength).toBeGreaterThan(100);
     expect(pngDimensions(image)).toEqual(STORY_IMAGE_SIZE);
+  });
+
+  it("renders the same Story image inline for an ordinary view link", async () => {
+    serviceMocks.getPublishedPageState.mockResolvedValue(readyPage);
+
+    const response = await getStoryImage(
+      new Request("https://rating-app.test/story?view=1"),
+      context,
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("image/png");
+    expect(response.headers.get("content-disposition")).toBe(
+      'inline; filename="rating-app-match-1-historia.png"',
+    );
+    expect(pngDimensions(await response.arrayBuffer())).toEqual(
+      STORY_IMAGE_SIZE,
+    );
   });
 
   it.each(["locked", "preparing", "unavailable"] as const)(

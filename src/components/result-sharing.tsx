@@ -5,14 +5,7 @@ import { useState } from "react";
 import type { Messages } from "@/i18n/messages";
 
 type ShareStatus =
-  | "idle"
-  | "sharing"
-  | "preparing_story"
-  | "shared"
-  | "copied"
-  | "story_ready"
-  | "cancelled"
-  | "error";
+  "idle" | "sharing" | "shared" | "copied" | "cancelled" | "error";
 
 export function ResultSharing({
   canonicalUrl,
@@ -31,7 +24,7 @@ export function ResultSharing({
 }) {
   const [status, setStatus] = useState<ShareStatus>("idle");
   const [showManualCopy, setShowManualCopy] = useState(false);
-  const busy = status === "sharing" || status === "preparing_story";
+  const busy = status === "sharing";
 
   async function copyLink() {
     setStatus("sharing");
@@ -63,42 +56,6 @@ export function ResultSharing({
     }
   }
 
-  async function shareStory() {
-    setStatus("preparing_story");
-    try {
-      const response = await fetch(storyUrl, { credentials: "omit" });
-      if (!response.ok) throw new Error("Story image is unavailable.");
-      const blob = await response.blob();
-      const file = new File([blob], storyFilename, { type: "image/png" });
-      const shareData = { files: [file], title: shareTitle, text: shareText };
-      if (
-        typeof navigator.share === "function" &&
-        typeof navigator.canShare === "function" &&
-        navigator.canShare(shareData)
-      ) {
-        try {
-          await navigator.share(shareData);
-          setStatus("shared");
-          return;
-        } catch (error) {
-          if (isAbortError(error)) {
-            setStatus("cancelled");
-            return;
-          }
-        }
-      }
-      if (downloadBlob(blob, storyFilename)) {
-        setStatus("story_ready");
-        return;
-      }
-      window.open(storyUrl, "_blank", "noopener,noreferrer");
-      setStatus("story_ready");
-    } catch {
-      window.open(storyUrl, "_blank", "noopener,noreferrer");
-      setStatus("error");
-    }
-  }
-
   return (
     <section
       aria-labelledby="result-sharing-heading"
@@ -127,23 +84,21 @@ export function ResultSharing({
         >
           {messages.copyLink}
         </button>
-        <button
-          type="button"
-          className="button-secondary min-h-11 px-4 py-3 font-bold"
-          disabled={busy}
-          onClick={() => void shareStory()}
+        <a
+          href={storyUrl}
+          download={storyFilename}
+          className="button-secondary inline-flex min-h-11 items-center justify-center px-4 py-3 font-bold"
         >
-          {status === "preparing_story"
-            ? messages.preparingStory
-            : messages.shareStory}
-        </button>
+          {messages.downloadStory}
+        </a>
       </div>
       <a
-        href={storyUrl}
+        href={`${storyUrl}?view=1`}
+        target="_blank"
+        rel="noopener noreferrer"
         className="mt-3 inline-flex min-h-11 items-center font-bold text-accent underline decoration-2 underline-offset-4"
-        download={storyFilename}
       >
-        {messages.downloadStory}
+        {messages.viewStory}
       </a>
       {showManualCopy ? (
         <label className="mt-3 block text-sm font-bold">
@@ -193,24 +148,6 @@ async function copyText(value: string): Promise<boolean> {
   }
 }
 
-function downloadBlob(blob: Blob, filename: string): boolean {
-  if (
-    typeof URL.createObjectURL !== "function" ||
-    typeof URL.revokeObjectURL !== "function"
-  ) {
-    return false;
-  }
-  const objectUrl = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = objectUrl;
-  link.download = filename;
-  document.body.append(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
-  return true;
-}
-
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === "AbortError";
 }
@@ -222,14 +159,10 @@ function statusMessage(
   switch (status) {
     case "sharing":
       return messages.sharing;
-    case "preparing_story":
-      return messages.preparingStory;
     case "shared":
       return messages.shared;
     case "copied":
       return messages.copied;
-    case "story_ready":
-      return messages.storyReady;
     case "cancelled":
       return messages.cancelled;
     case "error":
