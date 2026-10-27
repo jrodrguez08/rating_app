@@ -21,6 +21,56 @@ export const enMessages = {
     matches: "Matches",
     players: "Players",
     standings: "Standings",
+    studio: "Studio",
+  },
+  studio: {
+    metadataTitle: "Rating App Studio",
+    metadataDescription:
+      "A public presentation dashboard for published Rating App results in livestreams and live content.",
+    eyebrow: "Broadcast mode",
+    title: "Rating App Studio",
+    introduction:
+      "Present published results live, in fullscreen, or as an OBS browser source.",
+    selectMatch: "Published match",
+    viewsLabel: "Studio views",
+    podiumTab: "Podium",
+    rankingTab: "Full ranking",
+    radiographyTab: "Match breakdown",
+    enterFullscreen: "Present in fullscreen",
+    exitFullscreen: "Exit fullscreen",
+    fullscreenUnavailable:
+      "Fullscreen is not available in this browser. You can present this panel using the browser's fullscreen mode.",
+    final: "FINAL",
+    versus: "VS",
+    mvp: "MVP",
+    jointMvp: "Joint MVP",
+    ratingFor: "Rating for {name}: {rating}",
+    photoFor: "Photo of {name}",
+    fullRanking: "Full ranking",
+    headCoach: "Head coach",
+    ballots: "Votes cast",
+    playerAverage: "Player average",
+    playerAverageHelp:
+      "Arithmetic mean of the players' published final ratings; the head coach is not included.",
+    highestRated: "Highest rating",
+    lowestRated: "Lowest rating",
+    basedOnOne: "1 published vote",
+    basedOnMany: "{count} published votes",
+    overlayTitle: "OBS source",
+    overlayHelp:
+      "Add this URL as an OBS browser source. It is public, stable, and only shows published results.",
+    overlayUrl: "OBS browser source URL",
+    copyOverlay: "Copy OBS URL",
+    copiedOverlay: "OBS URL copied.",
+    copyOverlayError:
+      "We couldn't copy the URL. You can copy it from the field.",
+    emptyTitle: "There are no results to present yet",
+    emptyDescription:
+      "Studio will appear when a match has published final results.",
+    unavailableTitle: "Studio is temporarily unavailable",
+    unavailableDescription:
+      "We couldn't load published results. Try again in a few minutes.",
+    overlayUnavailable: "Published results unavailable",
   },
   standings: {
     eyebrow: "Primera Divisi\u00f3n",

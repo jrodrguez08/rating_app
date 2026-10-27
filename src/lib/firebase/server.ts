@@ -27,6 +27,10 @@ import {
   MAX_PUBLISHED_RESULT_PLAYERS,
   type PublishedResultPodium,
 } from "@/application/published-result-podium";
+import {
+  MAX_STUDIO_MATCH_OPTIONS,
+  type StudioMatchOption,
+} from "@/application/studio";
 import { resolvePersistedPlayerProviderAlias } from "@/application/reconcile-player-identities";
 import {
   membershipFromParticipant,
@@ -356,6 +360,56 @@ export class AdminResultService {
     return comparison === null
       ? { status: "unavailable" }
       : { status: "ready", comparison };
+  }
+}
+
+export class AdminStudioService {
+  constructor(private readonly database = getServerFirestore()) {}
+
+  async listPublishedMatches(teamId: string): Promise<StudioMatchOption[]> {
+    const results = await this.database
+      .collectionGroup("results")
+      .where("teamId", "==", teamId)
+      .where("status", "==", "final")
+      .orderBy("generatedAt", "desc")
+      .limit(MAX_STUDIO_MATCH_OPTIONS)
+      .get();
+    const entries = results.docs.flatMap((resultSnapshot) => {
+      const matchReference = resultSnapshot.ref.parent.parent;
+      return matchReference === null
+        ? []
+        : [{ matchReference, resultSnapshot }];
+    });
+    if (entries.length === 0) return [];
+
+    const matches = await this.database.getAll(
+      ...entries.map(({ matchReference }) => matchReference),
+    );
+    return entries.flatMap(({ resultSnapshot }, index) => {
+      const matchSnapshot = matches[index];
+      if (!matchSnapshot.exists) return [];
+      const match = fromDocument<Match>(matchSnapshot);
+      const result = fromDocument<MatchResult>(resultSnapshot);
+      if (
+        match.trackedTeamId !== teamId ||
+        match.ratingState !== "rating_closed" ||
+        !isCompatibleCurrentResult(match, result) ||
+        result.ballotCount < 1 ||
+        match.score.home === null ||
+        match.score.away === null
+      ) {
+        return [];
+      }
+      return [
+        {
+          matchId: match.id,
+          kickoffAt: match.kickoffAt,
+          homeTeamName: match.homeTeam.name,
+          awayTeamName: match.awayTeam.name,
+          score: { home: match.score.home, away: match.score.away },
+        },
+      ];
+    });
   }
 }
 

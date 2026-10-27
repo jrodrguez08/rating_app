@@ -189,6 +189,15 @@ a {
 .button-utility.score-font {
   font-weight: 400;
 }
+#studio-presentation-panel:fullscreen {
+  overflow: auto;
+  background: var(--game-background);
+}
+#studio-presentation-panel:fullscreen .studio-board {
+  min-height: 100vh;
+  border: 0;
+  box-shadow: none;
+}
 @media (min-width: 640px) {
   .page-shell {
     width: min(100% - 3rem, 68rem);
