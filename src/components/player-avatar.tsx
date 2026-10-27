@@ -13,13 +13,17 @@ export function PlayerAvatar({
 }: {
   name: string;
   photoUrl?: string;
-  size?: "compact" | "profile";
+  size?: "compact" | "profile" | "broadcast";
   label: string;
 }) {
   const [failed, setFailed] = useState(false);
-  const pixels = size === "profile" ? 80 : 48;
+  const pixels = size === "broadcast" ? 144 : size === "profile" ? 80 : 48;
   const classes =
-    size === "profile" ? "h-20 w-20 text-2xl" : "h-12 w-12 text-base";
+    size === "broadcast"
+      ? "h-24 w-24 text-3xl sm:h-32 sm:w-32 sm:text-4xl xl:h-36 xl:w-36"
+      : size === "profile"
+        ? "h-20 w-20 text-2xl"
+        : "h-12 w-12 text-base";
   const showPhoto =
     photoUrl !== undefined && isPlayerPhotoUrl(photoUrl) && !failed;
 

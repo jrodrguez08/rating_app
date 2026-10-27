@@ -98,6 +98,12 @@ Player evolution charts remain compact dark insets rather than analytics panels.
 
 League standings use a compact fixed-layout table. At mobile widths show rank, Team, played, goal difference, and points; reveal wins, draws, and losses at wider widths. Team names truncate safely, numeric cells use score typography, and the configured Team receives a club-accent row marker plus a screen-reader label so identity is never color-only. Do not require horizontal scrolling at 320 px.
 
+## Rating App Studio
+
+Studio is a broadcast presentation surface, not a generic analytics dashboard. Keep the final score and Team names as the stable header across its three peer tabs. Podium uses the existing second-left, first-center, third-right desktop hierarchy while preserving ranking order for assistive technology and stacking in ranking order on mobile. Player portraits are prominent, missing images keep the deterministic initials treatment, MVP/co-MVP is explicit text, and the separate coach panel never enters the Player ranking. Full ranking uses dense rows with rank, portrait, wrapping name, MVP text, and one-decimal rating. Radiography uses a few large hard-bordered facts: ballots, arithmetic mean of published Player averages, coach rating, highest Player, and lowest Player; it defines the mean in visible text and avoids charts when provider statistics are absent.
+
+Fullscreen presents only the selected result board plus an explicit exit control; Escape remains the browser-standard exit. When the Fullscreen API is unavailable, explain the browser-fullscreen alternative instead of failing silently. The OBS browser-source route fills the viewport at 16:9-friendly dimensions with no navigation or controls, remains legible when scaled, and exposes only already published data. The ordinary Studio page provides the stable overlay URL in a read-only selectable field plus a labeled copy action and status. Tabs support Left/Right and Home/End; selectors and controls retain 44px targets. At 320px, controls stack, the podium becomes a single column, names wrap, and no horizontal scroll is permitted.
+
 ## Spacing and responsive behavior
 
 Use a 4px base rhythm and tighter sports-scoreboard density: common gaps are 8, 12, 16, 20, 24, and 32px. Compact does not mean cramped. Body copy keeps comfortable line-height; actions keep touch separation.

@@ -32,6 +32,10 @@ describe("AppShell navigation", () => {
       "href",
       "/standings",
     );
+    expect(screen.getByRole("link", { name: "Studio" })).toHaveAttribute(
+      "href",
+      "/studio",
+    );
     expect(screen.getByRole("link", { name: "Jugadores" })).toHaveAttribute(
       "aria-current",
       "page",
