@@ -146,7 +146,12 @@ describe("Partidos presentation", () => {
 
     render(
       <MatchArchiveView
-        archive={{ relevant: null, upcoming: [ready], recent: [] }}
+        archive={{
+          relevant: null,
+          upcoming: [ready],
+          recent: [],
+          featuredUpcoming: false,
+        }}
         locale="en"
         messages={messages}
         ballotMessages={ballotMessages}
@@ -177,6 +182,23 @@ describe("Partidos presentation", () => {
     );
   });
 
+  it("does not present a stale live closed match as currently live", () => {
+    renderCard({
+      match: match({
+        id: "stale-live-closed",
+        status: "live",
+        ratingState: "rating_closed",
+        kickoffAt: "2026-08-20T18:00:00.000Z",
+        score: { home: 2, away: 1 },
+      }),
+      hasResults: false,
+    });
+
+    expect(screen.getByText("Final")).toBeInTheDocument();
+    expect(screen.getByText("No Rating App vote")).toBeInTheDocument();
+    expect(screen.queryByText(/^Live/)).not.toBeInTheDocument();
+  });
+
   it("keeps the featured match above accessible tabs and switches compact archive panels", async () => {
     const user = userEvent.setup();
     const featured = item(
@@ -204,7 +226,12 @@ describe("Partidos presentation", () => {
 
     render(
       <MatchArchiveView
-        archive={{ relevant: featured, upcoming: [upcoming], recent: [recent] }}
+        archive={{
+          relevant: featured,
+          upcoming: [upcoming],
+          recent: [recent],
+          featuredUpcoming: true,
+        }}
         locale="en"
         messages={messages}
         ballotMessages={ballotMessages}
@@ -260,7 +287,12 @@ describe("Partidos presentation", () => {
     const user = userEvent.setup();
     render(
       <MatchArchiveView
-        archive={{ relevant: null, upcoming: [], recent: [] }}
+        archive={{
+          relevant: null,
+          upcoming: [],
+          recent: [],
+          featuredUpcoming: false,
+        }}
         locale="en"
         messages={messages}
         ballotMessages={ballotMessages}
@@ -286,7 +318,12 @@ describe("Partidos presentation", () => {
     const user = userEvent.setup();
     render(
       <MatchArchiveView
-        archive={{ relevant: null, upcoming: [], recent: [] }}
+        archive={{
+          relevant: null,
+          upcoming: [],
+          recent: [],
+          featuredUpcoming: false,
+        }}
         locale="en"
         messages={messages}
         ballotMessages={ballotMessages}
@@ -299,6 +336,31 @@ describe("Partidos presentation", () => {
     await user.click(screen.getByRole("tab", { name: messages.recent }));
     expect(screen.getByText(messages.noRecent)).toBeInTheDocument();
     expect(screen.queryByText(messages.noUpcoming)).not.toBeInTheDocument();
+  });
+
+  it("explains when the only upcoming fixture is already featured", () => {
+    const featured = item(match({ id: "featured" }));
+
+    render(
+      <MatchArchiveView
+        archive={{
+          relevant: featured,
+          upcoming: [],
+          recent: [],
+          featuredUpcoming: true,
+        }}
+        locale="en"
+        messages={messages}
+        ballotMessages={ballotMessages}
+        now={now}
+      />,
+    );
+
+    expect(
+      screen.getByText(messages.featuredUpcomingAbove),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(messages.noUpcoming)).not.toBeInTheDocument();
+    expect(screen.getAllByText("CS Cartaginés")).toHaveLength(1);
   });
 
   it("keeps archive DTOs sanitized to match presentation facts", () => {

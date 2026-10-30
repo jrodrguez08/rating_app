@@ -7,7 +7,7 @@ import type { Match } from "@/domain/models";
 import type { Locale } from "@/i18n/config";
 import { getMessages } from "@/i18n/messages";
 import { getLocale } from "@/i18n/server";
-import { getLifecycleHomeMatch } from "@/lib/firebase/lifecycle-read";
+import { getPublicHomeMatch } from "@/lib/firebase/lifecycle-read";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -17,7 +17,7 @@ export default async function Home() {
   let match: Match | null = null;
   let unavailable = false;
   try {
-    match = await getLifecycleHomeMatch(initialClub.teamId);
+    match = await getPublicHomeMatch(initialClub.teamId);
   } catch {
     unavailable = true;
     console.error("Home lifecycle data is temporarily unavailable.");

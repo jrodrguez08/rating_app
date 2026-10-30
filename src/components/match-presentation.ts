@@ -23,6 +23,11 @@ export function matchPresentation(
       href: `/matches/${match.id}/results`,
       primary: true,
     };
+  if (match.ratingState === "rating_closed")
+    return {
+      label: messages.final,
+      description: messages.noRating,
+    };
   if (match.status === "live")
     return {
       label: `${messages.live}${match.elapsedMinute === undefined ? "" : ` · ${match.elapsedMinute}'`}`,

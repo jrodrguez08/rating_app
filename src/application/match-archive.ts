@@ -1,5 +1,8 @@
-import { selectRelevantMatch } from "@/application/match-lifecycle";
-import { hasAuthoritativeFinalWhistle } from "@/domain/manual-voting";
+import {
+  isPublicHistoricalMatch,
+  isPublicUpcomingMatch,
+  selectPublicMatch,
+} from "@/application/public-match-selection";
 import type { Match } from "@/domain/models";
 
 export interface MatchArchiveItem {
@@ -12,13 +15,14 @@ export interface MatchArchive {
   relevant: MatchArchiveItem | null;
   recent: MatchArchiveItem[];
   upcoming: MatchArchiveItem[];
+  featuredUpcoming: boolean;
 }
 
 export function buildMatchArchive(
   items: MatchArchiveItem[],
   now: Date,
 ): MatchArchive {
-  const relevantMatch = selectRelevantMatch(
+  const relevantMatch = selectPublicMatch(
     items.map(({ match }) => match),
     now,
   );
@@ -29,15 +33,17 @@ export function buildMatchArchive(
     : items;
   return {
     relevant,
+    featuredUpcoming:
+      relevant !== null && isPublicUpcomingMatch(relevant.match, now),
     recent: remainingItems
-      .filter(({ match }) => hasAuthoritativeFinalWhistle(match))
+      .filter(({ match }) => isPublicHistoricalMatch(match))
       .sort(
         (left, right) =>
           new Date(right.match.kickoffAt).getTime() -
           new Date(left.match.kickoffAt).getTime(),
       ),
     upcoming: remainingItems
-      .filter(({ match }) => !hasAuthoritativeFinalWhistle(match))
+      .filter(({ match }) => isPublicUpcomingMatch(match, now))
       .sort(
         (left, right) =>
           new Date(left.match.kickoffAt).getTime() -

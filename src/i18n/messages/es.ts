@@ -192,6 +192,7 @@ export const esMessages = {
     upcoming: "Próximos partidos",
     noRecent: "Todavía no hay partidos finalizados en el archivo.",
     noUpcoming: "No hay próximos partidos confirmados.",
+    featuredUpcomingAbove: "El próximo partido está destacado arriba.",
     unavailableTitle: "No pudimos cargar los partidos",
     unavailableDescription: "El archivo no está disponible temporalmente.",
     detailUnavailable: "No pudimos cargar este partido.",

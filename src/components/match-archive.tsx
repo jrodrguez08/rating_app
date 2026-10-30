@@ -41,7 +41,9 @@ export function MatchArchiveView({
     {
       id: "upcoming",
       label: messages.upcoming,
-      empty: messages.noUpcoming,
+      empty: archive.featuredUpcoming
+        ? messages.featuredUpcomingAbove
+        : messages.noUpcoming,
       items: archive.upcoming,
     },
     {
