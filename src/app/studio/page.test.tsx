@@ -62,6 +62,21 @@ describe("public Studio routes", () => {
     ).toBeInTheDocument();
     expect(screen.queryByText("Jugador canónico")).not.toBeInTheDocument();
   });
+
+  it("keeps the published OBS overlay read-only without Studio controls", async () => {
+    render(
+      await StudioOverlayPage({
+        params: Promise.resolve({ matchId: "match-1" }),
+        searchParams: Promise.resolve({}),
+      }),
+    );
+
+    expect(screen.getByText("Jugador canónico")).toBeInTheDocument();
+    expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /pantalla completa/i }),
+    ).not.toBeInTheDocument();
+  });
 });
 
 const option = {

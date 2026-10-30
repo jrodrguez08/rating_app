@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -24,6 +24,10 @@ describe("StudioExperience", () => {
       value: null,
     });
     Object.defineProperty(HTMLElement.prototype, "requestFullscreen", {
+      configurable: true,
+      value: vi.fn(async () => undefined),
+    });
+    Object.defineProperty(document, "exitFullscreen", {
       configurable: true,
       value: vi.fn(async () => undefined),
     });
@@ -71,6 +75,87 @@ describe("StudioExperience", () => {
     expect(HTMLElement.prototype.requestFullscreen).toHaveBeenCalledOnce();
   });
 
+  it("switches every view inside fullscreen without exiting or changing the match", async () => {
+    const user = userEvent.setup();
+    renderStudio();
+    await enterFullscreen(user);
+
+    expect(
+      screen.getByRole("tablist", { name: "Vistas del Studio" }),
+    ).toBeVisible();
+    expect(screen.getAllByRole("tab")).toHaveLength(3);
+
+    await user.click(screen.getByRole("tab", { name: "Ranking completo" }));
+    expect(
+      screen.getByText("Ranking completo", { selector: "h2" }),
+    ).toBeVisible();
+    await user.click(screen.getByRole("tab", { name: "Radiografía" }));
+    expect(screen.getByText("Promedio de jugadores")).toBeVisible();
+    await user.click(screen.getByRole("tab", { name: "Podio" }));
+    expect(screen.getByText("Jugador canónico")).toBeVisible();
+
+    expect(document.exitFullscreen).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Partido publicado")).toHaveValue("match-1");
+  });
+
+  it("supports fullscreen tab keyboard navigation and focus semantics", async () => {
+    const user = userEvent.setup();
+    renderStudio();
+    await enterFullscreen(user);
+
+    const podium = screen.getByRole("tab", { name: "Podio" });
+    await waitFor(() => expect(podium).toHaveFocus());
+    expect(podium).toHaveAttribute("aria-selected", "true");
+    expect(podium).toHaveAttribute(
+      "aria-controls",
+      "studio-presentation-panel",
+    );
+
+    await user.keyboard("{ArrowRight}");
+    expect(screen.getByRole("tab", { name: "Ranking completo" })).toHaveFocus();
+    await user.keyboard("{End}");
+    expect(screen.getByRole("tab", { name: "Radiografía" })).toHaveFocus();
+    await user.keyboard("{ArrowLeft}");
+    expect(screen.getByRole("tab", { name: "Ranking completo" })).toHaveFocus();
+    await user.keyboard("{Home}");
+    expect(podium).toHaveFocus();
+  });
+
+  it("exits from the visible control and keeps the selected view", async () => {
+    const user = userEvent.setup();
+    renderStudio();
+    await enterFullscreen(user);
+    await user.click(screen.getByRole("tab", { name: "Radiografía" }));
+
+    await user.click(
+      screen.getByRole("button", { name: "Salir de pantalla completa" }),
+    );
+    expect(document.exitFullscreen).toHaveBeenCalledOnce();
+    leaveFullscreen();
+
+    const selected = await screen.findByRole("tab", { name: "Radiografía" });
+    expect(selected).toHaveAttribute("aria-selected", "true");
+    await waitFor(() => expect(selected).toHaveFocus());
+    expect(screen.getByText("Promedio de jugadores")).toBeVisible();
+  });
+
+  it("reflects native Escape through fullscreenchange without losing the view", async () => {
+    const user = userEvent.setup();
+    renderStudio();
+    await enterFullscreen(user);
+    await user.click(screen.getByRole("tab", { name: "Ranking completo" }));
+
+    leaveFullscreen();
+
+    expect(document.exitFullscreen).not.toHaveBeenCalled();
+    expect(
+      await screen.findByRole("tab", { name: "Ranking completo" }),
+    ).toHaveAttribute("aria-selected", "true");
+    expect(
+      screen.getByText("Ranking completo", { selector: "h2" }),
+    ).toBeVisible();
+  });
+
   it("keeps the stable OBS URL selectable and reports copy failures accessibly", async () => {
     const user = userEvent.setup();
     Object.defineProperty(navigator, "clipboard", {
@@ -100,7 +185,49 @@ describe("StudioExperience", () => {
       await screen.findByText(/pantalla completa no está disponible/i),
     ).toBeInTheDocument();
   });
+
+  it("keeps normal tabs usable when the fullscreen request is rejected", async () => {
+    const user = userEvent.setup();
+    vi.mocked(HTMLElement.prototype.requestFullscreen).mockRejectedValueOnce(
+      new Error("denied"),
+    );
+    renderStudio();
+
+    await user.click(
+      screen.getByRole("button", { name: "Presentar en pantalla completa" }),
+    );
+
+    expect(
+      await screen.findByText(/pantalla completa no está disponible/i),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "Ranking completo" }));
+    expect(
+      screen.getByText("Ranking completo", { selector: "h2" }),
+    ).toBeVisible();
+  });
 });
+
+async function enterFullscreen(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(
+    screen.getByRole("button", { name: "Presentar en pantalla completa" }),
+  );
+  const panel = document.getElementById("studio-presentation-panel");
+  if (!(panel instanceof HTMLElement)) throw new Error("Studio panel missing.");
+  setFullscreenElement(panel);
+  await screen.findByRole("button", { name: "Salir de pantalla completa" });
+}
+
+function leaveFullscreen() {
+  setFullscreenElement(null);
+}
+
+function setFullscreenElement(element: Element | null) {
+  Object.defineProperty(document, "fullscreenElement", {
+    configurable: true,
+    value: element,
+  });
+  act(() => document.dispatchEvent(new Event("fullscreenchange")));
+}
 
 function renderStudio() {
   return render(
