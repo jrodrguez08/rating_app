@@ -190,11 +190,16 @@ a {
   font-weight: 400;
 }
 #studio-presentation-panel:fullscreen {
-  overflow: auto;
+  display: flex;
+  height: 100vh;
+  margin: 0;
+  flex-direction: column;
+  overflow: hidden;
   background: var(--game-background);
 }
 #studio-presentation-panel:fullscreen .studio-board {
-  min-height: 100vh;
+  min-height: 0;
+  flex: 1 1 auto;
   border: 0;
   box-shadow: none;
 }

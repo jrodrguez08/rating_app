@@ -36,7 +36,6 @@ export function StudioExperience({
     "idle",
   );
   const presentationRef = useRef<HTMLDivElement>(null);
-  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const tabs = [
     { id: "podium", label: messages.podiumTab },
     { id: "ranking", label: messages.rankingTab },
@@ -67,12 +66,6 @@ export function StudioExperience({
     } catch {
       setFullscreenSupported(false);
     }
-  }
-
-  function selectTab(index: number) {
-    const nextIndex = (index + tabs.length) % tabs.length;
-    setView(tabs[nextIndex].id);
-    tabRefs.current[nextIndex]?.focus();
   }
 
   async function copyOverlayUrl() {
@@ -137,69 +130,56 @@ export function StudioExperience({
             {messages.fullscreenUnavailable}
           </p>
         ) : null}
-        <div
-          role="tablist"
-          aria-label={messages.viewsLabel}
-          className="mt-5 grid grid-cols-1 border-2 border-border bg-surface sm:grid-cols-3"
-        >
-          {tabs.map((tab, index) => (
-            <button
-              key={tab.id}
-              ref={(element) => {
-                tabRefs.current[index] = element;
-              }}
-              type="button"
-              role="tab"
-              id={`studio-${tab.id}-tab`}
-              aria-selected={view === tab.id}
-              aria-controls="studio-presentation-panel"
-              tabIndex={view === tab.id ? 0 : -1}
-              className={`score-font min-h-11 border-b-4 px-3 py-2 ${view === tab.id ? "border-accent bg-panel text-accent" : "border-transparent text-muted"}`}
-              onClick={() => setView(tab.id)}
-              onKeyDown={(event) => {
-                if (event.key === "ArrowRight") {
-                  event.preventDefault();
-                  selectTab(index + 1);
-                } else if (event.key === "ArrowLeft") {
-                  event.preventDefault();
-                  selectTab(index - 1);
-                } else if (event.key === "Home") {
-                  event.preventDefault();
-                  selectTab(0);
-                } else if (event.key === "End") {
-                  event.preventDefault();
-                  selectTab(tabs.length - 1);
-                }
-              }}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+        <StudioViewTabs
+          tabs={tabs}
+          view={view}
+          setView={setView}
+          label={messages.viewsLabel}
+          idPrefix="studio"
+          panelId="studio-presentation-panel"
+          active={!fullscreen}
+          variant="page"
+        />
       </section>
 
       <div
         ref={presentationRef}
         id="studio-presentation-panel"
         role="tabpanel"
-        aria-labelledby={`studio-${view}-tab`}
+        aria-labelledby={`${fullscreen ? "studio-fullscreen" : "studio"}-${view}-tab`}
         className="relative mt-5 min-w-0 max-w-full overflow-hidden bg-background"
       >
+        <div
+          hidden={!fullscreen}
+          className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-b-2 border-border bg-surface p-2 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:px-3"
+        >
+          <p className="score-font min-w-0 truncate text-xs text-accent sm:text-sm">
+            {messages.title}
+          </p>
+          <StudioViewTabs
+            tabs={tabs}
+            view={view}
+            setView={setView}
+            label={messages.viewsLabel}
+            idPrefix="studio-fullscreen"
+            panelId="studio-presentation-panel"
+            active={fullscreen}
+            variant="fullscreen"
+          />
+          <button
+            type="button"
+            className="button-secondary min-h-11 px-3 py-2 text-sm sm:col-start-3 sm:row-start-1"
+            onClick={toggleFullscreen}
+          >
+            {messages.exitFullscreen}
+          </button>
+        </div>
         <StudioBoard
           presentation={presentation}
           locale={locale}
           messages={messages}
           view={view}
         />
-        {fullscreen ? (
-          <button
-            type="button"
-            className="button-secondary absolute right-4 top-4 z-20 px-4 py-2"
-            onClick={toggleFullscreen}
-          >
-            {messages.exitFullscreen}
-          </button>
-        ) : null}
       </div>
 
       <section
@@ -244,6 +224,90 @@ export function StudioExperience({
         </p>
       </section>
     </>
+  );
+}
+
+function StudioViewTabs({
+  tabs,
+  view,
+  setView,
+  label,
+  idPrefix,
+  panelId,
+  active,
+  variant,
+}: {
+  tabs: ReadonlyArray<{ id: StudioView; label: string }>;
+  view: StudioView;
+  setView: (view: StudioView) => void;
+  label: string;
+  idPrefix: string;
+  panelId: string;
+  active: boolean;
+  variant: "page" | "fullscreen";
+}) {
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const wasActive = useRef(active);
+  const selectedIndex = tabs.findIndex((tab) => tab.id === view);
+
+  useEffect(() => {
+    if (active && !wasActive.current) {
+      tabRefs.current[selectedIndex]?.focus();
+    }
+    wasActive.current = active;
+  }, [active, selectedIndex]);
+
+  function selectTab(index: number) {
+    const nextIndex = (index + tabs.length) % tabs.length;
+    setView(tabs[nextIndex].id);
+    tabRefs.current[nextIndex]?.focus();
+  }
+
+  return (
+    <div
+      role="tablist"
+      aria-label={label}
+      hidden={!active}
+      className={
+        variant === "page"
+          ? "mt-5 grid grid-cols-1 border-2 border-border bg-surface sm:grid-cols-3"
+          : "col-span-2 row-start-2 grid min-w-0 grid-cols-3 border-2 border-border bg-background sm:col-span-1 sm:col-start-2 sm:row-start-1"
+      }
+    >
+      {tabs.map((tab, index) => (
+        <button
+          key={tab.id}
+          ref={(element) => {
+            tabRefs.current[index] = element;
+          }}
+          type="button"
+          role="tab"
+          id={`${idPrefix}-${tab.id}-tab`}
+          aria-selected={view === tab.id}
+          aria-controls={panelId}
+          tabIndex={active && view === tab.id ? 0 : -1}
+          className={`score-font min-h-11 min-w-0 break-words border-b-4 px-2 py-2 text-[0.65rem] sm:px-3 sm:text-xs lg:text-sm ${view === tab.id ? "border-accent bg-panel text-accent" : "border-transparent text-muted"}`}
+          onClick={() => setView(tab.id)}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowRight") {
+              event.preventDefault();
+              selectTab(index + 1);
+            } else if (event.key === "ArrowLeft") {
+              event.preventDefault();
+              selectTab(index - 1);
+            } else if (event.key === "Home") {
+              event.preventDefault();
+              selectTab(0);
+            } else if (event.key === "End") {
+              event.preventDefault();
+              selectTab(tabs.length - 1);
+            }
+          }}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </div>
   );
 }
 
