@@ -18,11 +18,12 @@ import type {
 import { ProviderError } from "@/lib/providers/api-football/errors";
 
 import {
+  discoveryDecision,
   runMatchLifecycle,
   selectLifecycleMatch,
-  selectRelevantMatch,
   type LifecycleDependencies,
 } from "./match-lifecycle";
+import { selectPublicMatch } from "./public-match-selection";
 
 const NOW = new Date("2026-08-29T18:00:00.000Z");
 const counts = { created: 0, updated: 0, unchanged: 0 };
@@ -593,6 +594,197 @@ describe("match lifecycle synchronization", () => {
     expect(provider.requestCount).toBe(0);
   });
 
+  it.each(["scheduled", "live"] as const)(
+    "discovers fixtures after the interval even with a known %s match",
+    async (status) => {
+      const store = new MemoryStore([match({ status })]);
+      store.metadata = {
+        teamId: "tracked-team",
+        lastFixtureDiscoveryAt: new Date(
+          NOW.getTime() - 12 * 60 * 60 * 1000,
+        ).toISOString(),
+        updatedAt: NOW.toISOString(),
+      };
+      let discoveries = 0;
+      const result = await runMatchLifecycle({
+        teamId: "tracked-team",
+        store,
+        provider: new FixtureProvider(fixture(status)),
+        now: () => NOW,
+        discoverFixtures: async () => {
+          discoveries += 1;
+          return { fixtureCount: 0 };
+        },
+        syncParticipants: async () => undefined,
+      });
+
+      expect(discoveries).toBe(1);
+      expect(store.metadata?.lastFixtureDiscoveryAt).toBe(NOW.toISOString());
+      expect(result.action).toBe("refreshed");
+    },
+  );
+
+  it("discovers past an active live rating window without changing it", async () => {
+    const active = match({
+      status: "live",
+      ratingState: "rating_ready",
+      votingOpensAt: "2026-08-29T17:00:00.000Z",
+      votingClosesAt: "2026-08-29T19:00:00.000Z",
+    });
+    const store = new MemoryStore([active]);
+    store.metadata = {
+      teamId: "tracked-team",
+      lastFixtureDiscoveryAt: "2026-08-29T05:00:00.000Z",
+      updatedAt: "2026-08-29T05:00:00.000Z",
+    };
+    let discoveries = 0;
+
+    const result = await runMatchLifecycle({
+      teamId: "tracked-team",
+      store,
+      provider: new FixtureProvider(fixture("live")),
+      now: () => NOW,
+      discoverFixtures: async () => {
+        discoveries += 1;
+        return { fixtureCount: 0 };
+      },
+      syncParticipants: async () => undefined,
+    });
+
+    expect(discoveries).toBe(1);
+    expect(result).toMatchObject({ action: "idle", providerRequests: 0 });
+    expect(store.matches[0]).toEqual(active);
+  });
+
+  it("discovers past a stale live closed match and selects the new fixture operationally", async () => {
+    const stale = match({
+      id: "stale-live-closed",
+      status: "live",
+      ratingState: "rating_closed",
+      kickoffAt: "2026-08-20T20:00:00.000Z",
+      votingOpensAt: "2026-08-20T22:00:00.000Z",
+      votingClosesAt: "2026-08-21T00:00:00.000Z",
+    });
+    const store = new MemoryStore([stale]);
+    store.metadata = {
+      teamId: "tracked-team",
+      lastFixtureDiscoveryAt: "2026-08-29T05:00:00.000Z",
+      updatedAt: "2026-08-29T05:00:00.000Z",
+    };
+
+    const result = await runMatchLifecycle({
+      teamId: "tracked-team",
+      store,
+      provider: new FixtureProvider(fixture("scheduled")),
+      now: () => NOW,
+      discoverFixtures: async () => {
+        store.matches.push(
+          match({
+            id: "new-upcoming",
+            kickoffAt: "2026-08-31T20:00:00.000Z",
+          }),
+        );
+        return { fixtureCount: 1 };
+      },
+      syncParticipants: async () => undefined,
+    });
+
+    expect(result).toMatchObject({
+      action: "discovered",
+      matchId: "new-upcoming",
+    });
+    expect(store.matches[0]).toEqual(stale);
+  });
+
+  it("does not discover again before the interval", async () => {
+    const store = new MemoryStore([match()]);
+    let discoveries = 0;
+
+    await runMatchLifecycle({
+      teamId: "tracked-team",
+      store,
+      provider: new FixtureProvider(fixture("scheduled")),
+      now: () => NOW,
+      discoverFixtures: async () => {
+        discoveries += 1;
+      },
+      syncParticipants: async () => undefined,
+    });
+
+    expect(discoveries).toBe(0);
+    expect(store.metadata?.lastFixtureDiscoveryAt).toBe(NOW.toISOString());
+  });
+
+  it("does not advance discovery metadata when the provider fails", async () => {
+    const store = new MemoryStore([match()]);
+    const previous = "2026-08-29T05:00:00.000Z";
+    store.metadata = {
+      teamId: "tracked-team",
+      lastFixtureDiscoveryAt: previous,
+      updatedAt: previous,
+    };
+
+    const result = await runMatchLifecycle({
+      teamId: "tracked-team",
+      store,
+      provider: new FixtureProvider(fixture("scheduled")),
+      now: () => NOW,
+      discoverFixtures: async () => {
+        throw new ProviderError("request-failed", "Provider request failed.");
+      },
+      syncParticipants: async () => undefined,
+    });
+
+    expect(result.action).toBe("retryable_error");
+    expect(store.metadata?.lastFixtureDiscoveryAt).toBe(previous);
+  });
+
+  it("records concise discovery decisions and observed fixture counts", async () => {
+    const store = new MemoryStore([]);
+    store.metadata = null;
+    const logs: string[] = [];
+
+    await runMatchLifecycle({
+      teamId: "tracked-team",
+      store,
+      provider: new FixtureProvider(fixture("scheduled")),
+      now: () => NOW,
+      discoverFixtures: async () => ({ fixtureCount: 0 }),
+      syncParticipants: async () => undefined,
+      log: (entry) => logs.push(entry),
+    });
+
+    expect(logs).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          '"event":"lifecycle.discovery","phase":"decision","due":true,"reason":"never-discovered","lastDiscoveryAt":"none","persistedMatchCount":0',
+        ),
+        expect.stringContaining(
+          '"event":"lifecycle.discovery","phase":"completed","discoveredFixtures":0,"persistedMatchCount":0,"providerRequests":0',
+        ),
+      ]),
+    );
+  });
+
+  it("bases discovery only on the persisted interval", () => {
+    expect(discoveryDecision(undefined, NOW)).toEqual({
+      due: true,
+      reason: "never-discovered",
+    });
+    expect(discoveryDecision("invalid", NOW)).toEqual({
+      due: true,
+      reason: "invalid-last-discovery",
+    });
+    expect(discoveryDecision("2026-08-29T06:00:00.000Z", NOW)).toEqual({
+      due: true,
+      reason: "interval-elapsed",
+    });
+    expect(discoveryDecision("2026-08-29T06:00:00.001Z", NOW)).toEqual({
+      due: false,
+      reason: "interval-not-elapsed",
+    });
+  });
+
   it("early-exits for a future match beyond 24 hours", async () => {
     const store = new MemoryStore([
       match({ kickoffAt: "2026-08-31T20:00:00.000Z" }),
@@ -920,7 +1112,7 @@ describe("match lifecycle synchronization", () => {
     });
 
     expect(selectLifecycleMatch([expired, next], NOW)?.id).toBe("expired");
-    expect(selectRelevantMatch([expired, next], NOW)?.id).toBe("next");
+    expect(selectPublicMatch([expired, next], NOW)?.id).toBe("next");
   });
 
   it.each(["postponed", "cancelled", "abandoned"] as const)(
@@ -989,7 +1181,7 @@ describe("match lifecycle synchronization", () => {
     ).toBe("retryable_error");
   });
 
-  it("prioritizes active windows, live, preparing, then next scheduled", () => {
+  it("prioritizes active windows before live and scheduled matches", () => {
     const scheduled = match({
       id: "scheduled",
       kickoffAt: "2026-08-30T20:00:00.000Z",
@@ -999,14 +1191,13 @@ describe("match lifecycle synchronization", () => {
       id: "ready",
       status: "finished",
       ratingState: "rating_ready",
+      votingOpensAt: "2026-08-29T17:00:00.000Z",
       votingClosesAt: "2026-08-29T19:00:00.000Z",
     });
-    expect(selectRelevantMatch([scheduled, live, ready], NOW)?.id).toBe(
-      "ready",
-    );
+    expect(selectPublicMatch([scheduled, live, ready], NOW)?.id).toBe("ready");
   });
 
-  it("does not let a finalized result block preparing or the next fixture", () => {
+  it("does not let historical or preparing matches block the next fixture", () => {
     const closed = match({
       id: "closed",
       status: "finished",
@@ -1023,10 +1214,10 @@ describe("match lifecycle synchronization", () => {
       id: "upcoming",
       kickoffAt: "2026-08-30T20:00:00.000Z",
     });
-    expect(selectRelevantMatch([closed, preparing, upcoming], NOW)?.id).toBe(
-      "preparing",
+    expect(selectPublicMatch([closed, preparing, upcoming], NOW)?.id).toBe(
+      "upcoming",
     );
-    expect(selectRelevantMatch([closed, upcoming], NOW)?.id).toBe("upcoming");
+    expect(selectPublicMatch([closed, upcoming], NOW)?.id).toBe("upcoming");
   });
 
   it("discovers and selects a next fixture after finalization", async () => {
@@ -1067,9 +1258,7 @@ describe("match lifecycle synchronization", () => {
       kickoffAt: "2026-05-03T02:00:00.000Z",
     });
     const upcoming = match({ id: "upcoming" });
-    expect(selectRelevantMatch([historical, upcoming], NOW)?.id).toBe(
-      "upcoming",
-    );
+    expect(selectPublicMatch([historical, upcoming], NOW)?.id).toBe("upcoming");
   });
 });
 

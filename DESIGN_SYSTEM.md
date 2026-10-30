@@ -72,6 +72,8 @@ Status badges are compact rectangular scoreboard labels with text and, when usef
 
 Tabs are reserved for a small set of peer views within one stable page hierarchy. Keep primary context, such as a featured match, outside the tab panels. Use compact rectangular controls with crisp borders and an active bottom-border/background treatment, not oversized pills. The selected state must use `aria-selected` and remain visually distinguishable without color alone. Associate tabs and panels, retain 44px targets and visible focus, and support Left/Right plus Home/End keyboard navigation.
 
+When the featured Match is also the only upcoming fixture, the upcoming tab keeps one concise localized inset explaining that the fixture is shown above. Do not duplicate the card or use the generic no-upcoming message in that state. Historical terminal matches with stale provider status belong to recent history and must not be styled as upcoming or live.
+
 ## Iconography and team marks
 
 Use a small internal SVG set on a 16×16 grid with crisp geometric paths, `currentColor`, and no copied sprites. Decorative icons are hidden from assistive technology; meaningful icons need an accessible text equivalent. Do not add a broad icon dependency for a few concepts.

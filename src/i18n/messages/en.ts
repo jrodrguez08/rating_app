@@ -191,6 +191,7 @@ export const enMessages = {
     upcoming: "Upcoming matches",
     noRecent: "There are no finished matches in the archive yet.",
     noUpcoming: "There are no confirmed upcoming matches.",
+    featuredUpcomingAbove: "The next match is featured above.",
     unavailableTitle: "We couldn't load the matches",
     unavailableDescription: "The archive is temporarily unavailable.",
     detailUnavailable: "We couldn't load this match.",

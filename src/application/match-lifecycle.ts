@@ -47,7 +47,10 @@ export interface LifecycleDependencies {
   provider: FootballDataProvider;
   store: MatchLifecycleStore;
   now: () => Date;
-  discoverFixtures: (team: Team, now: Date) => Promise<void>;
+  discoverFixtures: (
+    team: Team,
+    now: Date,
+  ) => Promise<{ fixtureCount: number } | void>;
   syncParticipants: (
     matchId: string,
     now: Date,
@@ -133,16 +136,23 @@ async function executeMatchLifecycle({
     }
   }
   const metadata = await store.getSyncMetadata(teamId);
-  const discoveryDue = isDiscoveryDue(
-    matches,
+  const discovery = discoveryDecision(
     metadata?.lastFixtureDiscoveryAt,
     currentTime,
   );
   let discovered = false;
 
-  if (discoveryDue) {
+  emitOperationalLog(log, "lifecycle.discovery", {
+    phase: "decision",
+    due: discovery.due,
+    reason: discovery.reason,
+    lastDiscoveryAt: metadata?.lastFixtureDiscoveryAt ?? "none",
+    persistedMatchCount: matches.length,
+  });
+
+  if (discovery.due) {
     try {
-      await discoverFixtures(team, currentTime);
+      const summary = await discoverFixtures(team, currentTime);
       await store.setSyncMetadata({
         teamId,
         lastFixtureDiscoveryAt: currentTime.toISOString(),
@@ -150,7 +160,18 @@ async function executeMatchLifecycle({
       });
       matches = await store.listMatches(teamId);
       discovered = true;
+      emitOperationalLog(log, "lifecycle.discovery", {
+        phase: "completed",
+        discoveredFixtures: summary?.fixtureCount ?? "unavailable",
+        persistedMatchCount: matches.length,
+        providerRequests: provider.requestCount,
+      });
     } catch (error) {
+      emitOperationalLog(log, "lifecycle.discovery", {
+        phase: "failed",
+        reason: operationalErrorReason(error),
+        providerRequests: provider.requestCount,
+      });
       return retryable(provider, undefined, error);
     }
   }
@@ -172,6 +193,7 @@ async function executeMatchLifecycle({
     matchId: match.id,
     status: match.status,
     ratingState: match.ratingState,
+    selection: "operational",
   });
   await requireLifecycleExecutionOwnership(store, teamId, match.id);
 
@@ -638,7 +660,7 @@ async function requireLifecycleExecutionOwnership(
   }
 }
 
-export function selectRelevantMatch(
+export function selectLifecycleMatch(
   matches: Match[],
   now: Date,
 ): Match | undefined {
@@ -647,6 +669,7 @@ export function selectRelevantMatch(
       new Date(left.kickoffAt).getTime() - new Date(right.kickoffAt).getTime(),
   );
   return (
+    byKickoff.find((match) => isExpiredRatingWindow(match, now)) ??
     byKickoff.find((match) => {
       const closesAt = getEffectiveVotingClosesAt(match);
       return (
@@ -655,7 +678,12 @@ export function selectRelevantMatch(
         now < new Date(closesAt)
       );
     }) ??
-    byKickoff.find((match) => match.status === "live") ??
+    byKickoff.find(
+      (match) =>
+        match.status === "live" &&
+        match.ratingState !== "rating_ready" &&
+        match.ratingState !== "rating_closed",
+    ) ??
     byKickoff.find(
       (match) =>
         match.status === "finished" &&
@@ -667,28 +695,14 @@ export function selectRelevantMatch(
     byKickoff.find(
       (match) =>
         match.status === "scheduled" &&
+        match.ratingState !== "rating_ready" &&
+        match.ratingState !== "rating_closed" &&
         new Date(match.kickoffAt).getTime() >= now.getTime() - 4 * HOUR,
     ) ??
+    byKickoff.find((match) => match.ratingState === "rating_ready") ??
     [...byKickoff]
       .reverse()
-      .find((match) => match.ratingState === "rating_closed") ??
-    byKickoff.find((match) => match.ratingState === "rating_ready")
-  );
-}
-
-export function selectLifecycleMatch(
-  matches: Match[],
-  now: Date,
-): Match | undefined {
-  return (
-    [...matches]
-      .sort(
-        (left, right) =>
-          new Date(left.kickoffAt).getTime() -
-          new Date(right.kickoffAt).getTime(),
-      )
-      .find((match) => isExpiredRatingWindow(match, now)) ??
-    selectRelevantMatch(matches, now)
+      .find((match) => match.ratingState === "rating_closed")
   );
 }
 
@@ -701,21 +715,30 @@ function isExpiredRatingWindow(match: Match, now: Date): boolean {
   );
 }
 
-function isDiscoveryDue(
-  matches: Match[],
+export type DiscoveryDecision = {
+  due: boolean;
+  reason:
+    | "never-discovered"
+    | "invalid-last-discovery"
+    | "interval-elapsed"
+    | "interval-not-elapsed";
+};
+
+export function discoveryDecision(
   lastDiscoveryAt: string | undefined,
   now: Date,
-): boolean {
-  const hasUpcoming = matches.some(
-    (match) =>
-      ["scheduled", "live"].includes(match.status) &&
-      new Date(match.kickoffAt).getTime() >= now.getTime() - 4 * HOUR,
-  );
-  if (hasUpcoming) return false;
-  if (lastDiscoveryAt === undefined) return true;
-  return (
-    now.getTime() - new Date(lastDiscoveryAt).getTime() >= DISCOVERY_INTERVAL_MS
-  );
+): DiscoveryDecision {
+  if (lastDiscoveryAt === undefined) {
+    return { due: true, reason: "never-discovered" };
+  }
+  const lastDiscoveryTime = new Date(lastDiscoveryAt).getTime();
+  if (!Number.isFinite(lastDiscoveryTime)) {
+    return { due: true, reason: "invalid-last-discovery" };
+  }
+  if (now.getTime() - lastDiscoveryTime >= DISCOVERY_INTERVAL_MS) {
+    return { due: true, reason: "interval-elapsed" };
+  }
+  return { due: false, reason: "interval-not-elapsed" };
 }
 
 function shouldRefreshMatch(match: Match, now: Date): boolean {

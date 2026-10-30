@@ -35,6 +35,31 @@ describe("match archive", () => {
     ]);
     expect(archive.upcoming.map(({ match }) => match.id)).toEqual(["later"]);
     expect(archive.relevant?.match.id).toBe("next");
+    expect(archive.featuredUpcoming).toBe(true);
+  });
+
+  it("keeps stale live closed matches in recent history instead of upcoming", () => {
+    const archive = buildMatchArchive(
+      [
+        item(
+          match({
+            id: "stale-live-closed",
+            kickoffAt: "2026-08-20T18:00:00.000Z",
+            status: "live",
+            ratingState: "rating_closed",
+          }),
+        ),
+        item(match({ id: "next", kickoffAt: "2026-09-03T18:00:00.000Z" })),
+      ],
+      now,
+    );
+
+    expect(archive.relevant?.match.id).toBe("next");
+    expect(archive.upcoming).toEqual([]);
+    expect(archive.recent.map(({ match: value }) => value.id)).toEqual([
+      "stale-live-closed",
+    ]);
+    expect(archive.featuredUpcoming).toBe(true);
   });
 });
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Match } from "@/domain/models";
 
-import { selectRelevantMatch } from "./match-lifecycle";
+import { selectPublicMatch } from "./public-match-selection";
 
 function match(overrides: Partial<Match> = {}): Match {
   return {
@@ -35,7 +35,7 @@ describe("post-kickoff relevant match selection", () => {
       externalProviderFixtureId: "next-fixture",
     });
 
-    expect(selectRelevantMatch([match(), next], now)?.id).toBe("match-current");
+    expect(selectPublicMatch([match(), next], now)?.id).toBe("match-current");
   });
 
   it("stops a stale scheduled match from blocking the next fixture after four hours", () => {
@@ -48,6 +48,6 @@ describe("post-kickoff relevant match selection", () => {
       externalProviderFixtureId: "next-fixture",
     });
 
-    expect(selectRelevantMatch([match(), next], now)?.id).toBe("next-match");
+    expect(selectPublicMatch([match(), next], now)?.id).toBe("next-match");
   });
 });
