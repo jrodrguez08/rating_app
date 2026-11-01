@@ -190,6 +190,45 @@ describe("admin console", () => {
     );
   });
 
+  it("renders preparation cards in the nearest-first order supplied by the server", () => {
+    const overview = emptyOverview();
+    overview.upcomingLiveMatches = [
+      operation("preparation", "not_ready", "current", {
+        homeTeamName: "Sporting San José",
+        awayTeamName: "CS Herediano",
+        status: "live",
+        kickoffAt: "2026-11-01T01:00:00.000Z",
+      }),
+      operation("preparation", "not_ready", "nearest", {
+        awayTeamName: "Rival cercano",
+        status: "scheduled",
+        kickoffAt: "2026-11-08T22:00:00.000Z",
+      }),
+      operation("preparation", "not_ready", "later", {
+        awayTeamName: "Rival posterior",
+        status: "scheduled",
+        kickoffAt: "2026-11-29T22:00:00.000Z",
+      }),
+    ];
+    render(<AdminConsole messages={messages} overview={overview} />);
+
+    const section = screen
+      .getByRole("heading", { name: messages.preparationSection })
+      .closest("section");
+    expect(section).not.toBeNull();
+    const cards = within(section!).getAllByRole("listitem");
+    expect(cards).toHaveLength(3);
+    expect(cards[0]).toHaveTextContent("Sporting San José");
+    expect(within(cards[0]).getByRole("time")).toHaveTextContent(
+      /31 oct 2026.*7:00/i,
+    );
+    expect(cards[1]).toHaveTextContent("Rival cercano");
+    expect(cards[2]).toHaveTextContent("Rival posterior");
+    expect(
+      within(cards[0]).getByRole("link", { name: messages.prepareMatch }),
+    ).toHaveAttribute("href", "/admin/matches/current");
+  });
+
   it("keeps reconciliation, refresh, and sign out accessible by keyboard", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn().mockResolvedValue({ ok: true });

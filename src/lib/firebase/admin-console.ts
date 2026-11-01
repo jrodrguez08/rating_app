@@ -1,5 +1,6 @@
 import { Timestamp, type Firestore } from "firebase-admin/firestore";
 
+import { CURRENT_MATCH_GRACE_MS } from "@/application/public-match-selection";
 import { initialClub } from "@/config/club";
 import type {
   AdminLineupDraft,
@@ -143,6 +144,8 @@ const ratingBlockReasons: ReadonlySet<NonNullable<Match["ratingBlockReason"]>> =
     "provider_failure",
   ]);
 
+const PREPARATION_MATCH_LIMIT = 10;
+
 function describeVotingPresentation(
   match: Match,
   now: Date,
@@ -207,25 +210,90 @@ export class AdminConsoleService {
   ) {}
 
   async overview(): Promise<AdminOverview> {
-    const matchesSnapshot = await this.database
-      .collection("matches")
-      .where("trackedTeamId", "==", initialClub.teamId)
-      .orderBy("kickoffAt", "desc")
-      .limit(30)
-      .get();
-    const matches = matchesSnapshot.docs.map((snapshot) =>
-      fromSnapshot<Match>(snapshot),
+    const now = this.now();
+    const currentMatchThreshold = Timestamp.fromMillis(
+      now.getTime() - CURRENT_MATCH_GRACE_MS,
     );
+    const matches = this.database.collection("matches");
+    const [
+      liveSnapshot,
+      scheduledSnapshot,
+      ratingReadySnapshot,
+      ratingClosedSnapshot,
+      attentionSnapshot,
+    ] = await Promise.all([
+      matches
+        .where("trackedTeamId", "==", initialClub.teamId)
+        .where("status", "==", "live")
+        .where("ratingState", "in", ["not_ready", "preparing_rating"])
+        .where("kickoffAt", ">=", currentMatchThreshold)
+        .orderBy("kickoffAt", "asc")
+        .limit(PREPARATION_MATCH_LIMIT)
+        .get(),
+      matches
+        .where("trackedTeamId", "==", initialClub.teamId)
+        .where("status", "==", "scheduled")
+        .where("ratingState", "in", ["not_ready", "preparing_rating"])
+        .where("kickoffAt", ">=", currentMatchThreshold)
+        .orderBy("kickoffAt", "asc")
+        .limit(PREPARATION_MATCH_LIMIT)
+        .get(),
+      matches
+        .where("trackedTeamId", "==", initialClub.teamId)
+        .where("ratingState", "==", "rating_ready")
+        .orderBy("kickoffAt", "desc")
+        .limit(PREPARATION_MATCH_LIMIT)
+        .get(),
+      matches
+        .where("trackedTeamId", "==", initialClub.teamId)
+        .where("ratingState", "==", "rating_closed")
+        .orderBy("kickoffAt", "desc")
+        .limit(PREPARATION_MATCH_LIMIT)
+        .get(),
+      matches
+        .where("trackedTeamId", "==", initialClub.teamId)
+        .where("status", "==", "finished")
+        .where("ratingState", "==", "preparing_rating")
+        .orderBy("kickoffAt", "desc")
+        .limit(PREPARATION_MATCH_LIMIT)
+        .get(),
+    ]);
+    const uniqueMatches = new Map<string, Match>();
+    for (const snapshot of [
+      ...ratingReadySnapshot.docs,
+      ...ratingClosedSnapshot.docs,
+      ...attentionSnapshot.docs,
+      ...liveSnapshot.docs,
+      ...scheduledSnapshot.docs,
+    ]) {
+      if (!uniqueMatches.has(snapshot.id)) {
+        uniqueMatches.set(snapshot.id, fromSnapshot<Match>(snapshot));
+      }
+    }
     const described = await Promise.all(
-      matches.map((match) => this.describeMatch(match)),
+      [...uniqueMatches.values()].map((match) => this.describeMatch(match)),
     );
-    const preparationMatches = described.filter(
-      (match) => match.votingPresentation === "preparation",
+    const describedById = new Map(
+      described.map((match) => [match.id, match] as const),
     );
+    const currentLiveMatches = liveSnapshot.docs
+      .map((snapshot) => describedById.get(snapshot.id))
+      .filter(
+        (match): match is AdminMatchOperation =>
+          match !== undefined &&
+          match.votingPresentation === "preparation" &&
+          Date.parse(match.kickoffAt) <= now.getTime(),
+      );
+    const scheduledMatches = scheduledSnapshot.docs
+      .map((snapshot) => describedById.get(snapshot.id))
+      .filter(
+        (match): match is AdminMatchOperation =>
+          match !== undefined && match.votingPresentation === "preparation",
+      );
     return {
-      upcomingLiveMatches: preparationMatches
-        .filter((match) => ["scheduled", "live"].includes(match.status))
-        .slice(0, 10),
+      upcomingLiveMatches: [...currentLiveMatches, ...scheduledMatches]
+        .sort(comparePreparationMatches)
+        .slice(0, PREPARATION_MATCH_LIMIT),
       attentionMatches: described
         .filter(
           (match) =>
@@ -234,12 +302,12 @@ export class AdminConsoleService {
               match.status === "finished" &&
               match.ratingState === "preparing_rating"),
         )
-        .slice(0, 10),
+        .slice(0, PREPARATION_MATCH_LIMIT),
       votingCompletedMatches: described
         .filter((match) =>
           ["open", "expired", "published"].includes(match.votingPresentation),
         )
-        .slice(0, 10),
+        .slice(0, PREPARATION_MATCH_LIMIT),
     };
   }
 
@@ -628,6 +696,19 @@ export class AdminConsoleService {
         : {}),
     };
   }
+}
+
+function comparePreparationMatches(
+  left: AdminMatchOperation,
+  right: AdminMatchOperation,
+): number {
+  const statusPriority = (match: AdminMatchOperation) =>
+    match.status === "live" ? 0 : 1;
+  return (
+    statusPriority(left) - statusPriority(right) ||
+    Date.parse(left.kickoffAt) - Date.parse(right.kickoffAt) ||
+    left.id.localeCompare(right.id)
+  );
 }
 
 function fromSnapshot<T>(snapshot: {

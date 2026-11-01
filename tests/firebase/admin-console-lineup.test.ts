@@ -3,6 +3,7 @@ import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { initialClub } from "@/config/club";
+import type { Match } from "@/domain/models";
 import { playerProviderAliasId } from "@/domain/player-identity";
 import {
   normalizePlayerSearch,
@@ -34,6 +35,205 @@ beforeAll(async () => {
 afterAll(() => deleteApp(app));
 
 describe("admin console lineup reads", () => {
+  it("keeps the current fixture first with more than ten later fixtures and preserves historical sections", async () => {
+    const now = new Date("2040-01-01T06:05:00.000Z");
+    const suffix = Date.now();
+    const currentId = "match-ac02f1ddb3031c23459d1886";
+    const overdueId = `admin-overdue-${suffix}`;
+    const tooOldId = `admin-too-old-${suffix}`;
+    const staleLiveId = `admin-stale-live-${suffix}`;
+    const openId = `admin-open-${suffix}`;
+    const expiredId = `admin-expired-overview-${suffix}`;
+    const publishedId = `admin-published-overview-${suffix}`;
+    const attentionId = `admin-attention-${suffix}`;
+    const futureMatches = Array.from({ length: 12 }, (_, index) => ({
+      id: `admin-future-${suffix}-${String(index).padStart(2, "0")}`,
+      kickoffAt: new Date(now.getTime() + (index + 2) * 60 * 60 * 1000),
+    }));
+    const tieKickoff = new Date(now.getTime() + 30 * 60 * 1000);
+
+    await Promise.all([
+      seedOverviewMatch(
+        currentId,
+        new Date(now.getTime() - 35 * 60 * 1000),
+        "live",
+        "not_ready",
+        {
+          externalProviderFixtureId: "1551715",
+          homeTeam: { id: "sporting", name: "Sporting San José" },
+          awayTeam: { id: initialClub.teamId, name: "CS Herediano" },
+        },
+      ),
+      seedOverviewMatch(
+        overdueId,
+        new Date(now.getTime() - (4 * 60 * 60 * 1000 - 60 * 1000)),
+        "scheduled",
+        "not_ready",
+      ),
+      seedOverviewMatch(
+        tooOldId,
+        new Date(now.getTime() - (4 * 60 * 60 * 1000 + 60 * 1000)),
+        "scheduled",
+        "not_ready",
+      ),
+      seedOverviewMatch(
+        `admin-tie-b-${suffix}`,
+        tieKickoff,
+        "scheduled",
+        "not_ready",
+      ),
+      seedOverviewMatch(
+        `admin-tie-a-${suffix}`,
+        tieKickoff,
+        "scheduled",
+        "not_ready",
+      ),
+      ...futureMatches.map(({ id, kickoffAt }) =>
+        seedOverviewMatch(id, kickoffAt, "scheduled", "not_ready"),
+      ),
+      seedOverviewMatch(
+        staleLiveId,
+        new Date(now.getTime() - 20 * 60 * 1000),
+        "live",
+        "rating_closed",
+      ),
+      seedOverviewMatch(
+        openId,
+        new Date(now.getTime() - 3 * 60 * 60 * 1000),
+        "finished",
+        "rating_ready",
+        {
+          votingOpensAt: Timestamp.fromDate(
+            new Date(now.getTime() - 30 * 60 * 1000),
+          ),
+          votingClosesAt: Timestamp.fromDate(
+            new Date(now.getTime() + 90 * 60 * 1000),
+          ),
+        },
+      ),
+      seedOverviewMatch(
+        expiredId,
+        new Date(now.getTime() - 5 * 60 * 60 * 1000),
+        "finished",
+        "rating_ready",
+        {
+          votingOpensAt: Timestamp.fromDate(
+            new Date(now.getTime() - 3 * 60 * 60 * 1000),
+          ),
+          votingClosesAt: Timestamp.fromDate(
+            new Date(now.getTime() - 60 * 60 * 1000),
+          ),
+        },
+      ),
+      seedOverviewMatch(
+        publishedId,
+        new Date(now.getTime() - 6 * 60 * 60 * 1000),
+        "finished",
+        "rating_closed",
+      ),
+      seedOverviewMatch(
+        attentionId,
+        new Date(now.getTime() - 2 * 60 * 60 * 1000),
+        "finished",
+        "preparing_rating",
+      ),
+    ]);
+    const markerPaths = [
+      `matches/${currentId}`,
+      `matches/${currentId}/verifiedLineups/current`,
+      `matches/${currentId}/verifiedCoachAssignments/head-coach`,
+      `matches/${currentId}/coachAssignments/head-coach`,
+    ];
+    const markerTime = Timestamp.fromDate(now);
+    await Promise.all([
+      database.doc(markerPaths[1]).set({
+        matchId: currentId,
+        trackedTeamId: initialClub.teamId,
+        externalFixtureId: "1551715",
+        participants: [],
+        verificationSource: "https://evidence.example/current",
+        verificationReason: "Representative emulator evidence.",
+        operatorId: "owner-uid",
+        verifiedAt: markerTime,
+      }),
+      database.doc(markerPaths[2]).set({
+        matchId: currentId,
+        teamId: initialClub.teamId,
+        externalProviderFixtureId: "1551715",
+        coachId: "coach-current",
+        verificationSource: "https://evidence.example/current",
+        verificationReason: "Representative emulator evidence.",
+        verifiedAt: markerTime,
+      }),
+      database.doc(markerPaths[3]).set({
+        matchId: currentId,
+        teamId: initialClub.teamId,
+        coachId: "coach-current",
+        coachName: "Jafet Soto",
+        provenance: "operator_verified",
+        createdAt: markerTime,
+        updatedAt: markerTime,
+      }),
+    ]);
+    const persistedBefore = await Promise.all(
+      markerPaths.map(async (path) => (await database.doc(path).get()).data()),
+    );
+
+    const overview = await new AdminConsoleService(
+      database,
+      undefined,
+      () => now,
+    ).overview();
+
+    expect(overview.upcomingLiveMatches).toHaveLength(10);
+    expect(overview.upcomingLiveMatches[0]).toMatchObject({
+      id: currentId,
+      externalFixtureId: "1551715",
+      status: "live",
+      votingPresentation: "preparation",
+    });
+    expect(overview.upcomingLiveMatches[1]?.id).toBe(overdueId);
+    expect(overview.upcomingLiveMatches.map(({ id }) => id)).not.toContain(
+      tooOldId,
+    );
+    expect(new Set(overview.upcomingLiveMatches.map(({ id }) => id)).size).toBe(
+      overview.upcomingLiveMatches.length,
+    );
+    expect(
+      overview.upcomingLiveMatches
+        .slice(1)
+        .every(
+          (match, index, matches) =>
+            index === 0 ||
+            Date.parse(matches[index - 1].kickoffAt) <=
+              Date.parse(match.kickoffAt),
+        ),
+    ).toBe(true);
+    const tied = overview.upcomingLiveMatches.filter(
+      ({ kickoffAt }) => kickoffAt === tieKickoff.toISOString(),
+    );
+    expect(tied.map(({ id }) => id)).toEqual([
+      `admin-tie-a-${suffix}`,
+      `admin-tie-b-${suffix}`,
+    ]);
+    expect(overview.votingCompletedMatches.map(({ id }) => id)).toEqual(
+      expect.arrayContaining([staleLiveId, openId, expiredId, publishedId]),
+    );
+    expect(overview.upcomingLiveMatches.map(({ id }) => id)).not.toContain(
+      staleLiveId,
+    );
+    expect(overview.attentionMatches.map(({ id }) => id)).toContain(
+      attentionId,
+    );
+    expect(
+      await Promise.all(
+        markerPaths.map(async (path) =>
+          (await database.doc(path).get()).data(),
+        ),
+      ),
+    ).toEqual(persistedBefore);
+  });
+
   it("suppresses stale diagnostics after manual opening and classifies the trusted window", async () => {
     const matchId = "admin-view-match-10a50b08075ca1f0646e5b6d";
     const now = new Date("2026-10-19T20:30:00.000Z");
@@ -415,6 +615,30 @@ async function seedMatch(matchId: string) {
     lineupSnapshotAt: now,
     createdAt: now,
     updatedAt: now,
+  });
+}
+
+async function seedOverviewMatch(
+  matchId: string,
+  kickoffAt: Date,
+  status: Match["status"],
+  ratingState: Match["ratingState"],
+  overrides: Record<string, unknown> = {},
+) {
+  const now = Timestamp.fromDate(kickoffAt);
+  await database.doc(`matches/${matchId}`).set({
+    trackedTeamId: initialClub.teamId,
+    trackedTeamExternalProviderId: "815",
+    externalProvider: "api-football",
+    externalProviderFixtureId: `${matchId}-fixture`,
+    kickoffAt: now,
+    homeTeam: { id: initialClub.teamId, name: "CS Herediano" },
+    awayTeam: { id: "opponent", name: "Rival" },
+    status,
+    ratingState,
+    createdAt: now,
+    updatedAt: now,
+    ...overrides,
   });
 }
 
