@@ -3,7 +3,7 @@ import type { Match } from "@/domain/models";
 import { getVotingWindowState } from "@/domain/voting-window";
 
 const HOUR = 60 * 60 * 1000;
-const CURRENT_MATCH_GRACE_MS = 4 * HOUR;
+export const CURRENT_MATCH_GRACE_MS = 4 * HOUR;
 
 export function selectPublicMatch(
   matches: Match[],
