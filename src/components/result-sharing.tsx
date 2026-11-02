@@ -11,6 +11,7 @@ export function ResultSharing({
   canonicalUrl,
   storyUrl,
   storyFilename,
+  ratingStoryPages,
   shareTitle,
   shareText,
   messages,
@@ -18,6 +19,12 @@ export function ResultSharing({
   canonicalUrl: string;
   storyUrl: string;
   storyFilename: string;
+  ratingStoryPages: readonly {
+    page: number;
+    pageCount: number;
+    url: string;
+    filename: string;
+  }[];
   shareTitle: string;
   shareText: string;
   messages: Messages["results"]["sharing"];
@@ -100,6 +107,48 @@ export function ResultSharing({
       >
         {messages.viewStory}
       </a>
+      <div className="mt-5 border-t-2 border-[var(--game-border)] pt-4">
+        <h3 className="score-font text-lg">{messages.tableStoryTitle}</h3>
+        <p className="mt-2 text-sm leading-6 text-muted">
+          {messages.tableStoryDescription}
+        </p>
+        <ul className="mt-3 space-y-3" aria-label={messages.tableStoryTitle}>
+          {ratingStoryPages.map((storyPage) => {
+            const multiple = storyPage.pageCount > 1;
+            return (
+              <li key={storyPage.page} className="grid gap-3 sm:grid-cols-2">
+                <a
+                  href={storyPage.url}
+                  download={storyPage.filename}
+                  className="button-secondary inline-flex min-h-11 items-center justify-center px-4 py-3 text-center font-bold"
+                >
+                  {multiple
+                    ? pageLabel(
+                        messages.downloadTableStoryPage,
+                        storyPage.page,
+                        storyPage.pageCount,
+                      )
+                    : messages.downloadTableStory}
+                </a>
+                <a
+                  href={`${storyPage.url}&view=1`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex min-h-11 items-center justify-center text-center font-bold text-accent underline decoration-2 underline-offset-4"
+                >
+                  {multiple
+                    ? pageLabel(
+                        messages.viewTableStoryPage,
+                        storyPage.page,
+                        storyPage.pageCount,
+                      )
+                    : messages.viewTableStory}
+                </a>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
       {showManualCopy ? (
         <label className="mt-3 block text-sm font-bold">
           {messages.copyUnavailable}
@@ -120,6 +169,12 @@ export function ResultSharing({
       </p>
     </section>
   );
+}
+
+function pageLabel(template: string, page: number, pageCount: number): string {
+  return template
+    .replace("{page}", String(page))
+    .replace("{total}", String(pageCount));
 }
 
 async function copyText(value: string): Promise<boolean> {

@@ -1,6 +1,10 @@
 import Link from "next/link";
 
 import type { PublishedResultPodium } from "@/application/published-result-podium";
+import {
+  buildPublishedRatingStoryPages,
+  publishedRatingStoryFilename,
+} from "@/application/published-rating-story";
 import { siteUrl } from "@/config/site";
 import type { Match, MatchResult, PlayerResult } from "@/domain/models";
 import type { Locale } from "@/i18n/config";
@@ -44,6 +48,21 @@ export function MatchResults({
     result.ballotCount === 1
       ? messages.basedOnOne
       : messages.basedOnMany.replace("{count}", String(result.ballotCount));
+  const ratingStoryPages = podium
+    ? buildPublishedRatingStoryPages(podium).map((storyPage) => ({
+        page: storyPage.page,
+        pageCount: storyPage.pageCount,
+        url: new URL(
+          `/matches/${encodeURIComponent(match.id)}/results/story/table?page=${storyPage.page}`,
+          siteUrl,
+        ).href,
+        filename: publishedRatingStoryFilename(
+          match.id,
+          storyPage.page,
+          storyPage.pageCount,
+        ),
+      }))
+    : [];
   return (
     <section aria-labelledby="results-heading" className="card overflow-hidden">
       <div aria-hidden="true" className="flex h-2">
@@ -105,13 +124,14 @@ export function MatchResults({
                   ).href
                 }
                 storyFilename={`rating-app-${match.id}-historia.png`}
+                ratingStoryPages={ratingStoryPages}
                 shareTitle={`${match.homeTeam.name} ${podium.score.home} - ${podium.score.away} ${match.awayTeam.name}`}
                 shareText={messages.sharing.shareText}
                 messages={messages.sharing}
               />
             ) : null}
             <h2 className="score-font mt-7 text-xl">{messages.players}</h2>
-            <ol className="mt-3 space-y-2">
+            <ol className="mt-3 space-y-2" aria-label={messages.players}>
               {ranked.map((player, index) => (
                 <li
                   key={player.playerId}

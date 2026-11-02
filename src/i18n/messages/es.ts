@@ -284,6 +284,13 @@ export const esMessages = {
       copyLink: "Copiar enlace",
       downloadStory: "Descargar historia",
       viewStory: "Ver historia",
+      tableStoryTitle: "Tabla completa para historias",
+      tableStoryDescription:
+        "Incluye todas las calificaciones publicadas. Cada imagen se descarga por separado.",
+      downloadTableStory: "Descargar tabla para historia",
+      viewTableStory: "Ver historia de calificaciones",
+      downloadTableStoryPage: "Descargar historia {page} de {total}",
+      viewTableStoryPage: "Ver historia {page} de {total}",
       sharing: "Preparando para compartir...",
       shared: "Resultados compartidos.",
       copied: "Enlace copiado.",
