@@ -152,6 +152,8 @@ The Partidos archive reads the fixture window already persisted by discovery and
 
 After the corrected release is deployed and the membership repair is complete, Jugadores pages use server-only, provider-free read-time derivation over the maintained Team membership index and final Team result summaries. They batch-read only the corresponding parent Matches and never scan MatchParticipants, drafts, verified lineups, unrelated Matches, or ballots. Admin search reads at most 21 membership documents per request before bounded identity lookups. A missing completeness marker, missing result identity, or failed page fails the request instead of returning a silently partial catalog. Monitor reads proportional to indexed Players plus published rated Matches and route latency; introduce a reviewed trusted result projection only when measured volume requires it.
 
+After deploying the adjusted cumulative ranking, open `/players` and profiles for an eligible Player, a one-match Player, and a Player with at least six rated matches. Require the catalog and profile to agree on rank, one-decimal ranking score, separately labeled supporter average, and rated-match count. The one-match Player must show the real average but no rank or adjusted score. For the six-match Player, independently calculate the latest-three mean minus the preceding-three mean by kickoff time and confirm the localized improving, declining, or stable label; the trend must not change rank. When two displayed scores round to the same tenth, preserve their deterministic numbered order. Confirm match result pages, MVP/co-MVP, Studio, Story images, ballots, and persisted summaries are unchanged. These reads use the existing paginated membership/result dataset, make no provider request or Firestore write, and require no migration or index.
+
 Refresh current Jugadores squad presentation metadata manually after deployment, after meaningful roster changes, or at most once daily. From a controlled operator environment with the production Firebase Admin variables and `API_FOOTBALL_KEY` loaded, run `npm run sync:player-squad -- --project-id rating-app-prod-8b7df --confirm sync-player-squad`. The command targets only the configured internal Team and its persisted provider Team mapping, makes one `GET /players/squads` request, never logs the key, and is safe to rerun: it resolves explicit provider aliases before upserting canonical Players, preserves omitted optional metadata, and never deletes players or history. No new Firestore index is required.
 
 ### Player identity reconciliation
@@ -358,7 +360,7 @@ Never log, commit, paste into issues, or expose these values to browser variable
 
 - Anonymous Auth identifies a browser profile, not a person; it is not strict one-person-one-vote.
 - App Check and broader abuse controls are not enabled yet.
-- Jugadores V1 provides bounded Rating App history and team ranking; season filters, advanced player metrics, and broader leaderboards remain deferred.
+- Jugadores provides a participation-adjusted ranking and six-match progression over the currently available bounded published Rating App history; season filters, advanced player metrics, and broader leaderboards remain deferred.
 - Final aggregation reads all ballots once and assumes small-community volume.
 - The GitHub schedule is approximate and consumes private-repository Actions minutes.
 

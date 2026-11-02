@@ -261,6 +261,11 @@ export const esMessages = {
     introduction:
       "La calificación de la afición a lo largo de los partidos publicados.",
     average: "Promedio Rating App",
+    rankingScore: "Puntuación del ranking",
+    supporterAverage: "Promedio de la afición",
+    ratedMatchesLabel: "Partidos calificados",
+    rankingExplanation:
+      "La puntuación del ranking conserva el promedio real de la afición por separado y ajusta la muestra hacia el promedio de los jugadores-partido del historial publicado disponible. La referencia equivale a {count} partidos y cada partido cuenta una vez. La tendencia compara los últimos tres partidos con los tres anteriores y no cambia la posición.",
     ratedMatch: "1 partido calificado",
     ratedMatches: "{count} partidos calificados",
     rank: "#{rank} del equipo",
@@ -268,6 +273,12 @@ export const esMessages = {
     unrankedDescription:
       "El ranking comienza después de {count} partidos calificados.",
     recentRating: "Calificación reciente: {rating}",
+    trendImproving: "En mejora",
+    trendDeclining: "En descenso",
+    trendStable: "Estable",
+    trendInsufficient: "Sin tendencia suficiente",
+    trendAccessible:
+      "{status}: variación {delta}. Promedio de los últimos tres partidos {recent}; promedio de los tres anteriores {previous}.",
     noRating: "Sin calificaciones publicadas",
     noPlayers: "Todavía no hay jugadores conocidos para mostrar.",
     unavailableTitle: "No pudimos cargar los jugadores",

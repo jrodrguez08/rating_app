@@ -33,7 +33,11 @@ export default async function PlayersPage() {
     >
       <main id="main-content" className="page-shell py-7 sm:py-10">
         {catalog ? (
-          <PlayerCatalogView catalog={catalog} messages={messages.players} />
+          <PlayerCatalogView
+            catalog={catalog}
+            locale={locale}
+            messages={messages.players}
+          />
         ) : (
           <section
             className="card p-6 text-center"

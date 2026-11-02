@@ -1,11 +1,14 @@
 import Link from "next/link";
 
-import type {
-  PlayerCatalog,
-  PlayerCatalogEntry,
+import {
+  PLAYER_RANKING_MIN_MATCHES,
+  PLAYER_RANKING_PRIOR_MATCH_WEIGHT,
+  type PlayerCatalog,
+  type PlayerCatalogEntry,
+  type PlayerRatingTrend,
 } from "@/application/player-history";
 import type { Locale } from "@/i18n/config";
-import { formatDate } from "@/i18n/format";
+import { formatDate, formatRating } from "@/i18n/format";
 import type { Messages } from "@/i18n/messages";
 
 import { PlayerAvatar } from "./player-avatar";
@@ -14,9 +17,11 @@ type PlayerMessages = Messages["players"];
 
 export function PlayerCatalogView({
   catalog,
+  locale,
   messages,
 }: {
   catalog: PlayerCatalog;
+  locale: Locale;
   messages: PlayerMessages;
 }) {
   return (
@@ -28,6 +33,12 @@ export function PlayerCatalogView({
       <p className="mt-3 max-w-2xl leading-6 text-muted">
         {messages.introduction}
       </p>
+      <p className="game-inset mt-4 max-w-2xl p-4 text-sm leading-6 text-muted">
+        {messages.rankingExplanation.replace(
+          "{count}",
+          String(catalog.rankingPriorMatchWeight),
+        )}
+      </p>
       {catalog.players.length === 0 ? (
         <p className="game-inset mt-6 p-5 text-center text-muted">
           {messages.noPlayers}
@@ -38,50 +49,59 @@ export function PlayerCatalogView({
             <li key={player.playerId}>
               <Link
                 href={`/players/${encodeURIComponent(player.playerId)}`}
-                className="card grid min-h-20 grid-cols-[3rem_minmax(0,1fr)_auto] items-center gap-3 p-4"
+                className="card block min-h-20 p-4"
               >
-                <PlayerAvatar
-                  name={player.playerName}
-                  photoUrl={player.photoUrl}
-                  label={messages.avatarLabel.replace(
-                    "{name}",
-                    player.playerName,
-                  )}
-                />
-                <span className="min-w-0">
-                  <span className="block break-words font-extrabold">
-                    {player.playerName}
-                  </span>
-                  {player.position === undefined ? null : (
-                    <span className="mt-1 block text-sm font-bold text-accent">
-                      {messages.positions[player.position]}
+                <span className="flex min-w-0 items-center gap-3">
+                  <PlayerAvatar
+                    name={player.playerName}
+                    photoUrl={player.photoUrl}
+                    label={messages.avatarLabel.replace(
+                      "{name}",
+                      player.playerName,
+                    )}
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block break-words font-extrabold">
+                      {player.playerName}
                     </span>
-                  )}
-                  <span className="mt-1 block text-sm text-muted">
-                    {matchCount(player.ratedMatchCount, messages)}
-                    {player.rank === null ? ` · ${messages.unranked}` : ""}
+                    {player.position === undefined ? null : (
+                      <span className="mt-1 block text-sm font-bold text-accent">
+                        {messages.positions[player.position]}
+                      </span>
+                    )}
                   </span>
-                  {player.recentRating === null ? null : (
-                    <span className="mt-1 block text-xs text-muted">
-                      {messages.recentRating.replace(
-                        "{rating}",
-                        rating(player.recentRating),
-                      )}
-                    </span>
-                  )}
-                </span>
-                <span className="text-right">
-                  <span className="score-font block text-xs text-muted">
-                    {player.rank === null
-                      ? messages.unranked
-                      : `#${player.rank}`}
-                  </span>
-                  <span className="score-font block text-2xl text-accent">
-                    {player.overallAverage === null
-                      ? "—"
-                      : rating(player.overallAverage)}
+                  <span className="score-font shrink-0 text-right text-sm text-muted">
+                    {player.rank === null ? (
+                      messages.unranked
+                    ) : (
+                      <>
+                        <span className="sr-only">
+                          {messages.rank.replace("{rank}", String(player.rank))}
+                        </span>
+                        <span aria-hidden="true">#{player.rank}</span>
+                      </>
+                    )}
                   </span>
                 </span>
+                <div className="mt-4">
+                  <PlayerRankingMetrics
+                    player={player}
+                    locale={locale}
+                    messages={messages}
+                    compact
+                  />
+                  {player.trend === null ? (
+                    <span className="mt-3 block text-sm text-muted">
+                      {messages.trendInsufficient}
+                    </span>
+                  ) : (
+                    <TrendIndicator
+                      trend={player.trend}
+                      locale={locale}
+                      messages={messages}
+                    />
+                  )}
+                </div>
               </Link>
             </li>
           ))}
@@ -133,29 +153,41 @@ export function PlayerProfile({
               )}
             </div>
           </div>
-          <div className="game-inset mt-5 grid grid-cols-2 gap-4 p-4">
-            <div>
-              <p className="score-font text-4xl text-accent">
-                {player.overallAverage === null
-                  ? "—"
-                  : rating(player.overallAverage)}
+          <div className="game-inset mt-5 p-4">
+            <p className="score-font text-sm text-muted">
+              {player.rank === null
+                ? messages.unranked
+                : messages.rank.replace("{rank}", String(player.rank))}
+            </p>
+            <PlayerRankingMetrics
+              player={player}
+              locale={locale}
+              messages={messages}
+            />
+            {player.trend === null ? (
+              <p className="mt-4 text-sm text-muted">
+                {messages.trendInsufficient}
               </p>
-              <p className="mt-1 text-sm text-muted">{messages.average}</p>
-            </div>
-            <div className="text-right">
-              <p className="score-font text-xl">
-                {player.rank === null
-                  ? messages.unranked
-                  : messages.rank.replace("{rank}", String(player.rank))}
-              </p>
-              <p className="mt-1 text-sm text-muted">
-                {matchCount(player.ratedMatchCount, messages)}
-              </p>
-            </div>
+            ) : (
+              <TrendIndicator
+                trend={player.trend}
+                locale={locale}
+                messages={messages}
+              />
+            )}
           </div>
+          <p className="mt-3 text-sm leading-6 text-muted">
+            {messages.rankingExplanation.replace(
+              "{count}",
+              String(PLAYER_RANKING_PRIOR_MATCH_WEIGHT),
+            )}
+          </p>
           {player.rank === null && player.ratedMatchCount > 0 ? (
             <p className="mt-3 text-sm text-muted">
-              {messages.unrankedDescription.replace("{count}", "2")}
+              {messages.unrankedDescription.replace(
+                "{count}",
+                String(PLAYER_RANKING_MIN_MATCHES),
+              )}
             </p>
           ) : null}
         </div>
@@ -177,7 +209,7 @@ export function PlayerProfile({
             {player.history.length === 1 ? (
               <div className="game-inset mt-4 p-4 text-center">
                 <p className="score-font text-3xl text-accent">
-                  {rating(player.history[0].average)}
+                  {formatRating(player.history[0].average, locale)}
                 </p>
                 <p className="mt-2 text-sm text-muted">
                   {messages.oneMatchTrend}
@@ -221,7 +253,7 @@ export function PlayerProfile({
                       </p>
                     </div>
                     <span className="score-font text-3xl text-accent">
-                      {rating(entry.average)}
+                      {formatRating(entry.average, locale)}
                     </span>
                   </div>
                   <Link
@@ -275,7 +307,9 @@ function RatingSparkline({
     .replace("{name}", player.playerName)
     .replace(
       "{ratings}",
-      chronological.map((entry) => rating(entry.average)).join(", "),
+      chronological
+        .map((entry) => formatRating(entry.average, locale))
+        .join(", "),
     );
   return (
     <div className="game-inset mt-4 overflow-hidden p-3">
@@ -336,7 +370,7 @@ function RatingSparkline({
           const pointLabel = messages.trendPointLabel
             .replace("{opponent}", entry.opponentName)
             .replace("{date}", fullDate)
-            .replace("{rating}", rating(entry.average));
+            .replace("{rating}", formatRating(entry.average, locale));
           const tooltipWidth = 152;
           const tooltipHeight = 50;
           const tooltipX = Math.min(
@@ -395,7 +429,7 @@ function RatingSparkline({
                 >
                   {messages.trendRating.replace(
                     "{rating}",
-                    rating(entry.average),
+                    formatRating(entry.average, locale),
                   )}
                 </text>
                 <text
@@ -474,12 +508,75 @@ function truncate(value: string, maximumLength: number) {
     : `${value.slice(0, maximumLength - 1)}…`;
 }
 
-function matchCount(count: number, messages: PlayerMessages) {
-  return count === 1
-    ? messages.ratedMatch
-    : messages.ratedMatches.replace("{count}", String(count));
+function PlayerRankingMetrics({
+  player,
+  locale,
+  messages,
+  compact = false,
+}: {
+  player: PlayerCatalogEntry;
+  locale: Locale;
+  messages: PlayerMessages;
+  compact?: boolean;
+}) {
+  return (
+    <dl
+      className={`grid grid-cols-2 gap-3 ${
+        player.rankingScore === null ? "" : "sm:grid-cols-3"
+      } ${compact ? "text-sm" : "mt-3"}`}
+    >
+      {player.rankingScore === null ? null : (
+        <div>
+          <dt className="text-muted">{messages.rankingScore}</dt>
+          <dd className="score-font mt-1 text-2xl text-accent">
+            {formatRating(player.rankingScore, locale)}
+          </dd>
+        </div>
+      )}
+      <div>
+        <dt className="text-muted">{messages.supporterAverage}</dt>
+        <dd className="score-font mt-1 text-xl">
+          {player.overallAverage === null
+            ? "—"
+            : formatRating(player.overallAverage, locale)}
+        </dd>
+      </div>
+      <div>
+        <dt className="text-muted">{messages.ratedMatchesLabel}</dt>
+        <dd className="score-font mt-1 text-xl">{player.ratedMatchCount}</dd>
+      </div>
+    </dl>
+  );
 }
 
-function rating(value: number) {
-  return value.toFixed(1);
+function TrendIndicator({
+  trend,
+  locale,
+  messages,
+}: {
+  trend: PlayerRatingTrend;
+  locale: Locale;
+  messages: PlayerMessages;
+}) {
+  const labels = {
+    improving: messages.trendImproving,
+    declining: messages.trendDeclining,
+    stable: messages.trendStable,
+  };
+  const arrows = { improving: "↑", declining: "↓", stable: "→" };
+  const delta = `${trend.delta >= 0 ? "+" : "−"}${formatRating(
+    Math.abs(trend.delta),
+    locale,
+  )}`;
+  const accessibleLabel = messages.trendAccessible
+    .replace("{status}", labels[trend.direction])
+    .replace("{delta}", delta)
+    .replace("{recent}", formatRating(trend.recentAverage, locale))
+    .replace("{previous}", formatRating(trend.previousAverage, locale));
+  return (
+    <p className="mt-3 text-sm font-bold" aria-label={accessibleLabel}>
+      <span aria-hidden="true">{arrows[trend.direction]} </span>
+      {labels[trend.direction]} {delta}
+    </p>
+  );
 }

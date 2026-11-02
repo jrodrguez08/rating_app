@@ -14,6 +14,8 @@ describe("player history UI", () => {
       <PlayerCatalogView
         catalog={{
           rankingMinimumMatches: 2,
+          rankingPriorMatchWeight: 3,
+          referenceMean: 8,
           players: [
             player(),
             player({
@@ -24,6 +26,7 @@ describe("player history UI", () => {
             }),
           ],
         }}
+        locale="en"
         messages={messages}
       />,
     );
@@ -36,6 +39,31 @@ describe("player history UI", () => {
       "/players/player-1",
     );
     expect(screen.getAllByText(/Not ranked yet/)).not.toHaveLength(0);
+    expect(screen.getByText("Ranking score")).toBeInTheDocument();
+    expect(screen.getAllByText("Supporter average")).toHaveLength(2);
+    expect(screen.getAllByText("Rated matches")).toHaveLength(2);
+  });
+
+  it("keeps official order visible when displayed ranking scores round equally", () => {
+    render(
+      <PlayerCatalogView
+        catalog={{
+          rankingMinimumMatches: 2,
+          rankingPriorMatchWeight: 3,
+          referenceMean: 7.5,
+          players: [
+            player({ playerId: "first", rankingScore: 8.34, rank: 1 }),
+            player({ playerId: "second", rankingScore: 8.33, rank: 2 }),
+          ],
+        }}
+        locale="en"
+        messages={messages}
+      />,
+    );
+
+    const [first] = screen.getAllByRole("link", { name: /Rated Player/ });
+    expect(within(first).getByText("#1")).toBeInTheDocument();
+    expect(screen.getAllByText("8.3")).toHaveLength(2);
   });
 
   it("renders persisted position and photo, then falls back deterministically on failure", () => {
@@ -43,6 +71,8 @@ describe("player history UI", () => {
       <PlayerCatalogView
         catalog={{
           rankingMinimumMatches: 2,
+          rankingPriorMatchWeight: 3,
+          referenceMean: 8,
           players: [
             player({
               playerName: "John Smith",
@@ -51,6 +81,7 @@ describe("player history UI", () => {
             }),
           ],
         }}
+        locale="en"
         messages={messages}
       />,
     );
@@ -61,6 +92,27 @@ describe("player history UI", () => {
     expect(image).not.toBeNull();
     fireEvent.error(image!);
     expect(screen.getByText("JS")).toBeInTheDocument();
+  });
+
+  it("keeps long canonical names and ranking metrics in a wrapping mobile layout", () => {
+    const longName = "A Very Long Canonical Player Name That Must Wrap";
+    render(
+      <PlayerCatalogView
+        catalog={{
+          rankingMinimumMatches: 2,
+          rankingPriorMatchWeight: 3,
+          referenceMean: 8,
+          players: [player({ playerName: longName })],
+        }}
+        locale="en"
+        messages={messages}
+      />,
+    );
+
+    const link = screen.getByRole("link", { name: new RegExp(longName) });
+    expect(link).toHaveClass("block");
+    expect(screen.getByText(longName)).toHaveClass("break-words");
+    expect(within(link).getByText("Ranking score")).toBeInTheDocument();
   });
 
   it("uses initials when a photo is missing and localizes profile position", () => {
@@ -95,6 +147,38 @@ describe("player history UI", () => {
     expect(
       screen.queryByRole("group", { name: /rating evolution/i }),
     ).not.toBeInTheDocument();
+    expect(screen.queryByText("Ranking score")).not.toBeInTheDocument();
+    expect(
+      screen.getByText("Not enough history for a trend"),
+    ).toBeInTheDocument();
+  });
+
+  it("localizes and exposes recent progression without using color alone", () => {
+    const spanish = getMessages("es").players;
+    render(
+      <PlayerProfile
+        player={player({
+          ratedMatchCount: 6,
+          trend: {
+            direction: "improving",
+            delta: 0.8,
+            recentAverage: 7.9,
+            previousAverage: 7.1,
+          },
+        })}
+        locale="es"
+        messages={spanish}
+      />,
+    );
+
+    expect(screen.getByText(/En mejora \+0,8/)).toBeInTheDocument();
+    expect(
+      screen.getByLabelText(
+        /En mejora: variación \+0,8.*últimos tres partidos 7,9.*tres anteriores 7,1/i,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Puntuación del ranking")).toBeInTheDocument();
+    expect(screen.getByText("Promedio de la afición")).toBeInTheDocument();
   });
 
   it("renders a known-player empty state", () => {
@@ -186,16 +270,21 @@ describe("player history UI", () => {
 function player(
   overrides: Partial<PlayerCatalogEntry> = {},
 ): PlayerCatalogEntry {
-  return {
+  const value: PlayerCatalogEntry = {
     playerId: "player-1",
     playerName: "Rated Player",
     overallAverage: 8,
+    rankingScore: 8,
     ratedMatchCount: 2,
     rank: 1,
     recentRating: 8,
+    trend: null,
     history: [history()],
     ...overrides,
   };
+  return value.rank === null && overrides.rankingScore === undefined
+    ? { ...value, rankingScore: null }
+    : value;
 }
 
 function history(
