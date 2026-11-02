@@ -1,5 +1,8 @@
 import type { MatchArchiveItem } from "@/application/match-archive";
-import { getVotingWindowState } from "@/domain/voting-window";
+import {
+  getEffectiveVotingWindow,
+  getVotingWindowState,
+} from "@/domain/voting-window";
 import type { Messages } from "@/i18n/messages";
 
 export function matchPresentation(
@@ -8,12 +11,14 @@ export function matchPresentation(
   now: Date,
 ) {
   const { match, hasResults } = item;
-  const votingOpen = getVotingWindowState(match, now) === "active";
-  if (votingOpen)
+  const votingWindowState = getVotingWindowState(match, now);
+  const votingWindow = getEffectiveVotingWindow(match);
+  if (votingWindowState === "active" && votingWindow !== null)
     return {
       label: messages.votingOpen,
       description: messages.votingDescription,
       ballotAware: true,
+      votingClosesAt: votingWindow.closesAt,
     };
   if (hasResults && match.ratingState === "rating_closed")
     return {
@@ -28,6 +33,24 @@ export function matchPresentation(
       label: messages.final,
       description: messages.noRating,
     };
+  if (match.ratingState === "rating_ready") {
+    if (votingWindowState === "closed") {
+      return {
+        label: messages.votingClosed,
+        description: messages.votingClosedDescription,
+      };
+    }
+    if (votingWindow !== null && now < new Date(votingWindow.opensAt)) {
+      return {
+        label: messages.votingScheduled,
+        description: messages.votingScheduledDescription,
+      };
+    }
+    return {
+      label: messages.votingUnavailable,
+      description: messages.votingUnavailableDescription,
+    };
+  }
   if (match.status === "live")
     return {
       label: `${messages.live}${match.elapsedMinute === undefined ? "" : ` · ${match.elapsedMinute}'`}`,

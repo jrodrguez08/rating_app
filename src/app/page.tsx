@@ -14,6 +14,7 @@ export const revalidate = 0;
 
 export default async function Home() {
   const locale = await getLocale();
+  const now = new Date();
   let match: Match | null = null;
   let unavailable = false;
   try {
@@ -23,7 +24,12 @@ export default async function Home() {
     console.error("Home lifecycle data is temporarily unavailable.");
   }
   return (
-    <HomeContent locale={locale} match={match} unavailable={unavailable} />
+    <HomeContent
+      locale={locale}
+      match={match}
+      unavailable={unavailable}
+      now={now}
+    />
   );
 }
 
@@ -31,10 +37,12 @@ export function HomeContent({
   locale,
   match = null,
   unavailable = false,
+  now = new Date(),
 }: {
   locale: Locale;
   match?: Match | null;
   unavailable?: boolean;
+  now?: Date;
 }) {
   const messages = getMessages(locale);
   return (
@@ -66,6 +74,7 @@ export function HomeContent({
             locale={locale}
             messages={messages.home.matchLifecycle}
             goalMessages={messages.matches}
+            now={now}
           />
         )}
       </main>

@@ -9,6 +9,7 @@ import { BallotEntry } from "./ballot-entry";
 import { GoalSummary } from "./goal-summary";
 import { Scoreboard } from "./match-archive";
 import { matchPresentation } from "./match-presentation";
+import { VotingDeadline } from "./voting-deadline";
 
 export function MatchDetail({
   item,
@@ -51,9 +52,18 @@ export function MatchDetail({
               timeStyle: "short",
             })}
           </p>
-          <p className="game-inset mt-5 p-4 leading-6">
-            {presentation.description}
-          </p>
+          <div className="game-inset mt-5 p-4 leading-6">
+            <p>{presentation.description}</p>
+            {"votingClosesAt" in presentation && presentation.votingClosesAt ? (
+              <VotingDeadline
+                closesAt={presentation.votingClosesAt}
+                locale={locale}
+                label={messages.votingDeadlineLabel}
+                timeZoneLabel={messages.votingTimeZone}
+                className="mt-2 break-words"
+              />
+            ) : null}
+          </div>
           {"ballotAware" in presentation && presentation.ballotAware ? (
             <BallotEntry matchId={item.match.id} messages={ballotMessages} />
           ) : presentation.href ? (

@@ -68,6 +68,8 @@ All buttons keep a minimum 44px target, visible label, keyboard focus, and disab
 
 Status badges are compact rectangular scoreboard labels with text and, when useful, a small icon. Scheduled, live, final, voting-open, voting-closed, and postponed states must remain distinguishable by wording or icon—not color alone. Live/error colors are accents, not full-panel defaults.
 
+An active public voting state places the localized effective closing date beneath its short description. Render it as semantic time, allow long Spanish and English values to wrap, and name Costa Rica explicitly. Future, expired, and invalid windows use their own text state and never display an active deadline or ballot action. Do not add a countdown, animation, or device-timezone formatting.
+
 ## Tabs
 
 Tabs are reserved for a small set of peer views within one stable page hierarchy. Keep primary context, such as a featured match, outside the tab panels. Use compact rectangular controls with crisp borders and an active bottom-border/background treatment, not oversized pills. The selected state must use `aria-selected` and remain visually distinguishable without color alone. Associate tabs and panels, retain 44px targets and visible focus, and support Left/Right plus Home/End keyboard navigation.

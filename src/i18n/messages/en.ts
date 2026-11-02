@@ -132,15 +132,33 @@ export const enMessages = {
           "We are confirming participants and the head coach before opening voting.",
       },
       ready: {
-        label: "Voting available",
+        label: "Voting open",
         title: "The match is ready to rate",
         description:
-          "The two-hour window is active. Submit one complete rating before it closes.",
+          "You can submit your ratings until the scheduled closing time.",
+        deadlineLabel: "Voting closes",
+        timeZone: "Costa Rica",
         action: "Rate match",
         share: "Share voting via WhatsApp",
         submitted: "Rating submitted",
         checking: "Preparing your session...",
         sessionError: "We couldn't prepare your session. Try again.",
+      },
+      future: {
+        label: "Voting scheduled",
+        title: "Voting has not started yet",
+        description:
+          "You can rate the match when the scheduled opening time arrives.",
+      },
+      expired: {
+        label: "Voting closed",
+        title: "Preparing results",
+        description: "Voting has ended. The results will be available soon.",
+      },
+      unavailable: {
+        label: "Voting unavailable",
+        title: "Voting is not available right now",
+        description: "Check back later for the current match status.",
       },
       results: {
         label: "Final results",
@@ -201,7 +219,18 @@ export const enMessages = {
     preparing: "Preparing ratings",
     preparingDescription: "We're preparing the ratings.",
     votingOpen: "Ratings open",
-    votingDescription: "The two-hour rating window is open now.",
+    votingDescription:
+      "You can submit your ratings until the scheduled closing time.",
+    votingDeadlineLabel: "Voting closes",
+    votingTimeZone: "Costa Rica",
+    votingScheduled: "Voting scheduled",
+    votingScheduledDescription: "Voting has not started yet.",
+    votingClosed: "Voting closed",
+    votingClosedDescription:
+      "Voting has ended and the results are being prepared.",
+    votingUnavailable: "Voting unavailable",
+    votingUnavailableDescription:
+      "There is no valid voting schedule available.",
     resultsAvailable: "Results available",
     resultsDescription:
       "Voting has closed and the community results are ready.",
