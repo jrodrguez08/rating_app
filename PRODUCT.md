@@ -1,5 +1,13 @@
 # Product
 
+## Multiclub Phase 1 in the draft feature branch
+
+The unmerged `feature/multi-club-support` branch introduces a neutral club-selection page at `/` and public URLs under `/herediano/*` and `/saprissa/*`. Herediano retains its existing persisted Team, Match IDs, ballot and result history through the new paths. There are no public redirects or aliases for the former global match, player, standings, Studio, or social-image URLs. Existing links therefore change when this branch eventually ships; the current production deployment is unchanged by this draft.
+
+The registry resolves `herediano` to `club-sport-herediano` and `saprissa` to `deportivo-saprissa`. Saprissa has a distinct preliminary purple/white presentation and a localized coming-soon Home; its match, vote, result, player, standings, Studio, overlay, and result-image routes fail closed before reading data. No Saprissa football operation or production Team bootstrap is enabled in Phase 1. The global owner remains the sole administrator; influencers receive no account or privileged role.
+
+Phase 2 (#139) must implement full Team isolation for public and API match, ballot, result, and history access. Phase 3 (#140) supplies Saprissa bootstrap and independent lifecycle synchronization. Phase 4 (#141) adds the owner club selector. Phase 5 (#142) completes branding, social artwork and launch verification. The existing sections below describe the deployed Herediano pilot where they use the former global URLs; they are not a claim that the draft routes are live.
+
 ## Purpose and audience
 
 Rating App gives a small football supporter community a fair, simple way to rate the people who shaped a match. The first audience is a WhatsApp group of Club Sport Herediano supporters in Costa Rica.

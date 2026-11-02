@@ -1,6 +1,16 @@
 import type { Messages } from "../messages";
 
 export const enMessages = {
+  clubs: {
+    choose: "Choose the club you want to follow.",
+    comingSoon: "Coverage for this club is coming soon.",
+    unavailable: {
+      status: "Coming soon",
+      title: "Coverage in preparation",
+      description: "Matches and voting are not available for this club yet.",
+      privacy: "Results will appear when coverage becomes available.",
+    },
+  },
   metadata: {
     title: "Rating App",
     description:

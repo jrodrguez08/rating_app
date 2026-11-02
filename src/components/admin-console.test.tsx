@@ -170,7 +170,7 @@ describe("admin console", () => {
     );
     expect(matchLink("Pérez Zeledón", messages.viewVoting)).toHaveAttribute(
       "href",
-      "/matches/open/rate",
+      "/herediano/matches/open/rate",
     );
     expect(matchLink("Saprissa", messages.inspect)).toHaveAttribute(
       "href",
@@ -178,7 +178,7 @@ describe("admin console", () => {
     );
     expect(matchLink("Alajuelense", messages.viewResults)).toHaveAttribute(
       "href",
-      "/matches/published/results",
+      "/herediano/matches/published/results",
     );
     expect(matchLink("Alajuelense", messages.administerMatch)).toHaveAttribute(
       "href",
@@ -279,7 +279,7 @@ describe("admin console", () => {
 
     expect(
       screen.getByRole("link", { name: messages.viewVoting }),
-    ).toHaveAttribute("href", "/matches/open/rate");
+    ).toHaveAttribute("href", "/herediano/matches/open/rate");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

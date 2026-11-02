@@ -1,4 +1,15 @@
 export const esMessages = {
+  clubs: {
+    choose: "Elige el club que quieres seguir.",
+    comingSoon: "La cobertura de este club estará disponible próximamente.",
+    unavailable: {
+      status: "Próximamente",
+      title: "Cobertura en preparación",
+      description:
+        "Todavía no hay partidos ni votaciones disponibles para este club.",
+      privacy: "Los resultados aparecerán cuando la cobertura esté disponible.",
+    },
+  },
   metadata: {
     title: "Rating App",
     description:

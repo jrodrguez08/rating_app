@@ -4,17 +4,20 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 
+import { matchPath, type Club } from "@/config/club";
 import type { Messages } from "@/i18n/messages";
 import { getBallotStatus } from "@/lib/firebase/ballot-client";
 
 import { CheckIcon, WhatsAppIcon } from "./game-icons";
 
 export function BallotEntry({
+  club,
   matchId,
   messages,
   compact = false,
   shareHref,
 }: {
+  club: Club;
   matchId: string;
   messages: Messages["home"]["matchLifecycle"]["ready"];
   compact?: boolean;
@@ -66,7 +69,7 @@ export function BallotEntry({
   }
   return actionRow(
     <Link
-      href={`/matches/${encodeURIComponent(matchId)}/rate`}
+      href={matchPath(club, matchId, "/rate")}
       className={
         compact
           ? `${shareHref ? "" : "mt-2"} inline-flex min-h-11 items-center font-bold text-accent underline decoration-2 underline-offset-4`

@@ -3,16 +3,19 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { clubPath, type Club } from "@/config/club";
 import type { Messages } from "@/i18n/messages";
 import { getBallotStatus } from "@/lib/firebase/ballot-client";
 
 import { SubmittedState } from "./rating-ballot";
 
 export function BallotRouteState({
+  club,
   matchId,
   state,
   messages,
 }: {
+  club: Club;
   matchId: string;
   state: "not_open" | "closed" | "unavailable";
   messages: Messages["ballot"];
@@ -40,7 +43,7 @@ export function BallotRouteState({
       </h1>
       <p className="mt-3 leading-6 text-muted">{content[1]}</p>
       <Link
-        href="/"
+        href={clubPath(club)}
         className="button-secondary mt-5 inline-flex min-h-11 items-center px-4 py-3 font-bold"
       >
         {messages.backHome}

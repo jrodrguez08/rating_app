@@ -1,5 +1,15 @@
 # Architecture
 
+## Staged multiclub routing foundation
+
+On the unmerged `feature/multi-club-support` branch, `src/config/club.ts` is the typed registry for the exact `herediano` and `saprissa` slugs. It binds each slug to a stable internal Team ID, display/short name, branding key, preliminary theme and public availability. `src/config/club-server.ts` resolves untrusted URL parameters on the server and returns 404 for unknown slugs. The public route tree is shared under `src/app/[clubSlug]`; `/` is only a club selector. No old global public route tree, redirect, rewrite or compatibility page remains.
+
+The active Herediano pages pass the registry Team ID into existing indexed or bounded Firebase read services. Match detail, rate, result, player profile, Studio and image routes validate the selected club before reads; additional result, ballot-context and overlay bindings check the returned Team. All Saprissa data routes are unavailable before their read service is constructed, including images and overlays. Saprissa Home renders a localized coming-soon state without a Firestore or football-provider request. A slug never supplies a client-trusted Team ID. The old public ballot and vote-comparison API boundaries remain internal to the active Herediano experience during Phase 1; full independent club authorization across those endpoints is Phase 2 work.
+
+`clubPath`, `matchPath` and `playerPath` construct navigation, voting, WhatsApp, result, profile, Story, Studio and notification URLs from the selected club. Match IDs and Firestore paths remain unchanged. Root metadata is neutral; each club-scoped page has its own canonical, Open Graph and Twitter URL, and `/[clubSlug]/social-card` uses that club's presentation colors. Herediano result images still use the existing pilot artwork; Saprissa result-image routes remain unavailable until the branding and isolation work in Phases 2 and 5. The shared AppShell maps club primary, accent and focus tokens; Saprissa's preliminary `#6f2c91`/`#ffffff` values do not assert approved brand specifications.
+
+This phase creates no Team document, index, alias, migration, provider mapping, provider request or production write. Phase 2 (#139) must finish data isolation, Phase 3 (#140) must bootstrap and synchronize Saprissa independently, Phase 4 (#141) must extend the one-owner admin console, and Phase 5 (#142) must finish branded assets and launch checks. Older global URL examples below document the currently deployed pilot and must be replaced in operational instructions at the final rollout.
+
 ## Application shape
 
 Next.js App Router and strict TypeScript form the web application. Pages and layouts are Server Components by default; use Client Components only for browser state or interaction. Tailwind CSS consumes semantic tokens. Domain types and ports do not import Firebase or React.

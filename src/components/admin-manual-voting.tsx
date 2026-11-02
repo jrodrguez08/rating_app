@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 
+import { initialClub, matchPath } from "@/config/club";
 import { formatDate } from "@/i18n/format";
 import type { Messages } from "@/i18n/messages";
 import type { AdminMatchDetail } from "@/lib/firebase/admin-console";
@@ -299,7 +300,7 @@ function VotingSummary({
       {match.votingPresentation === "published" ? (
         <Link
           className="button-secondary mt-2 inline-flex min-h-11 items-center justify-center px-4"
-          href={`/matches/${encodeURIComponent(match.id)}/results`}
+          href={matchPath(initialClub, match.id, "/results")}
         >
           {messages.viewResults}
         </Link>

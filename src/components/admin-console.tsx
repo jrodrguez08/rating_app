@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState, useTransition, type FormEvent } from "react";
 
+import { initialClub, matchPath } from "@/config/club";
 import { formatDate } from "@/i18n/format";
 import type { Messages } from "@/i18n/messages";
 import { getAdminBrowserAuth } from "@/lib/firebase/admin-browser";
@@ -318,12 +319,12 @@ function matchAction(match: AdminMatchOperation, messages: AdminMessages) {
   switch (match.votingPresentation) {
     case "open":
       return {
-        href: `/matches/${encodeURIComponent(match.id)}/rate`,
+        href: matchPath(initialClub, match.id, "/rate"),
         label: messages.viewVoting,
       };
     case "published":
       return {
-        href: `/matches/${encodeURIComponent(match.id)}/results`,
+        href: matchPath(initialClub, match.id, "/results"),
         label: messages.viewResults,
       };
     case "expired":

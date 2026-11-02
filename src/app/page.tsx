@@ -1,83 +1,53 @@
-import { AppShell } from "@/components/app-shell";
-import { EmptyRatingState } from "@/components/empty-rating-state";
-import { MatchLifecyclePanel } from "@/components/match-lifecycle-panel";
-import { initialClub } from "@/config/club";
-import { communityName } from "@/config/community";
-import type { Match } from "@/domain/models";
-import type { Locale } from "@/i18n/config";
+import Link from "next/link";
+import type { CSSProperties } from "react";
+
+import { LanguageSwitcher } from "@/components/language-switcher";
+import { clubs, clubPath } from "@/config/club";
 import { getMessages } from "@/i18n/messages";
 import { getLocale } from "@/i18n/server";
-import { getPublicHomeMatch } from "@/lib/firebase/lifecycle-read";
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
-
-export default async function Home() {
+export default async function ClubSelectionPage() {
   const locale = await getLocale();
-  const now = new Date();
-  let match: Match | null = null;
-  let unavailable = false;
-  try {
-    match = await getPublicHomeMatch(initialClub.teamId);
-  } catch {
-    unavailable = true;
-    console.error("Home lifecycle data is temporarily unavailable.");
-  }
-  return (
-    <HomeContent
-      locale={locale}
-      match={match}
-      unavailable={unavailable}
-      now={now}
-    />
-  );
-}
-
-export function HomeContent({
-  locale,
-  match = null,
-  unavailable = false,
-  now = new Date(),
-}: {
-  locale: Locale;
-  match?: Match | null;
-  unavailable?: boolean;
-  now?: Date;
-}) {
   const messages = getMessages(locale);
   return (
-    <AppShell locale={locale} messages={messages} theme={initialClub.theme}>
-      <main id="main-content" className="page-shell py-7 sm:py-10">
-        <section aria-labelledby="club-heading" className="mb-7">
-          <p className="eyebrow community-name break-words">{communityName}</p>
-          <h1
-            id="club-heading"
-            className="mt-3 text-3xl font-extrabold leading-tight tracking-tight text-foreground sm:text-4xl"
-          >
-            {initialClub.displayName}
-          </h1>
-          <p className="mt-4 max-w-2xl text-base leading-7 text-muted">
-            {messages.home.introduction}
-          </p>
-        </section>
-        {match === null ? (
-          <EmptyRatingState
-            messages={
-              unavailable
-                ? messages.home.lifecycleUnavailable
-                : messages.home.noActiveRating
-            }
-          />
-        ) : (
-          <MatchLifecyclePanel
-            match={match}
+    <>
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:border-2 focus:border-accent focus:bg-surface focus:px-4 focus:py-3"
+      >
+        {messages.accessibility.skipToContent}
+      </a>
+      <main id="main-content" className="page-shell py-10">
+        <div className="flex items-start justify-between gap-4">
+          <h1 className="score-font text-3xl">Rating App</h1>
+          <LanguageSwitcher
             locale={locale}
-            messages={messages.home.matchLifecycle}
-            goalMessages={messages.matches}
-            now={now}
+            label={messages.common.language}
+            languageNames={{
+              es: messages.common.spanish,
+              en: messages.common.english,
+            }}
           />
-        )}
+        </div>
+        <p className="mt-4 text-muted">{messages.clubs.choose}</p>
+        <div className="mt-6 grid gap-4 sm:grid-cols-2">
+          {Object.values(clubs).map((club) => (
+            <Link
+              key={club.slug}
+              href={clubPath(club)}
+              className="card flex min-h-24 items-center border-l-4 p-5 text-lg font-bold hover:text-accent"
+              style={
+                {
+                  borderLeftColor: club.theme.primary,
+                  "--club-secondary": club.theme.accent,
+                } as CSSProperties
+              }
+            >
+              {club.displayName}
+            </Link>
+          ))}
+        </div>
       </main>
-    </AppShell>
+    </>
   );
 }

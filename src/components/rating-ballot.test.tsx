@@ -2,6 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { initialClub } from "@/config/club";
 import type { BallotContext } from "@/domain/models";
 import { enMessages } from "@/i18n/messages/en";
 import { esMessages } from "@/i18n/messages/es";
@@ -189,6 +190,7 @@ describe("BallotRouteState", () => {
   it("shows closed state or submitted state without exposing results", async () => {
     const { rerender } = render(
       <BallotRouteState
+        club={initialClub}
         matchId="match-1"
         state="closed"
         messages={enMessages.ballot}
@@ -202,6 +204,7 @@ describe("BallotRouteState", () => {
     vi.mocked(getBallotStatus).mockResolvedValue("submitted");
     rerender(
       <BallotRouteState
+        club={initialClub}
         matchId="match-2"
         state="closed"
         messages={enMessages.ballot}

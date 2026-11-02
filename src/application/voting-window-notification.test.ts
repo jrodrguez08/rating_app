@@ -90,7 +90,7 @@ describe("voting-window operator notification", () => {
     expect(send).toHaveBeenCalledWith({
       ...context,
       idempotencyKey: "voting-open/match-1/0",
-      ratingUrl: "https://ratings.example/matches/match-1/rate",
+      ratingUrl: "https://ratings.example/herediano/matches/match-1/rate",
     });
   });
 

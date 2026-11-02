@@ -1,5 +1,9 @@
 # Design system
 
+## Staged club themes
+
+The unmerged multiclub Phase 1 branch uses one shell and the existing semantic tokens for both clubs. The registry supplies Herediano primary `#b20d24` and accent `#f5c518`, and preliminary Saprissa primary `#6f2c91` and accent `#ffffff`. The selected club also sets the visible keyboard focus and warning accent within the public shell. Navigation, controls, badges, panels, scoreboard rails and empty states inherit these tokens. The root selector is neutral and does not imply a default club. Saprissa's Home is a readable coming-soon state; data-bearing views and social result artwork are withheld until isolation and the full branding review. These values are presentation placeholders, not official brand approval. The current production pilot retains its existing Herediano presentation until the branch is merged and deployed.
+
 ## Direction
 
 Rating App's approved visual language is **16-bit sports game presentation with modern mobile product usability**. It should feel like an original football scoreboard interface: dark, compact, crisp, tactile, and immediately readable. Retro styling supplies identity; semantic HTML, familiar interactions, responsive layouts, and accessible touch targets supply usability.

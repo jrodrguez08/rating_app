@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import { initialClub, matchPath } from "@/config/club";
 import type {
   VotingWindowNotificationClaim,
   VotingWindowNotificationContext,
@@ -106,7 +107,12 @@ export async function notifyVotingWindowOpenedIfPending({
       ),
       ...(siteUrl === undefined
         ? {}
-        : { ratingUrl: new URL(`/matches/${matchId}/rate`, siteUrl).href }),
+        : {
+            ratingUrl: new URL(
+              matchPath(initialClub, matchId, "/rate"),
+              siteUrl,
+            ).href,
+          }),
     });
     let recorded = false;
     try {

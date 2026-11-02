@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { initialClub } from "@/config/club";
 import type { Match } from "@/domain/models";
 import { getMessages } from "@/i18n/messages";
 import { getBallotStatus } from "@/lib/firebase/ballot-client";
@@ -23,6 +24,7 @@ describe("Home WhatsApp rating share", () => {
   it("keeps Calificar primary and shows a secondary accessible share action during the open window", async () => {
     render(
       <MatchLifecyclePanel
+        club={initialClub}
         match={match({
           ratingState: "rating_ready",
           status: "finished",
@@ -41,7 +43,10 @@ describe("Home WhatsApp rating share", () => {
       name: "Compartir votación por WhatsApp",
     });
 
-    expect(rate).toHaveAttribute("href", "/matches/public-match/rate");
+    expect(rate).toHaveAttribute(
+      "href",
+      "/herediano/matches/public-match/rate",
+    );
     expect(rate).toHaveClass("button-primary");
     expect(share).toHaveClass("button-secondary");
     expect(share).toHaveAttribute("target", "_blank");
@@ -50,7 +55,7 @@ describe("Home WhatsApp rating share", () => {
     expect(
       new URL(share.getAttribute("href")!).searchParams.get("text"),
     ).toContain(
-      "https://rating-app-amber.vercel.app/matches/public-match/rate",
+      "https://rating-app-amber.vercel.app/herediano/matches/public-match/rate",
     );
     expect(
       screen.getByText(/1 nov 2026, 9:01 p/).closest("p"),
@@ -64,6 +69,7 @@ describe("Home WhatsApp rating share", () => {
     vi.mocked(getBallotStatus).mockResolvedValue("submitted");
     render(
       <MatchLifecyclePanel
+        club={initialClub}
         match={match({
           ratingState: "rating_ready",
           status: "finished",
@@ -90,6 +96,7 @@ describe("Home WhatsApp rating share", () => {
   it("uses the effective window after an operator reopen", async () => {
     render(
       <MatchLifecyclePanel
+        club={initialClub}
         match={match({
           ratingState: "rating_ready",
           status: "finished",
@@ -141,6 +148,7 @@ describe("Home WhatsApp rating share", () => {
     (_name, window, heading) => {
       render(
         <MatchLifecyclePanel
+          club={initialClub}
           match={match({
             ratingState: "rating_ready",
             status: "finished",
@@ -169,6 +177,7 @@ describe("Home WhatsApp rating share", () => {
   it("preserves published-result presentation without an active deadline", () => {
     render(
       <MatchLifecyclePanel
+        club={initialClub}
         match={match({
           ratingState: "rating_closed",
           status: "finished",
@@ -187,7 +196,7 @@ describe("Home WhatsApp rating share", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByRole("link", { name: "Ver resultados" }),
-    ).toHaveAttribute("href", "/matches/public-match/results");
+    ).toHaveAttribute("href", "/herediano/matches/public-match/results");
     expect(
       screen.queryByText(/Cierre de votaci\u00f3n:/),
     ).not.toBeInTheDocument();
@@ -226,6 +235,7 @@ describe("Home WhatsApp rating share", () => {
   ] as const)("does not expose sharing for %s matches", (_name, state) => {
     render(
       <MatchLifecyclePanel
+        club={initialClub}
         match={match(state)}
         locale="es"
         messages={messages}
@@ -242,6 +252,7 @@ describe("Home WhatsApp rating share", () => {
   it("renders persisted live goals chronologically without changing the score", () => {
     render(
       <MatchLifecyclePanel
+        club={initialClub}
         match={match({
           status: "live",
           score: { home: 2, away: 1 },
@@ -290,6 +301,7 @@ describe("Home WhatsApp rating share", () => {
   it("renders no empty goal section for a scoreless live match", () => {
     render(
       <MatchLifecyclePanel
+        club={initialClub}
         match={match({ status: "live", score: { home: 0, away: 0 } })}
         locale="es"
         messages={messages}

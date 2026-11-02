@@ -1,15 +1,15 @@
 import type { Metadata } from "next";
 
+import { clubPath, resolveClub } from "./club";
+
 const PRODUCTION_SITE_URL = "https://rating-app-amber.vercel.app";
 
 export const siteIdentity = {
   name: "Rating App",
   description:
     "Calificaciones de la afición para los protagonistas de cada partido.",
-  socialDescription:
-    "La voz de la afición en cada partido. Piloto para seguidores del Herediano.",
-  socialImageAlt:
-    "Rating App, calificaciones de la afición en el contexto del Herediano",
+  socialDescription: "La voz de la afición en cada partido.",
+  socialImageAlt: "Rating App, calificaciones de la afición",
   themeColor: "#101113",
   backgroundColor: "#101113",
   primaryColor: "#b20d24",
@@ -46,6 +46,8 @@ export function buildPageMetadata(
 ): Metadata {
   const title = overrides.title ?? siteIdentity.name;
   const description = overrides.description ?? siteIdentity.socialDescription;
+  const club = resolveClub(pathname.split("/")[1] ?? "");
+  const imagePath = club ? clubPath(club, "/social-card") : undefined;
 
   return {
     ...overrides,
@@ -57,14 +59,22 @@ export function buildPageMetadata(
       siteName: siteIdentity.name,
       title,
       description,
-      images: [
-        {
-          url: "/social-card",
-          width: 1200,
-          height: 630,
-          alt: siteIdentity.socialImageAlt,
-        },
-      ],
+      images: imagePath
+        ? [
+            {
+              url: imagePath,
+              width: 1200,
+              height: 630,
+              alt: siteIdentity.socialImageAlt,
+            },
+          ]
+        : [],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description,
+      images: imagePath ? [imagePath] : [],
     },
   };
 }

@@ -152,7 +152,7 @@ describe("manual voting admin panel", () => {
       if (state === "results_published") {
         expect(
           screen.getByRole("link", { name: messages.viewResults }),
-        ).toHaveAttribute("href", "/matches/match-manual/results");
+        ).toHaveAttribute("href", "/herediano/matches/match-manual/results");
       }
     },
   );

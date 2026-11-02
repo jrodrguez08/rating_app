@@ -2,6 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { PublishedResultPodium } from "@/application/published-result-podium";
+import { initialClub } from "@/config/club";
 import type { Match, MatchResult } from "@/domain/models";
 import { getMessages } from "@/i18n/messages";
 
@@ -14,6 +15,7 @@ describe("match results UI", () => {
   ])("renders the safe pre-close state in %s", (locale, title, description) => {
     render(
       <ResultRouteState
+        club={initialClub}
         state="locked"
         messages={getMessages(locale).results}
       />,
@@ -26,6 +28,7 @@ describe("match results UI", () => {
   it("renders an honest pending state", () => {
     render(
       <ResultRouteState
+        club={initialClub}
         state="preparing"
         messages={getMessages("en").results}
       />,
@@ -38,6 +41,7 @@ describe("match results UI", () => {
   it("renders sorted players, tied MVPs, coach, count, and one decimal", () => {
     render(
       <MatchResults
+        club={initialClub}
         match={match}
         result={result}
         podium={podium}
@@ -52,7 +56,7 @@ describe("match results UI", () => {
     expect(items[1]).toHaveTextContent("Second Player");
     expect(
       screen.getAllByRole("link", { name: "Long Player Name That Wraps" })[0],
-    ).toHaveAttribute("href", "/players/p1");
+    ).toHaveAttribute("href", "/herediano/players/p1");
     expect(screen.getAllByText("8.5").length).toBeGreaterThanOrEqual(2);
     expect(
       screen.getByRole("heading", { name: "Head coach" }),
@@ -67,13 +71,13 @@ describe("match results UI", () => {
       screen.getByRole("link", { name: "Download Story" }),
     ).toHaveAttribute(
       "href",
-      "https://rating-app-amber.vercel.app/matches/match-1/results/story",
+      "https://rating-app-amber.vercel.app/herediano/matches/match-1/results/story",
     );
     expect(
       screen.getByRole("link", { name: "Download ratings table Story" }),
     ).toHaveAttribute(
       "href",
-      "https://rating-app-amber.vercel.app/matches/match-1/results/story/table?page=1",
+      "https://rating-app-amber.vercel.app/herediano/matches/match-1/results/story/table?page=1",
     );
     expect(document.body.textContent).not.toContain("voter-");
   });
@@ -82,6 +86,7 @@ describe("match results UI", () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     render(
       <MatchResults
+        club={initialClub}
         match={{
           ...match,
           homeTeam: { externalProviderId: "820", name: "Renamed Cartago" },
@@ -107,6 +112,7 @@ describe("match results UI", () => {
   it("renders a zero-vote result without rankings", () => {
     render(
       <MatchResults
+        club={initialClub}
         match={match}
         result={{
           ...result,

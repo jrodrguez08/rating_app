@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { matchPath, type Club } from "@/config/club";
 import { getTeamBadgePresentation } from "@/config/team-badges";
 import { buildWhatsAppRatingShareUrl } from "@/config/whatsapp-share";
 import type { Match } from "@/domain/models";
@@ -17,12 +18,14 @@ import { TeamBadge } from "./team-badge";
 import { VotingDeadline } from "./voting-deadline";
 
 export function MatchLifecyclePanel({
+  club,
   match,
   locale,
   messages,
   goalMessages,
   now,
 }: {
+  club: Club;
   match: Match;
   locale: Locale;
   messages: Messages["home"]["matchLifecycle"];
@@ -91,14 +94,15 @@ export function MatchLifecyclePanel({
         </div>
         {state.votingOpen ? (
           <BallotEntry
+            club={club}
             matchId={match.id}
             messages={messages.ready}
-            shareHref={buildWhatsAppRatingShareUrl(match.id)}
+            shareHref={buildWhatsAppRatingShareUrl(club, match.id)}
           />
         ) : null}
         {match.ratingState === "rating_closed" ? (
           <Link
-            href={`/matches/${match.id}/results`}
+            href={matchPath(club, match.id, "/results")}
             className="button-primary mt-5 inline-flex min-h-11 w-full items-center justify-center px-4 py-3 font-bold"
           >
             {messages.results.action}
