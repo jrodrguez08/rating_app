@@ -1,6 +1,17 @@
 import type { Match, MatchResult, PlayerPosition } from "@/domain/models";
 
 export const PLAYER_RANKING_MIN_MATCHES = 2;
+export const PLAYER_RANKING_PRIOR_MATCH_WEIGHT = 3;
+export const PLAYER_TREND_STABILITY_THRESHOLD = 0.2;
+
+export type PlayerRatingTrendDirection = "improving" | "declining" | "stable";
+
+export interface PlayerRatingTrend {
+  direction: PlayerRatingTrendDirection;
+  delta: number;
+  recentAverage: number;
+  previousAverage: number;
+}
 
 export interface PlayerIdentity {
   id: string;
@@ -26,15 +37,19 @@ export interface PlayerCatalogEntry {
   position?: PlayerPosition;
   photoUrl?: string;
   overallAverage: number | null;
+  rankingScore: number | null;
   ratedMatchCount: number;
   rank: number | null;
   recentRating: number | null;
+  trend: PlayerRatingTrend | null;
   history: PlayerMatchRating[];
 }
 
 export interface PlayerCatalog {
   players: PlayerCatalogEntry[];
   rankingMinimumMatches: number;
+  rankingPriorMatchWeight: number;
+  referenceMean: number | null;
 }
 
 export function buildPlayerCatalog({
@@ -56,13 +71,21 @@ export function buildPlayerCatalog({
     canonicalPlayerIds,
   );
   const histories = new Map<string, PlayerMatchRating[]>();
+  let referenceRatingTotal = 0;
+  let referenceRatingCount = 0;
 
   for (const result of results) {
     const match = matchesById.get(result.matchId);
+    const trackedTeamIsHome =
+      match?.homeTeam.externalProviderId === trackedTeamExternalProviderId;
+    const trackedTeamIsAway =
+      match?.awayTeam.externalProviderId === trackedTeamExternalProviderId;
     if (
       match?.ratingState !== "rating_closed" ||
       result.status !== "final" ||
-      result.teamId !== match.trackedTeamId
+      result.teamId !== match.trackedTeamId ||
+      trackedTeamIsHome === trackedTeamIsAway ||
+      !Number.isFinite(new Date(match.kickoffAt).getTime())
     ) {
       continue;
     }
@@ -71,6 +94,7 @@ export function buildPlayerCatalog({
       MatchResult["playerResults"][string]
     >();
     for (const player of Object.values(result.playerResults)) {
+      if (!isValidPlayerMatchResult(player, result.ballotCount)) continue;
       const playerId =
         canonicalPlayerIds.get(player.playerId) ?? player.playerId;
       const existing = canonicalResults.get(playerId);
@@ -101,10 +125,9 @@ export function buildPlayerCatalog({
       history.push({
         matchId: match.id,
         kickoffAt: match.kickoffAt,
-        opponentName:
-          match.homeTeam.externalProviderId === trackedTeamExternalProviderId
-            ? match.awayTeam.name
-            : match.homeTeam.name,
+        opponentName: trackedTeamIsHome
+          ? match.awayTeam.name
+          : match.homeTeam.name,
         homeTeamName: match.homeTeam.name,
         awayTeamName: match.awayTeam.name,
         score: match.score,
@@ -112,8 +135,15 @@ export function buildPlayerCatalog({
         voteCount: player.voteCount,
       });
       histories.set(playerId, history);
+      referenceRatingTotal += player.average;
+      referenceRatingCount += 1;
     }
   }
+
+  const referenceMean =
+    referenceRatingCount === 0
+      ? null
+      : referenceRatingTotal / referenceRatingCount;
 
   const players: PlayerCatalogEntry[] = [...playersById.values()].map(
     ({ id: playerId, name: playerName, position, photoUrl }) => {
@@ -128,23 +158,31 @@ export function buildPlayerCatalog({
           ? null
           : history.reduce((sum, rating) => sum + rating.average, 0) /
             history.length;
+      const rankingScore =
+        overallAverage === null ||
+        history.length < PLAYER_RANKING_MIN_MATCHES ||
+        referenceMean === null
+          ? null
+          : adjustedPlayerRating(history.length, overallAverage, referenceMean);
       return {
         playerId,
         playerName,
         ...(position === undefined ? {} : { position }),
         ...(photoUrl === undefined ? {} : { photoUrl }),
         overallAverage,
+        rankingScore,
         ratedMatchCount: history.length,
         rank: null,
         recentRating: history[0]?.average ?? null,
+        trend: playerRatingTrend(history),
         history,
       };
     },
   );
 
   const eligible = players
-    .filter((player) => player.ratedMatchCount >= PLAYER_RANKING_MIN_MATCHES)
-    .sort(compareRatedPlayers);
+    .filter((player) => player.rankingScore !== null)
+    .sort(compareRankedPlayers);
   eligible.forEach((player, index) => {
     player.rank = index + 1;
   });
@@ -156,7 +194,7 @@ export function buildPlayerCatalog({
         (right.rank ?? Number.MAX_SAFE_INTEGER)
       );
     if (left.overallAverage !== null || right.overallAverage !== null)
-      return compareRatedPlayers(left, right);
+      return compareUnrankedPlayers(left, right);
     return (
       left.playerName.localeCompare(right.playerName) ||
       left.playerId.localeCompare(right.playerId)
@@ -165,6 +203,40 @@ export function buildPlayerCatalog({
   return {
     players,
     rankingMinimumMatches: PLAYER_RANKING_MIN_MATCHES,
+    rankingPriorMatchWeight: PLAYER_RANKING_PRIOR_MATCH_WEIGHT,
+    referenceMean,
+  };
+}
+
+export function adjustedPlayerRating(
+  ratedMatchCount: number,
+  rawMatchAverage: number,
+  referenceMean: number,
+): number {
+  return (
+    (ratedMatchCount * rawMatchAverage +
+      PLAYER_RANKING_PRIOR_MATCH_WEIGHT * referenceMean) /
+    (ratedMatchCount + PLAYER_RANKING_PRIOR_MATCH_WEIGHT)
+  );
+}
+
+export function playerRatingTrend(
+  history: readonly PlayerMatchRating[],
+): PlayerRatingTrend | null {
+  if (history.length < 6) return null;
+  const latestSix = [...history].sort(compareChronologicalRatings).slice(-6);
+  const previousAverage = averageRatings(latestSix.slice(0, 3));
+  const recentAverage = averageRatings(latestSix.slice(3));
+  const delta = recentAverage - previousAverage;
+  return {
+    direction: greaterThanThreshold(delta, PLAYER_TREND_STABILITY_THRESHOLD)
+      ? "improving"
+      : greaterThanThreshold(-delta, PLAYER_TREND_STABILITY_THRESHOLD)
+        ? "declining"
+        : "stable",
+    delta,
+    recentAverage,
+    previousAverage,
   };
 }
 
@@ -197,7 +269,19 @@ function mergeCanonicalPlayerIdentities(
   return players;
 }
 
-function compareRatedPlayers(
+function compareRankedPlayers(
+  left: PlayerCatalogEntry,
+  right: PlayerCatalogEntry,
+): number {
+  return (
+    (right.rankingScore ?? -1) - (left.rankingScore ?? -1) ||
+    (right.overallAverage ?? -1) - (left.overallAverage ?? -1) ||
+    right.ratedMatchCount - left.ratedMatchCount ||
+    left.playerId.localeCompare(right.playerId)
+  );
+}
+
+function compareUnrankedPlayers(
   left: PlayerCatalogEntry,
   right: PlayerCatalogEntry,
 ): number {
@@ -205,5 +289,50 @@ function compareRatedPlayers(
     (right.overallAverage ?? -1) - (left.overallAverage ?? -1) ||
     right.ratedMatchCount - left.ratedMatchCount ||
     left.playerId.localeCompare(right.playerId)
+  );
+}
+
+function compareChronologicalRatings(
+  left: PlayerMatchRating,
+  right: PlayerMatchRating,
+): number {
+  return (
+    new Date(left.kickoffAt).getTime() - new Date(right.kickoffAt).getTime() ||
+    left.matchId.localeCompare(right.matchId)
+  );
+}
+
+function averageRatings(ratings: readonly PlayerMatchRating[]): number {
+  return (
+    ratings.reduce((total, rating) => total + rating.average, 0) /
+    ratings.length
+  );
+}
+
+function greaterThanThreshold(value: number, threshold: number): boolean {
+  const tolerance =
+    Number.EPSILON * Math.max(1, Math.abs(value), Math.abs(threshold)) * 8;
+  return value - threshold > tolerance;
+}
+
+function isValidPlayerMatchResult(
+  player: MatchResult["playerResults"][string],
+  ballotCount: number,
+): boolean {
+  return (
+    typeof player.playerId === "string" &&
+    player.playerId.length > 0 &&
+    typeof player.playerName === "string" &&
+    player.playerName.length > 0 &&
+    Number.isFinite(player.average) &&
+    player.average >= 1 &&
+    player.average <= 10 &&
+    Number.isInteger(player.voteCount) &&
+    player.voteCount > 0 &&
+    Number.isInteger(ballotCount) &&
+    ballotCount > 0 &&
+    player.voteCount === ballotCount &&
+    Number.isInteger(player.order) &&
+    player.order >= 0
   );
 }
