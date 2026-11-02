@@ -16,6 +16,7 @@ import type { Messages } from "@/i18n/messages";
 import { BallotEntry } from "./ballot-entry";
 import { matchPresentation } from "./match-presentation";
 import { TeamBadge } from "./team-badge";
+import { VotingDeadline } from "./voting-deadline";
 
 type MatchMessages = Messages["matches"];
 type BallotMessages = Messages["home"]["matchLifecycle"]["ready"];
@@ -222,9 +223,18 @@ export function MatchCard({
           })}
         </p>
         <Scoreboard match={match} />
-        <p className="mt-3 text-sm font-semibold text-muted">
-          {presentation.description}
-        </p>
+        <div className="mt-3 text-sm leading-6 text-muted">
+          <p className="font-semibold">{presentation.description}</p>
+          {"votingClosesAt" in presentation && presentation.votingClosesAt ? (
+            <VotingDeadline
+              closesAt={presentation.votingClosesAt}
+              locale={locale}
+              label={messages.votingDeadlineLabel}
+              timeZoneLabel={messages.votingTimeZone}
+              className="mt-2 break-words text-foreground"
+            />
+          ) : null}
+        </div>
         <MatchAction
           item={item}
           presentation={presentation}
@@ -282,6 +292,15 @@ function CompactMatchCard({
       </div>
       {item.competitionName ? (
         <p className="mt-2 text-xs text-muted">{item.competitionName}</p>
+      ) : null}
+      {"votingClosesAt" in presentation && presentation.votingClosesAt ? (
+        <VotingDeadline
+          closesAt={presentation.votingClosesAt}
+          locale={locale}
+          label={messages.votingDeadlineLabel}
+          timeZoneLabel={messages.votingTimeZone}
+          className="mt-2 break-words text-xs leading-5 text-foreground"
+        />
       ) : null}
       <MatchAction
         item={item}

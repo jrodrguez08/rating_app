@@ -24,6 +24,8 @@ Exactly `es` and `en` are defined in `src/i18n/config.ts`; `es` is the default a
 
 Routes remain stable and locale-neutral (`/`, `/matches`, `/players`, `/standings`, `/studio`, and their detail routes) because the current application does not need locale-specific URLs or duplicated route trees. Message resources are bundled TypeScript objects under `src/i18n/messages`; the English resource is statically checked against the Spanish canonical shape, with a runtime alignment test. Translation lookup does not perform network requests. Product-facing dates and numbers use centralized native `Intl` helpers with `es-CR` or `en-US` and Costa Rica display time where appropriate; persisted timestamps remain UTC.
 
+Public Home, archive cards, and Match detail evaluate `getVotingWindowState(match, now)` once per presentation against the validated `getEffectiveVotingWindow(match)`. Only `active` renders the ballot boundary and effective close; a reopened window therefore uses its persisted effective close rather than the original audit timestamp. The shared deadline formatter always uses `America/Costa_Rica`, while localized text explicitly names Costa Rica. Future, expired, and invalid windows use distinct truthful presentation states without timers, polling, extra reads, or device-timezone dependence.
+
 Translations cover presentation labels only. Provider/domain names—including teams, competitions, players, and coaches—remain authoritative proper nouns and are not copied into localized persistence fields. Locale selection and club theme are independent.
 
 ## Proposed Firestore model

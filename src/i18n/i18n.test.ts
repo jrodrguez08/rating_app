@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import { defaultLocale, resolveLocale } from "./config";
-import { formatDate, formatNumber, formatRating } from "./format";
+import {
+  formatDate,
+  formatNumber,
+  formatRating,
+  formatVotingDeadline,
+} from "./format";
 import { getMessages } from "./messages";
 
 function keys(value: object, prefix = ""): string[] {
@@ -62,5 +67,20 @@ describe("internationalization", () => {
     expect(formatNumber(1234.5, "es")).not.toBe(formatNumber(1234.5, "en"));
     expect(formatRating(8.7, "es")).toBe("8,7");
     expect(formatRating(8.7, "en")).toBe("8.7");
+  });
+
+  it("formats voting deadlines in Costa Rica across UTC and local date boundaries", () => {
+    expect(formatVotingDeadline("2026-11-02T03:00:00.000Z", "es")).toBe(
+      "1 nov 2026, 9:00 p.\u00a0m.",
+    );
+    expect(formatVotingDeadline("2026-11-02T03:00:00.000Z", "en")).toBe(
+      "Nov 1, 2026, 9:00 PM",
+    );
+    expect(formatVotingDeadline("2026-11-02T06:00:00.000Z", "es")).toBe(
+      "2 nov 2026, 12:00 a.\u00a0m.",
+    );
+    expect(formatVotingDeadline("2026-11-02T06:00:00.000Z", "en")).toBe(
+      "Nov 2, 2026, 12:00 AM",
+    );
   });
 });

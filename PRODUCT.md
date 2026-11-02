@@ -12,6 +12,8 @@ Implemented now: a mobile-first shell with an original 16-bit sports-game visual
 
 While that trusted voting window is open, Home also offers a compact secondary WhatsApp action that shares the canonical rating deep link without voter, ballot, provider, or tracking data.
 
+Home and Partidos describe voting as open only while the authoritative effective window is active. They show its actual scheduled close in Costa Rica time, including custom and reopened windows; future, expired, missing, or invalid windows never inherit a two-hour claim or an active ballot action.
+
 While a tracked match is live, Home and match detail show a compact chronological summary of persisted confirmed goals when available. Home/away placement mirrors the scoreboard and reflects the latest lifecycle refresh rather than a real-time feed.
 
 At trusted close time, the same lifecycle creates one immutable aggregate summary and closes the rating state. Home and `/matches/{matchId}/results` then reveal community averages, total ballots, player-only co-MVPs, and the separate coach result. `/matches` keeps one relevant match in a featured position and provides compact, tabbed upcoming/recent archive browsing with lifecycle-aware actions, scores, and detail pages. `/players` and `/players/{playerId}` provide a durable supporter-rating catalog, team ranking, and per-match history derived only from those published closed results. Persisted provider fixtures remain useful even when Rating App never opened voting for them; confirmed provider goal events appear as a focused Team/scorer/minute summary when available.

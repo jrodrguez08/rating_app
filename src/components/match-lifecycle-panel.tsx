@@ -3,7 +3,10 @@ import Link from "next/link";
 import { getTeamBadgePresentation } from "@/config/team-badges";
 import { buildWhatsAppRatingShareUrl } from "@/config/whatsapp-share";
 import type { Match } from "@/domain/models";
-import { getVotingWindowState } from "@/domain/voting-window";
+import {
+  getEffectiveVotingWindow,
+  getVotingWindowState,
+} from "@/domain/voting-window";
 import type { Locale } from "@/i18n/config";
 import { formatDate } from "@/i18n/format";
 import type { Messages } from "@/i18n/messages";
@@ -11,19 +14,22 @@ import type { Messages } from "@/i18n/messages";
 import { BallotEntry } from "./ballot-entry";
 import { GoalSummary } from "./goal-summary";
 import { TeamBadge } from "./team-badge";
+import { VotingDeadline } from "./voting-deadline";
 
 export function MatchLifecyclePanel({
   match,
   locale,
   messages,
   goalMessages,
+  now,
 }: {
   match: Match;
   locale: Locale;
   messages: Messages["home"]["matchLifecycle"];
   goalMessages: Messages["matches"];
+  now: Date;
 }) {
-  const state = presentationState(match, messages);
+  const state = presentationState(match, messages, now);
   const showScore =
     (match.status === "live" || match.status === "finished") &&
     match.score.home !== null &&
@@ -71,10 +77,19 @@ export function MatchLifecyclePanel({
             timeStyle: "short",
           })}
         </p>
-        <p className="game-inset mt-5 border-l-2 border-l-accent p-3 text-sm font-medium leading-6 text-foreground">
-          {state.description}
-        </p>
-        {isVotingOpen(match) ? (
+        <div className="game-inset mt-5 border-l-2 border-l-accent p-3 text-sm leading-6 text-foreground">
+          <p className="font-medium">{state.description}</p>
+          {state.votingClosesAt ? (
+            <VotingDeadline
+              closesAt={state.votingClosesAt}
+              locale={locale}
+              label={messages.ready.deadlineLabel}
+              timeZoneLabel={messages.ready.timeZone}
+              className="mt-2 break-words"
+            />
+          ) : null}
+        </div>
+        {state.votingOpen ? (
           <BallotEntry
             matchId={match.id}
             messages={messages.ready}
@@ -94,10 +109,6 @@ export function MatchLifecyclePanel({
   );
 }
 
-function isVotingOpen(match: Match): boolean {
-  return getVotingWindowState(match, new Date()) === "active";
-}
-
 function TeamName({ team }: { team: Match["homeTeam"] }) {
   return (
     <div className="min-w-0">
@@ -112,13 +123,46 @@ function TeamName({ team }: { team: Match["homeTeam"] }) {
 function presentationState(
   match: Match,
   messages: Messages["home"]["matchLifecycle"],
-) {
+  now: Date,
+): {
+  label: string;
+  title: string;
+  description: string;
+  compactHeading: boolean;
+  votingOpen: boolean;
+  votingClosesAt?: string;
+} {
+  const votingWindowState = getVotingWindowState(match, now);
+  const votingWindow = getEffectiveVotingWindow(match);
   if (match.ratingState === "rating_ready") {
+    if (votingWindowState === "active" && votingWindow !== null) {
+      return {
+        label: messages.ready.label,
+        title: messages.ready.title,
+        description: messages.ready.description,
+        compactHeading: false,
+        votingOpen: true,
+        votingClosesAt: votingWindow.closesAt,
+      };
+    }
+    if (votingWindowState === "closed") {
+      return {
+        ...messages.expired,
+        compactHeading: false,
+        votingOpen: false,
+      };
+    }
+    if (votingWindow !== null && now < new Date(votingWindow.opensAt)) {
+      return {
+        ...messages.future,
+        compactHeading: false,
+        votingOpen: false,
+      };
+    }
     return {
-      label: messages.ready.label,
-      title: messages.ready.title,
-      description: messages.ready.description,
+      ...messages.unavailable,
       compactHeading: false,
+      votingOpen: false,
     };
   }
   if (match.ratingState === "rating_closed") {
@@ -127,6 +171,7 @@ function presentationState(
       title: messages.results.title,
       description: messages.results.description,
       compactHeading: false,
+      votingOpen: false,
     };
   }
   if (match.status === "live") {
@@ -135,6 +180,7 @@ function presentationState(
       title: messages.live.title,
       description: messages.live.description,
       compactHeading: false,
+      votingOpen: false,
     };
   }
   if (match.status === "finished" || match.ratingState === "preparing_rating") {
@@ -143,6 +189,7 @@ function presentationState(
       title: messages.preparing.title,
       description: messages.preparing.description,
       compactHeading: false,
+      votingOpen: false,
     };
   }
   return {
@@ -150,5 +197,6 @@ function presentationState(
     title: messages.upcoming.title,
     description: messages.upcoming.description,
     compactHeading: true,
+    votingOpen: false,
   };
 }

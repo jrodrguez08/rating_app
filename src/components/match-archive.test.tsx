@@ -73,7 +73,100 @@ describe("Partidos presentation", () => {
     expect(
       await screen.findByRole("link", { name: "Rate match" }),
     ).toHaveAttribute("href", "/matches/ready/rate");
+    expect(
+      screen.getByText(/Aug 31, 2026, 7:00 AM/).closest("p"),
+    ).toHaveTextContent("Voting closes: Aug 31, 2026, 7:00 AM (Costa Rica)");
+    expect(screen.queryByText(/two-hour/i)).not.toBeInTheDocument();
   });
+
+  it.each([
+    ["shorter", "2026-08-31T12:30:00.000Z", "6:30 AM"],
+    ["longer", "2026-08-31T16:00:00.000Z", "10:00 AM"],
+  ])(
+    "shows the configured %s active deadline",
+    async (_name, closesAt, time) => {
+      renderCard({
+        match: match({
+          status: "finished",
+          ratingState: "rating_ready",
+          votingOpensAt: "2026-08-31T11:30:00.000Z",
+          votingClosesAt: closesAt,
+        }),
+        hasResults: false,
+      });
+
+      expect(
+        await screen.findByRole("link", { name: "Rate match" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(new RegExp(`Aug 31, 2026, ${time}`)).closest("p"),
+      ).toHaveTextContent(`Voting closes: Aug 31, 2026, ${time} (Costa Rica)`);
+      expect(screen.queryByText(/two-hour/i)).not.toBeInTheDocument();
+    },
+  );
+
+  it("shows the reopened effective deadline instead of the original close", async () => {
+    renderCard({
+      match: match({
+        status: "finished",
+        ratingState: "rating_ready",
+        votingOpensAt: "2026-08-31T07:00:00.000Z",
+        votingClosesAt: "2026-08-31T09:00:00.000Z",
+        votingReopenCount: 1,
+        votingReopenedAt: "2026-08-31T11:00:00.000Z",
+        effectiveVotingOpensAt: "2026-08-31T11:00:00.000Z",
+        effectiveVotingClosesAt: "2026-08-31T14:00:00.000Z",
+      }),
+      hasResults: false,
+    });
+
+    expect(
+      await screen.findByRole("link", { name: "Rate match" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Aug 31, 2026, 8:00 AM/).closest("p"),
+    ).toHaveTextContent("Voting closes: Aug 31, 2026, 8:00 AM (Costa Rica)");
+    expect(screen.queryByText(/3:00 AM/)).not.toBeInTheDocument();
+  });
+
+  it.each([
+    [
+      "future",
+      {
+        votingOpensAt: "2026-08-31T13:00:00.000Z",
+        votingClosesAt: "2026-08-31T15:00:00.000Z",
+      },
+      "Voting scheduled",
+    ],
+    [
+      "expired",
+      {
+        votingOpensAt: "2026-08-31T09:00:00.000Z",
+        votingClosesAt: "2026-08-31T11:00:00.000Z",
+      },
+      "Voting closed",
+    ],
+    ["invalid", {}, "Voting unavailable"],
+  ] as const)(
+    "does not expose an active action or deadline for a %s window",
+    (_name, window, label) => {
+      renderCard({
+        match: match({
+          status: "finished",
+          ratingState: "rating_ready",
+          ...window,
+        }),
+        hasResults: false,
+      });
+
+      expect(screen.getByText(label)).toBeInTheDocument();
+      expect(
+        screen.queryByRole("link", { name: "Rate match" }),
+      ).not.toBeInTheDocument();
+      expect(screen.queryByText(/Voting closes:/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/two-hour/i)).not.toBeInTheDocument();
+    },
+  );
 
   it("shows the submitted state without another rating action on cards and match detail", async () => {
     vi.mocked(getBallotStatus).mockResolvedValue("submitted");
@@ -108,6 +201,7 @@ describe("Partidos presentation", () => {
     );
 
     expect(await screen.findByText("Rating submitted")).toBeInTheDocument();
+    expect(screen.getByText(/Aug 31, 2026, 7:00 AM/)).toBeInTheDocument();
     expect(
       screen.queryByRole("link", { name: "Rate match" }),
     ).not.toBeInTheDocument();
@@ -162,6 +256,7 @@ describe("Partidos presentation", () => {
     expect(await screen.findByRole("status")).toHaveTextContent(
       "Rating submitted",
     );
+    expect(screen.getByText(/Aug 31, 2026, 7:00 AM/)).toBeInTheDocument();
     expect(
       screen.queryByRole("link", { name: "Rate match" }),
     ).not.toBeInTheDocument();
@@ -180,6 +275,10 @@ describe("Partidos presentation", () => {
       "href",
       "/matches/closed/results",
     );
+    expect(screen.queryByText(/Voting closes:/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "Rate match" }),
+    ).not.toBeInTheDocument();
   });
 
   it("does not present a stale live closed match as currently live", () => {

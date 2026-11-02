@@ -7,6 +7,8 @@ vi.mock("next/navigation", () => ({
 
 import { HomeContent } from "./page";
 
+const now = new Date("2026-08-31T12:00:00.000Z");
+
 const upcomingMatch = {
   id: "match-1",
   trackedTeamId: "club-sport-herediano",
@@ -106,6 +108,8 @@ describe("Home", () => {
       {
         status: "finished" as const,
         ratingState: "rating_ready" as const,
+        votingOpensAt: "2026-08-31T11:00:00.000Z",
+        votingClosesAt: "2026-08-31T13:00:00.000Z",
         title: "The match is ready to rate",
       },
       {
@@ -116,7 +120,11 @@ describe("Home", () => {
     ];
     for (const state of states) {
       const { unmount } = render(
-        <HomeContent locale="en" match={{ ...upcomingMatch, ...state }} />,
+        <HomeContent
+          locale="en"
+          match={{ ...upcomingMatch, ...state }}
+          now={now}
+        />,
       );
       expect(
         screen.getByRole("heading", { name: state.title }),

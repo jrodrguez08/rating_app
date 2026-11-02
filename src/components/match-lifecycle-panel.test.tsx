@@ -12,7 +12,8 @@ vi.mock("@/lib/firebase/ballot-client", () => ({
 }));
 
 const messages = getMessages("es").home.matchLifecycle;
-const now = Date.now();
+const now = new Date("2026-11-02T03:00:00.000Z");
+const nowMs = now.getTime();
 
 describe("Home WhatsApp rating share", () => {
   beforeEach(() => {
@@ -25,12 +26,13 @@ describe("Home WhatsApp rating share", () => {
         match={match({
           ratingState: "rating_ready",
           status: "finished",
-          votingOpensAt: new Date(now - 60_000).toISOString(),
-          votingClosesAt: new Date(now + 60_000).toISOString(),
+          votingOpensAt: new Date(nowMs - 60_000).toISOString(),
+          votingClosesAt: new Date(nowMs + 60_000).toISOString(),
         })}
         locale="es"
         messages={messages}
         goalMessages={getMessages("es").matches}
+        now={now}
       />,
     );
 
@@ -50,6 +52,12 @@ describe("Home WhatsApp rating share", () => {
     ).toContain(
       "https://rating-app-amber.vercel.app/matches/public-match/rate",
     );
+    expect(
+      screen.getByText(/1 nov 2026, 9:01 p/).closest("p"),
+    ).toHaveTextContent(
+      "Cierre de votaci\u00f3n: 1 nov 2026, 9:01 p. m. (Costa Rica)",
+    );
+    expect(screen.queryByText(/dos horas/i)).not.toBeInTheDocument();
   });
 
   it("keeps WhatsApp actionable beside a submitted non-interactive status", async () => {
@@ -59,12 +67,13 @@ describe("Home WhatsApp rating share", () => {
         match={match({
           ratingState: "rating_ready",
           status: "finished",
-          votingOpensAt: new Date(now - 60_000).toISOString(),
-          votingClosesAt: new Date(now + 60_000).toISOString(),
+          votingOpensAt: new Date(nowMs - 60_000).toISOString(),
+          votingClosesAt: new Date(nowMs + 60_000).toISOString(),
         })}
         locale="es"
         messages={messages}
         goalMessages={getMessages("es").matches}
+        now={now}
       />,
     );
 
@@ -84,22 +93,107 @@ describe("Home WhatsApp rating share", () => {
         match={match({
           ratingState: "rating_ready",
           status: "finished",
-          votingOpensAt: new Date(now - 180_000).toISOString(),
-          votingClosesAt: new Date(now - 120_000).toISOString(),
+          votingOpensAt: "2026-11-01T20:00:00.000Z",
+          votingClosesAt: "2026-11-01T22:00:00.000Z",
           votingReopenCount: 1,
-          votingReopenedAt: new Date(now - 60_000).toISOString(),
-          effectiveVotingOpensAt: new Date(now - 60_000).toISOString(),
-          effectiveVotingClosesAt: new Date(now + 60_000).toISOString(),
+          votingReopenedAt: new Date(nowMs - 60_000).toISOString(),
+          effectiveVotingOpensAt: new Date(nowMs - 60_000).toISOString(),
+          effectiveVotingClosesAt: "2026-11-02T05:00:00.000Z",
         })}
         locale="es"
         messages={messages}
         goalMessages={getMessages("es").matches}
+        now={now}
       />,
     );
 
     expect(
       await screen.findByRole("link", { name: "Calificar partido" }),
     ).toBeInTheDocument();
+    expect(
+      screen.getByText(/1 nov 2026, 11:00 p/).closest("p"),
+    ).toHaveTextContent(
+      "Cierre de votaci\u00f3n: 1 nov 2026, 11:00 p. m. (Costa Rica)",
+    );
+    expect(screen.queryByText(/1 nov 2026, 4:00 p/i)).not.toBeInTheDocument();
+  });
+
+  it.each([
+    [
+      "future",
+      {
+        votingOpensAt: "2026-11-02T04:00:00.000Z",
+        votingClosesAt: "2026-11-02T06:00:00.000Z",
+      },
+      "La votaci\u00f3n todav\u00eda no ha comenzado",
+    ],
+    [
+      "expired",
+      {
+        votingOpensAt: "2026-11-02T00:00:00.000Z",
+        votingClosesAt: "2026-11-02T02:00:00.000Z",
+      },
+      "Preparando los resultados",
+    ],
+    ["invalid", {}, "La votaci\u00f3n no est\u00e1 disponible por ahora"],
+  ] as const)(
+    "presents a safe %s rating-ready state without an active deadline",
+    (_name, window, heading) => {
+      render(
+        <MatchLifecyclePanel
+          match={match({
+            ratingState: "rating_ready",
+            status: "finished",
+            ...window,
+          })}
+          locale="es"
+          messages={messages}
+          goalMessages={getMessages("es").matches}
+          now={now}
+        />,
+      );
+
+      expect(
+        screen.getByRole("heading", { name: heading }),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole("link", { name: "Calificar partido" }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByText(/Cierre de votaci\u00f3n:/),
+      ).not.toBeInTheDocument();
+      expect(screen.queryByText(/dos horas/i)).not.toBeInTheDocument();
+    },
+  );
+
+  it("preserves published-result presentation without an active deadline", () => {
+    render(
+      <MatchLifecyclePanel
+        match={match({
+          ratingState: "rating_closed",
+          status: "finished",
+          votingOpensAt: "2026-11-02T00:00:00.000Z",
+          votingClosesAt: "2026-11-02T02:00:00.000Z",
+        })}
+        locale="es"
+        messages={messages}
+        goalMessages={getMessages("es").matches}
+        now={now}
+      />,
+    );
+
+    expect(
+      screen.getByRole("heading", { name: "Resultados de la comunidad" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Ver resultados" }),
+    ).toHaveAttribute("href", "/matches/public-match/results");
+    expect(
+      screen.queryByText(/Cierre de votaci\u00f3n:/),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "Calificar partido" }),
+    ).not.toBeInTheDocument();
   });
 
   it.each([
@@ -108,8 +202,8 @@ describe("Home WhatsApp rating share", () => {
       {
         ratingState: "rating_ready",
         status: "finished",
-        votingOpensAt: new Date(now - 120_000).toISOString(),
-        votingClosesAt: new Date(now - 60_000).toISOString(),
+        votingOpensAt: new Date(nowMs - 120_000).toISOString(),
+        votingClosesAt: new Date(nowMs - 60_000).toISOString(),
       },
     ],
     [
@@ -117,8 +211,8 @@ describe("Home WhatsApp rating share", () => {
       {
         ratingState: "rating_ready",
         status: "finished",
-        votingOpensAt: new Date(now + 60_000).toISOString(),
-        votingClosesAt: new Date(now + 120_000).toISOString(),
+        votingOpensAt: new Date(nowMs + 60_000).toISOString(),
+        votingClosesAt: new Date(nowMs + 120_000).toISOString(),
       },
     ],
     ["preparing", { ratingState: "preparing_rating", status: "finished" }],
@@ -136,6 +230,7 @@ describe("Home WhatsApp rating share", () => {
         locale="es"
         messages={messages}
         goalMessages={getMessages("es").matches}
+        now={now}
       />,
     );
 
@@ -167,6 +262,7 @@ describe("Home WhatsApp rating share", () => {
         locale="es"
         messages={messages}
         goalMessages={getMessages("es").matches}
+        now={now}
       />,
     );
 
@@ -198,6 +294,7 @@ describe("Home WhatsApp rating share", () => {
         locale="es"
         messages={messages}
         goalMessages={getMessages("es").matches}
+        now={now}
       />,
     );
 

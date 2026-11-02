@@ -16,6 +16,19 @@ export function formatDate(
   }).format(new Date(value));
 }
 
+export function formatVotingDeadline(
+  value: Date | string | number,
+  locale: Locale,
+): string {
+  return formatDate(value, locale, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 export function formatNumber(
   value: number,
   locale: Locale,

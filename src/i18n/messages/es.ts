@@ -131,15 +131,35 @@ export const esMessages = {
           "Estamos confirmando los participantes y el director t\u00e9cnico antes de abrir la votaci\u00f3n.",
       },
       ready: {
-        label: "Votaci\u00f3n disponible",
+        label: "Votaci\u00f3n abierta",
         title: "El partido est\u00e1 listo para calificar",
         description:
-          "La ventana de dos horas est\u00e1 activa. Env\u00eda una calificaci\u00f3n completa antes de que cierre.",
+          "Puedes enviar tus calificaciones hasta el cierre programado.",
+        deadlineLabel: "Cierre de votaci\u00f3n",
+        timeZone: "Costa Rica",
         action: "Calificar partido",
         share: "Compartir votación por WhatsApp",
         submitted: "Calificaci\u00f3n enviada",
         checking: "Preparando tu sesi\u00f3n...",
         sessionError: "No pudimos preparar tu sesi\u00f3n. Intenta de nuevo.",
+      },
+      future: {
+        label: "Votaci\u00f3n programada",
+        title: "La votaci\u00f3n todav\u00eda no ha comenzado",
+        description:
+          "Podr\u00e1s calificar cuando llegue la hora programada de apertura.",
+      },
+      expired: {
+        label: "Votaci\u00f3n cerrada",
+        title: "Preparando los resultados",
+        description:
+          "La votaci\u00f3n termin\u00f3. Los resultados estar\u00e1n disponibles pronto.",
+      },
+      unavailable: {
+        label: "Votaci\u00f3n no disponible",
+        title: "La votaci\u00f3n no est\u00e1 disponible por ahora",
+        description:
+          "Vuelve a intentarlo m\u00e1s tarde para consultar el estado del partido.",
       },
       results: {
         label: "Resultados finales",
@@ -202,7 +222,19 @@ export const esMessages = {
     preparing: "Preparando calificaciones",
     preparingDescription: "Estamos preparando las calificaciones.",
     votingOpen: "Calificaciones abiertas",
-    votingDescription: "La ventana de calificación de dos horas está abierta.",
+    votingDescription:
+      "Puedes enviar tus calificaciones hasta el cierre programado.",
+    votingDeadlineLabel: "Cierre de votaci\u00f3n",
+    votingTimeZone: "Costa Rica",
+    votingScheduled: "Votaci\u00f3n programada",
+    votingScheduledDescription:
+      "La votaci\u00f3n todav\u00eda no ha comenzado.",
+    votingClosed: "Votaci\u00f3n cerrada",
+    votingClosedDescription:
+      "La votaci\u00f3n termin\u00f3 y los resultados se est\u00e1n preparando.",
+    votingUnavailable: "Votaci\u00f3n no disponible",
+    votingUnavailableDescription:
+      "No hay un horario de votaci\u00f3n v\u00e1lido disponible.",
     resultsAvailable: "Resultados disponibles",
     resultsDescription:
       "La votación cerró y los resultados de la comunidad están disponibles.",
