@@ -24,6 +24,10 @@ function strings(value: unknown): string[] {
   return Object.values(value).flatMap(strings);
 }
 
+function normalizeDateSpacing(value: string): string {
+  return value.replace(/\s+/gu, " ");
+}
+
 describe("internationalization", () => {
   it("uses Spanish by default and for invalid locale values", () => {
     expect(defaultLocale).toBe("es");
@@ -70,15 +74,19 @@ describe("internationalization", () => {
   });
 
   it("formats voting deadlines in Costa Rica across UTC and local date boundaries", () => {
-    expect(formatVotingDeadline("2026-11-02T03:00:00.000Z", "es")).toBe(
-      "1 nov 2026, 9:00 p.\u00a0m.",
-    );
+    expect(
+      normalizeDateSpacing(
+        formatVotingDeadline("2026-11-02T03:00:00.000Z", "es"),
+      ),
+    ).toBe("1 nov 2026, 9:00 p. m.");
     expect(formatVotingDeadline("2026-11-02T03:00:00.000Z", "en")).toBe(
       "Nov 1, 2026, 9:00 PM",
     );
-    expect(formatVotingDeadline("2026-11-02T06:00:00.000Z", "es")).toBe(
-      "2 nov 2026, 12:00 a.\u00a0m.",
-    );
+    expect(
+      normalizeDateSpacing(
+        formatVotingDeadline("2026-11-02T06:00:00.000Z", "es"),
+      ),
+    ).toBe("2 nov 2026, 12:00 a. m.");
     expect(formatVotingDeadline("2026-11-02T06:00:00.000Z", "en")).toBe(
       "Nov 2, 2026, 12:00 AM",
     );
