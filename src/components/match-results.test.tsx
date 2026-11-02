@@ -46,7 +46,7 @@ describe("match results UI", () => {
       />,
     );
     expect(screen.getByText("Joint MVP")).toBeInTheDocument();
-    const ranking = screen.getByRole("list");
+    const ranking = screen.getByRole("list", { name: "Player ranking" });
     const items = within(ranking).getAllByRole("listitem");
     expect(items[0]).toHaveTextContent("Long Player Name That Wraps");
     expect(items[1]).toHaveTextContent("Second Player");
@@ -68,6 +68,12 @@ describe("match results UI", () => {
     ).toHaveAttribute(
       "href",
       "https://rating-app-amber.vercel.app/matches/match-1/results/story",
+    );
+    expect(
+      screen.getByRole("link", { name: "Download ratings table Story" }),
+    ).toHaveAttribute(
+      "href",
+      "https://rating-app-amber.vercel.app/matches/match-1/results/story/table?page=1",
     );
     expect(document.body.textContent).not.toContain("voter-");
   });

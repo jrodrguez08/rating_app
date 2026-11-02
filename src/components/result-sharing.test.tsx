@@ -8,6 +8,7 @@ import { ResultSharing } from "./result-sharing";
 
 const canonicalUrl = "https://rating-app.test/matches/match-1/results";
 const storyUrl = `${canonicalUrl}/story`;
+const ratingStoryUrl = `${storyUrl}/table?page=1`;
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -108,6 +109,29 @@ describe("result sharing", () => {
       screen.getByRole("link", { name: "Descargar historia" }),
     ).toBeVisible();
     expect(screen.getByRole("link", { name: "Ver historia" })).toBeVisible();
+    expect(
+      screen.getByRole("link", { name: "Descargar tabla para historia" }),
+    ).toHaveAttribute("href", ratingStoryUrl);
+    expect(
+      screen.getByRole("link", {
+        name: "Ver historia de calificaciones",
+      }),
+    ).toHaveAttribute("href", `${ratingStoryUrl}&view=1`);
+  });
+
+  it("offers every table Story page through numbered direct links", () => {
+    setNavigator({});
+    renderSharing([ratingStoryPage(1, 2), ratingStoryPage(2, 2)]);
+
+    expect(
+      screen.getByRole("link", { name: "Descargar historia 1 de 2" }),
+    ).toHaveAttribute("download", "rating-app-match-1-tabla-1-de-2.png");
+    expect(
+      screen.getByRole("link", { name: "Descargar historia 2 de 2" }),
+    ).toHaveAttribute("href", `${storyUrl}/table?page=2`);
+    expect(
+      screen.getByRole("link", { name: "Ver historia 2 de 2" }),
+    ).toHaveAttribute("href", `${storyUrl}/table?page=2&view=1`);
   });
 
   it("keeps Story fallbacks available without file sharing support", () => {
@@ -155,20 +179,40 @@ describe("result sharing", () => {
     ).toHaveFocus();
     await user.tab();
     expect(screen.getByRole("link", { name: "Ver historia" })).toHaveFocus();
+    await user.tab();
+    expect(
+      screen.getByRole("link", { name: "Descargar tabla para historia" }),
+    ).toHaveFocus();
+    await user.tab();
+    expect(
+      screen.getByRole("link", {
+        name: "Ver historia de calificaciones",
+      }),
+    ).toHaveFocus();
   });
 });
 
-function renderSharing() {
+function renderSharing(ratingStoryPages = [ratingStoryPage(1, 1)]) {
   render(
     <ResultSharing
       canonicalUrl={canonicalUrl}
       storyUrl={storyUrl}
       storyFilename="rating-app-match-1-historia.png"
+      ratingStoryPages={ratingStoryPages}
       shareTitle="Herediano 2 - 1 Pérez Zeledón"
       shareText="La afición eligió sus mejores jugadores."
       messages={getMessages("es").results.sharing}
     />,
   );
+}
+
+function ratingStoryPage(page: number, pageCount: number) {
+  return {
+    page,
+    pageCount,
+    url: `${storyUrl}/table?page=${page}`,
+    filename: `rating-app-match-1-tabla-${page}-de-${pageCount}.png`,
+  };
 }
 
 function setNavigator(value: Partial<Navigator>) {

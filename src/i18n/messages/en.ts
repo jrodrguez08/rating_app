@@ -279,6 +279,13 @@ export const enMessages = {
       copyLink: "Copy link",
       downloadStory: "Download Story",
       viewStory: "View Story",
+      tableStoryTitle: "Full ratings table for Stories",
+      tableStoryDescription:
+        "Includes every published rating. Download each image separately.",
+      downloadTableStory: "Download ratings table Story",
+      viewTableStory: "View ratings Story",
+      downloadTableStoryPage: "Download Story {page} of {total}",
+      viewTableStoryPage: "View Story {page} of {total}",
       sharing: "Preparing to share...",
       shared: "Results shared.",
       copied: "Link copied.",

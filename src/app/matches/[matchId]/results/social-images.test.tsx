@@ -27,6 +27,7 @@ import {
 
 import { GET as getOpenGraphImage } from "./opengraph-image/route";
 import { GET as getStoryImage } from "./story/route";
+import { GET as getRatingTableStoryImage } from "./story/table/route";
 
 beforeEach(() => {
   serviceMocks.getPublishedPageState.mockReset();
@@ -88,26 +89,81 @@ describe("published result social images", () => {
     expect(response.headers.get("content-disposition")).toBe(
       'inline; filename="rating-app-match-1-historia.png"',
     );
-    expect(pngDimensions(await response.arrayBuffer())).toEqual(
-      STORY_IMAGE_SIZE,
-    );
   });
 
-  it.each(["locked", "preparing", "unavailable"] as const)(
-    "returns 404 for a %s result without requesting photos",
-    async (state) => {
+  it("renders numbered full-rating Stories as 1080 x 1920 PNG downloads", async () => {
+    const fullPodium = podiumWithPlayers(17);
+    serviceMocks.getPublishedPageState.mockResolvedValue({
+      ...readyPage,
+      podium: fullPodium,
+    });
+
+    const first = await getRatingTableStoryImage(
+      new Request("https://rating-app.test/story/table?page=1"),
+      context,
+    );
+    const second = await getRatingTableStoryImage(
+      new Request("https://rating-app.test/story/table?page=2&view=1"),
+      context,
+    );
+
+    expect(first.status).toBe(200);
+    expect(first.headers.get("content-type")).toBe("image/png");
+    expect(first.headers.get("cache-control")).toBe("no-store");
+    expect(first.headers.get("content-disposition")).toBe(
+      'attachment; filename="rating-app-match-1-calificaciones-1-de-2.png"',
+    );
+    expect(pngDimensions(await first.arrayBuffer())).toEqual(STORY_IMAGE_SIZE);
+    expect(second.headers.get("content-disposition")).toBe(
+      'inline; filename="rating-app-match-1-calificaciones-2-de-2.png"',
+    );
+    expect(serviceMocks.loadSocialPlayerPhotos).not.toHaveBeenCalled();
+  });
+
+  it.each(["0", "-1", "1.5", "abc", "3"])(
+    "rejects invalid or out-of-range table Story page %s",
+    async (page) => {
+      serviceMocks.getPublishedPageState.mockResolvedValue({
+        ...readyPage,
+        podium: podiumWithPlayers(17),
+      });
+
+      const response = await getRatingTableStoryImage(
+        new Request(`https://rating-app.test/story/table?page=${page}`),
+        context,
+      );
+
+      expect(response.status).toBe(404);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+    },
+  );
+
+  it.each([
+    ["unknown match", "unavailable"],
+    ["unpublished result", "locked"],
+    ["reopened voting window", "locked"],
+    ["stale result revision", "preparing"],
+    ["wrong-Team result", "preparing"],
+  ] as const)(
+    "returns 404 for a %s without requesting photos",
+    async (_label, state) => {
       serviceMocks.getPublishedPageState.mockResolvedValue({ state });
 
-      const [openGraph, story] = await Promise.all([
+      const [openGraph, story, tableStory] = await Promise.all([
         getOpenGraphImage(
           new Request("https://rating-app.test/image"),
           context,
         ),
         getStoryImage(new Request("https://rating-app.test/story"), context),
+        getRatingTableStoryImage(
+          new Request("https://rating-app.test/story/table?page=1"),
+          context,
+        ),
       ]);
 
       expect(openGraph.status).toBe(404);
       expect(story.status).toBe(404);
+      expect(tableStory.status).toBe(404);
       expect(serviceMocks.loadSocialPlayerPhotos).not.toHaveBeenCalled();
     },
   );
@@ -199,6 +255,21 @@ function podiumPlayer(
   isMvp: boolean,
 ) {
   return { playerId, displayName, average, voteCount: 5, rank, isMvp };
+}
+
+function podiumWithPlayers(playerCount: number): PublishedResultPodium {
+  const players = Array.from({ length: playerCount }, (_, index) =>
+    podiumPlayer(
+      `table-${index + 1}`,
+      index === 4
+        ? "Jugador con un nombre extraordinariamente largo"
+        : `Jugador ${index + 1}`,
+      9.5 - index / 10,
+      index + 1,
+      index < 2,
+    ),
+  );
+  return { ...podium, players, topThree: players.slice(0, 3) };
 }
 
 function pngDimensions(image: ArrayBuffer) {
