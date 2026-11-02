@@ -48,3 +48,11 @@ export function matchPath(club: Club, matchId: string, path = ""): string {
 export function playerPath(club: Club, playerId: string): string {
   return clubPath(club, `/players/${encodeURIComponent(playerId)}`);
 }
+
+export function matchApiPath(
+  club: Club,
+  matchId: string,
+  path: string,
+): string {
+  return `/api/clubs/${club.slug}/matches/${encodeURIComponent(matchId)}${path}`;
+}

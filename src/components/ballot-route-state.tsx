@@ -22,10 +22,10 @@ export function BallotRouteState({
 }) {
   const [submitted, setSubmitted] = useState(false);
   useEffect(() => {
-    void getBallotStatus(matchId)
+    void getBallotStatus(club, matchId)
       .then((status) => setSubmitted(status === "submitted"))
       .catch(() => undefined);
-  }, [matchId]);
+  }, [club, matchId]);
   if (submitted) return <SubmittedState messages={messages} />;
   const content =
     state === "closed"

@@ -22,13 +22,10 @@ export default async function RateMatchPage({
     state: "unavailable",
   };
   try {
-    pageState = await new AdminBallotService().getPageState(matchId);
-    if (
-      pageState.state === "active" &&
-      pageState.context.teamId !== club.teamId
-    ) {
-      pageState = { state: "unavailable" };
-    }
+    pageState = await new AdminBallotService().getPageState(
+      matchId,
+      club.teamId,
+    );
   } catch {
     console.error("Ballot page data is temporarily unavailable.", { matchId });
   }
@@ -42,6 +39,7 @@ export default async function RateMatchPage({
       <main id="main-content" className="page-shell py-7 sm:py-10">
         {pageState.state === "active" ? (
           <RatingBallot
+            club={club}
             context={pageState.context}
             locale={locale}
             messages={messages.ballot}

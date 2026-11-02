@@ -1,3 +1,4 @@
+import { requireActiveClub } from "@/config/club-server";
 import { AdminBallotService } from "@/lib/firebase/server";
 import { verifyVoterRequest } from "@/lib/server/voter-token";
 
@@ -9,7 +10,7 @@ const MATCH_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 
 export async function GET(
   request: Request,
-  { params }: { params: Promise<{ matchId: string }> },
+  { params }: { params: Promise<{ clubSlug: string; matchId: string }> },
 ) {
   const voterId = await verifyVoterRequest(
     request.headers.get("authorization"),
@@ -17,14 +18,17 @@ export async function GET(
   if (voterId === null) {
     return json({ status: "unauthorized" }, 401);
   }
-  const { matchId } = await params;
+  const { clubSlug, matchId } = await params;
+  const club = requireActiveClub(clubSlug);
   if (!MATCH_ID_PATTERN.test(matchId))
     return json({ status: "invalid_match" }, 400);
   try {
     const submitted = await new AdminBallotService().hasSubmitted(
       matchId,
+      club.teamId,
       voterId,
     );
+    if (submitted === null) return json({ status: "invalid_match" }, 404);
     return json({ status: submitted ? "submitted" : "available" });
   } catch {
     console.error("Ballot status read failed.", { matchId });
@@ -34,7 +38,7 @@ export async function GET(
 
 export async function POST(
   request: Request,
-  { params }: { params: Promise<{ matchId: string }> },
+  { params }: { params: Promise<{ clubSlug: string; matchId: string }> },
 ) {
   const voterId = await verifyVoterRequest(
     request.headers.get("authorization"),
@@ -64,12 +68,18 @@ export async function POST(
   } catch {
     return json({ status: "invalid_ballot" }, 400);
   }
-  const { matchId } = await params;
+  const { clubSlug, matchId } = await params;
+  const club = requireActiveClub(clubSlug);
   if (!MATCH_ID_PATTERN.test(matchId))
     return json({ status: "invalid_match" }, 400);
   let result;
   try {
-    result = await new AdminBallotService().submit(matchId, voterId, input);
+    result = await new AdminBallotService().submit(
+      matchId,
+      club.teamId,
+      voterId,
+      input,
+    );
   } catch {
     console.error("Ballot submission failed.", { matchId });
     return json({ status: "data_unavailable" }, 503);
@@ -79,11 +89,13 @@ export async function POST(
       ? 201
       : result.status === "already_submitted"
         ? 409
-        : result.status === "invalid_ballot"
-          ? 400
-          : result.status === "data_unavailable"
-            ? 503
-            : 403;
+        : result.status === "invalid_match"
+          ? 404
+          : result.status === "invalid_ballot"
+            ? 400
+            : result.status === "data_unavailable"
+              ? 503
+              : 403;
   return json(result, statusCode);
 }
 

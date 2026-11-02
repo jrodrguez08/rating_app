@@ -113,14 +113,16 @@ describe("published result social images", () => {
       podium: fullPodium,
     });
 
-    const first = await getRatingTableStoryImage(
-      new Request("https://rating-app.test/story/table?page=1"),
-      context,
-    );
-    const second = await getRatingTableStoryImage(
-      new Request("https://rating-app.test/story/table?page=2&view=1"),
-      context,
-    );
+    const [first, second] = await Promise.all([
+      getRatingTableStoryImage(
+        new Request("https://rating-app.test/story/table?page=1"),
+        context,
+      ),
+      getRatingTableStoryImage(
+        new Request("https://rating-app.test/story/table?page=2&view=1"),
+        context,
+      ),
+    ]);
 
     expect(first.status).toBe(200);
     expect(first.headers.get("content-type")).toBe("image/png");

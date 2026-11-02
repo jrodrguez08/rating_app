@@ -91,8 +91,12 @@ describe("operator voting-window persistence", () => {
     expect(
       (await database.doc(`matches/${matchId}/ballots/voter-a`).get()).data(),
     ).toEqual(ballotBefore);
-    expect((await results.getPageState(matchId)).state).toBe("locked");
-    expect(await results.getVoteComparison(matchId, "voter-a")).toEqual({
+    expect((await results.getPageState(matchId, "team-operator")).state).toBe(
+      "locked",
+    );
+    expect(
+      await results.getVoteComparison(matchId, "team-operator", "voter-a"),
+    ).toEqual({
       status: "locked",
     });
     const send = vi.fn().mockResolvedValue({ providerMessageId: "email-1" });
@@ -139,7 +143,13 @@ describe("operator voting-window persistence", () => {
     await seedClosed(matchId);
     await operator.reopen(matchId, new Date(Date.now() + 60 * 60 * 1000), true);
     await expect(
-      ballots.submit(matchId, "voter-b", ratings(10, 9), new Date()),
+      ballots.submit(
+        matchId,
+        "team-operator",
+        "voter-b",
+        ratings(10, 9),
+        new Date(),
+      ),
     ).resolves.toEqual({ status: "created" });
     const oldBallot = (
       await database.doc(`matches/${matchId}/ballots/voter-a`).get()
@@ -168,8 +178,12 @@ describe("operator voting-window persistence", () => {
     expect(
       (await database.doc(`matches/${matchId}/results/summary`).get()).data(),
     ).toMatchObject({ ballotCount: 2, status: "final" });
-    expect((await results.getPageState(matchId)).state).toBe("ready");
-    expect(await results.getVoteComparison(matchId, "voter-b")).toMatchObject({
+    expect((await results.getPageState(matchId, "team-operator")).state).toBe(
+      "ready",
+    );
+    expect(
+      await results.getVoteComparison(matchId, "team-operator", "voter-b"),
+    ).toMatchObject({
       status: "ready",
       comparison: {
         players: [{ id: "player-1", userRating: 10 }],
@@ -187,7 +201,13 @@ describe("operator voting-window persistence", () => {
       ).data(),
     ).toEqual(archivedBeforeClose);
     await expect(
-      ballots.submit(matchId, "late-voter", ratings(7, 7), new Date()),
+      ballots.submit(
+        matchId,
+        "team-operator",
+        "late-voter",
+        ratings(7, 7),
+        new Date(),
+      ),
     ).resolves.toEqual({ status: "not_open" });
     await expect(operator.close(matchId)).rejects.toThrow(/active finished/i);
     const generatedAt = (
@@ -216,8 +236,12 @@ describe("operator voting-window persistence", () => {
     expect(
       (await database.doc(`matches/${matchId}/results/summary`).get()).data(),
     ).toMatchObject({ ballotCount: 1 });
-    expect((await results.getPageState(matchId)).state).toBe("ready");
-    expect(await results.getVoteComparison(matchId, "voter-a")).toMatchObject({
+    expect((await results.getPageState(matchId, "team-operator")).state).toBe(
+      "ready",
+    );
+    expect(
+      await results.getVoteComparison(matchId, "team-operator", "voter-a"),
+    ).toMatchObject({
       status: "ready",
       comparison: {
         players: [{ id: "player-1", userRating: 8 }],
@@ -316,7 +340,13 @@ describe("operator voting-window persistence", () => {
     const closesAt = new Date(Date.now() + 5 * 60 * 1000 + 5_000);
     await operator.reopen(matchId, closesAt, true);
     await expect(
-      ballots.submit(matchId, "voter-b", ratings(10, 9), new Date()),
+      ballots.submit(
+        matchId,
+        "team-operator",
+        "voter-b",
+        ratings(10, 9),
+        new Date(),
+      ),
     ).resolves.toEqual({ status: "created" });
     await database.doc("teams/team-operator").set({
       displayName: "Tracked Team",

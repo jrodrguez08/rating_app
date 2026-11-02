@@ -25,6 +25,7 @@ export async function GET(
 
     const published = await new AdminResultService().getPublishedPageState(
       matchId,
+      club.teamId,
     );
     if (
       published.state !== "ready" ||

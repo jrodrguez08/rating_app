@@ -7,6 +7,7 @@ import {
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { syncFootballData } from "@/application/sync-football";
+import { trackedMatchId } from "@/application/match-identity";
 import { runMatchLifecycle } from "@/application/match-lifecycle";
 import {
   providerEntityId,
@@ -512,6 +513,50 @@ describe("football synchronization persistence", () => {
         }),
       ]),
     );
+  });
+
+  it("imports the same provider fixture into distinct stable club Matches", async () => {
+    const store = new EmulatorFootballSyncStore(emulatorHost, projectId);
+    const herediano = await store.getTeam("club-sport-herediano");
+    const saprissa = {
+      ...herediano,
+      id: "deportivo-saprissa",
+      displayName: "Deportivo Saprissa",
+      shortName: "Saprissa",
+      externalProviderId: "3000",
+    };
+    await environment.withSecurityRulesDisabled(async (context) => {
+      const { id: saprissaTeamId, ...document } = saprissa;
+      await context.firestore().doc(`teams/${saprissaTeamId}`).set(document);
+    });
+    const sharedFixture: ProviderFixture = {
+      externalFixtureId: "1551706",
+      externalCompetitionId: "71",
+      providerSeason: 2026,
+      kickoffAt: "2026-10-30T20:00:00.000Z",
+      status: "finished",
+      homeTeam: { externalProviderId: "1234", name: "Herediano" },
+      awayTeam: { externalProviderId: "3000", name: "Saprissa" },
+      score: { home: 2, away: 1 },
+    };
+    const provider = new FixtureProvider([sharedFixture]);
+    const now = new Date("2026-11-01T00:00:00.000Z");
+    await syncFootballData(herediano, provider, store, { now });
+    await syncFootballData(saprissa, provider, store, { now });
+    const heredianoId = trackedMatchId(provider.name, "1551706", herediano.id);
+    const saprissaId = trackedMatchId(provider.name, "1551706", saprissa.id);
+    expect(heredianoId).toBe("match-10a50b08075ca1f0646e5b6d");
+    expect(saprissaId).not.toBe(heredianoId);
+    expect(await store.getMatch(heredianoId)).toMatchObject({
+      trackedTeamId: herediano.id,
+      externalProviderFixtureId: "1551706",
+    });
+    expect(await store.getMatch(saprissaId)).toMatchObject({
+      trackedTeamId: saprissa.id,
+      externalProviderFixtureId: "1551706",
+    });
+    const repeat = await syncFootballData(saprissa, provider, store, { now });
+    expect(repeat.matches.unchanged).toBe(1);
   });
 
   it("creates distinct competitions, seasons, and home/away matches idempotently", async () => {

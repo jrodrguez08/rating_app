@@ -63,7 +63,10 @@ export default async function StudioPage({
   );
   for (const matchId of candidates) {
     try {
-      const page = await resultService.getPublishedPageState(matchId);
+      const page = await resultService.getPublishedPageState(
+        matchId,
+        club.teamId,
+      );
       if (page.state !== "ready" || page.match.trackedTeamId !== club.teamId) {
         continue;
       }

@@ -1,9 +1,10 @@
+import { assertSameTrackedFixture } from "@/application/match-identity";
+import { resolvePersistedPlayerProviderAlias } from "@/application/reconcile-player-identities";
 import {
   membershipFromParticipant,
   membershipFromPlayer,
   mergeTeamPlayerMembership,
 } from "@/application/team-player-membership";
-import { resolvePersistedPlayerProviderAlias } from "@/application/reconcile-player-identities";
 import { preserveMonotonicMatchStatus } from "@/domain/match-status";
 import { hasAuthoritativeFinalWhistle } from "@/domain/manual-voting";
 import { aggregateMatchResult } from "@/domain/result-aggregation";
@@ -698,6 +699,12 @@ export class EmulatorFootballSyncStore
         );
         counts.created += 1;
       } else {
+        if (preserveLifecycle) {
+          assertSameTrackedFixture(
+            existing as unknown as Match,
+            value as Match,
+          );
+        }
         const candidate = preserveLifecycle
           ? preserveMatchLifecycle(existing, value as Match)
           : {

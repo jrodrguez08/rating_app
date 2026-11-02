@@ -1,3 +1,4 @@
+import { matchApiPath, type Club } from "@/config/club";
 import type { BallotRatings } from "@/domain/models";
 
 import { getVoterIdToken } from "./voter-auth";
@@ -11,6 +12,7 @@ export type BallotClientStatus =
   | "closed"
   | "data_unavailable"
   | "invalid_ballot"
+  | "invalid_match"
   | "unauthorized";
 
 const ballotStatuses = new Set<BallotClientStatus>([
@@ -22,20 +24,23 @@ const ballotStatuses = new Set<BallotClientStatus>([
   "closed",
   "data_unavailable",
   "invalid_ballot",
+  "invalid_match",
   "unauthorized",
 ]);
 
 export async function getBallotStatus(
+  club: Club,
   matchId: string,
 ): Promise<BallotClientStatus> {
-  return request(matchId, { method: "GET" });
+  return request(club, matchId, { method: "GET" });
 }
 
 export async function submitBallot(
+  club: Club,
   matchId: string,
   ratings: BallotRatings,
 ): Promise<BallotClientStatus> {
-  return request(matchId, {
+  return request(club, matchId, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(ratings),
@@ -43,17 +48,15 @@ export async function submitBallot(
 }
 
 async function request(
+  club: Club,
   matchId: string,
   init: RequestInit,
 ): Promise<BallotClientStatus> {
   const token = await getVoterIdToken();
-  const response = await fetch(
-    `/api/matches/${encodeURIComponent(matchId)}/ballot`,
-    {
-      ...init,
-      headers: { ...init.headers, Authorization: `Bearer ${token}` },
-    },
-  );
+  const response = await fetch(matchApiPath(club, matchId, "/ballot"), {
+    ...init,
+    headers: { ...init.headers, Authorization: `Bearer ${token}` },
+  });
   const payload: unknown = await response.json();
   if (
     typeof payload !== "object" ||

@@ -175,6 +175,7 @@ export function MatchResults({
               </div>
             </div>
             <VoteComparisonSection
+              club={club}
               matchId={match.id}
               locale={locale}
               messages={messages.comparison}

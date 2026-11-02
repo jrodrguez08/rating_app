@@ -15,7 +15,9 @@ vi.mock("@/lib/firebase/server", () => ({
 
 import { GET } from "./route";
 
-const context = { params: Promise.resolve({ matchId: "match-1" }) };
+const context = {
+  params: Promise.resolve({ clubSlug: "herediano", matchId: "match-1" }),
+};
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.verify.mockResolvedValue("voter-a");
@@ -46,8 +48,19 @@ describe("vote comparison API", () => {
       comparison: { players: [], coach: {} },
     });
     const response = await GET(new Request("http://local/api"), context);
-    expect(mocks.getVoteComparison).toHaveBeenCalledWith("match-1", "voter-a");
+    expect(mocks.getVoteComparison).toHaveBeenCalledWith(
+      "match-1",
+      "club-sport-herediano",
+      "voter-a",
+    );
     expect(response.headers.get("cache-control")).toBe("private, no-store");
     expect(response.status).toBe(200);
+  });
+
+  it("returns 404 for a cross-club Match without exposing a comparison", async () => {
+    mocks.getVoteComparison.mockResolvedValue({ status: "invalid_match" });
+    const response = await GET(new Request("http://local/api"), context);
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({ status: "invalid_match" });
   });
 });

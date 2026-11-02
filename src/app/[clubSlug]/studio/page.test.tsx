@@ -50,7 +50,10 @@ describe("public Studio routes", () => {
       (screen.getByLabelText("URL de la fuente para OBS") as HTMLInputElement)
         .value,
     ).toContain("/studio/overlay/match-1");
-    expect(services.getPublishedPageState).toHaveBeenCalledWith("match-1");
+    expect(services.getPublishedPageState).toHaveBeenCalledWith(
+      "match-1",
+      "club-sport-herediano",
+    );
   });
 
   it("does not expose an unpublished result in the overlay", async () => {

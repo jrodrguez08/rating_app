@@ -18,7 +18,9 @@ vi.mock("@/lib/server/voter-token", () => ({
 
 import { GET, POST } from "./route";
 
-const context = { params: Promise.resolve({ matchId: "match-1" }) };
+const context = {
+  params: Promise.resolve({ clubSlug: "herediano", matchId: "match-1" }),
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -48,7 +50,11 @@ describe("ballot API", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ status: "submitted" });
-    expect(mocks.hasSubmitted).toHaveBeenCalledWith("match-1", "trusted-voter");
+    expect(mocks.hasSubmitted).toHaveBeenCalledWith(
+      "match-1",
+      "club-sport-herediano",
+      "trusted-voter",
+    );
   });
 
   it("derives the ballot owner from the verified token", async () => {
@@ -72,6 +78,7 @@ describe("ballot API", () => {
     expect(response.status).toBe(201);
     expect(mocks.submit).toHaveBeenCalledWith(
       "match-1",
+      "club-sport-herediano",
       "trusted-voter",
       ratings,
     );
@@ -79,6 +86,7 @@ describe("ballot API", () => {
 
   it.each([
     ["already_submitted", 409],
+    ["invalid_match", 404],
     ["invalid_ballot", 400],
     ["data_unavailable", 503],
     ["not_open", 403],
@@ -134,7 +142,9 @@ describe("ballot API", () => {
     );
     expect(oversized.status).toBe(413);
 
-    const invalidContext = { params: Promise.resolve({ matchId: "../bad" }) };
+    const invalidContext = {
+      params: Promise.resolve({ clubSlug: "herediano", matchId: "../bad" }),
+    };
     const invalid = await GET(new Request("http://local/api"), invalidContext);
     expect(invalid.status).toBe(400);
     expect(mocks.hasSubmitted).not.toHaveBeenCalled();
@@ -143,5 +153,12 @@ describe("ballot API", () => {
   it("marks every API response as non-cacheable", async () => {
     const response = await GET(new Request("http://local/api"), context);
     expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("returns 404 for a Match outside the resolved club before reading ballot status", async () => {
+    mocks.hasSubmitted.mockResolvedValue(null);
+    const response = await GET(new Request("http://local/api"), context);
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({ status: "invalid_match" });
   });
 });

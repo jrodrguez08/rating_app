@@ -26,8 +26,11 @@ export default async function StudioOverlayPage({
   const messages = getMessages(locale);
   let presentation: StudioMatchPresentation | null = null;
   try {
-    const page = await new AdminResultService().getPublishedPageState(matchId);
-    if (page.state === "ready" && page.match.trackedTeamId === club.teamId) {
+    const page = await new AdminResultService().getPublishedPageState(
+      matchId,
+      club.teamId,
+    );
+    if (page.state === "ready") {
       presentation = buildStudioMatchPresentation(
         page.match,
         page.result,

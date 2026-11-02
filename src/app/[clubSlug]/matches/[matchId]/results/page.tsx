@@ -14,7 +14,10 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const readPublishedResult = cache(async (matchId: string, teamId: string) => {
-  const page = await new AdminResultService().getPublishedPageState(matchId);
+  const page = await new AdminResultService().getPublishedPageState(
+    matchId,
+    teamId,
+  );
   return page.match && page.match.trackedTeamId !== teamId
     ? { state: "unavailable" as const }
     : page;

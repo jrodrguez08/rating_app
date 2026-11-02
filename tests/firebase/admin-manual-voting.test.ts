@@ -127,6 +127,7 @@ describe("manual voting persistence", () => {
       expect(unused.data()).toMatchObject({ participated: false });
       const ballot = await new AdminBallotService(database).getPageState(
         input.matchId,
+        input.trackedTeamId,
       );
       expect(ballot.state).toBe("active");
       if (ballot.state === "active") {

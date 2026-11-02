@@ -27,14 +27,14 @@ export function BallotEntry({
     "checking" | "available" | "submitted" | "error"
   >("checking");
   useEffect(() => {
-    void getBallotStatus(matchId)
+    void getBallotStatus(club, matchId)
       .then((status) => {
         if (status === "submitted") setState("submitted");
         else if (status === "available") setState("available");
         else setState("error");
       })
       .catch(() => setState("error"));
-  }, [matchId]);
+  }, [club, matchId]);
 
   if (state === "checking") {
     return actionRow(

@@ -19,6 +19,11 @@ import {
   type MatchArchive,
 } from "@/application/match-archive";
 import {
+  assertSameTrackedFixture,
+  isMatchContextOwnedByTeam,
+  isMatchOwnedByTeam,
+} from "@/application/match-identity";
+import {
   buildPlayerCatalog,
   type PlayerCatalog,
 } from "@/application/player-history";
@@ -178,6 +183,7 @@ export type BallotSubmissionResult =
         | "not_open"
         | "closed"
         | "data_unavailable"
+        | "invalid_match"
         | "invalid_ballot";
     };
 
@@ -199,11 +205,13 @@ export class AdminResultService {
 
   async getPageState(
     matchId: string,
+    teamId: string,
     now = new Date(),
   ): Promise<ResultPageState> {
     const matchSnapshot = await this.database.doc(`matches/${matchId}`).get();
     if (!matchSnapshot.exists) return { state: "unavailable" };
     const match = fromDocument<Match>(matchSnapshot);
+    if (!isMatchOwnedByTeam(match, teamId)) return { state: "unavailable" };
     if (match.ratingState === "rating_closed") {
       const resultSnapshot = await this.database
         .doc(`matches/${matchId}/results/summary`)
@@ -224,9 +232,10 @@ export class AdminResultService {
 
   async getPublishedPageState(
     matchId: string,
+    teamId: string,
     now = new Date(),
   ): Promise<PublishedResultPageState> {
-    const page = await this.getPageState(matchId, now);
+    const page = await this.getPageState(matchId, teamId, now);
     if (page.state !== "ready") return page;
     if (page.result.status !== "final") return { ...page, podium: null };
 
@@ -307,13 +316,15 @@ export class AdminResultService {
 
   async getVoteComparison(
     matchId: string,
+    teamId: string,
     voterId: string,
     now = new Date(),
   ): Promise<
-    | { status: "locked" | "no_ballot" | "unavailable" }
+    | { status: "locked" | "no_ballot" | "unavailable" | "invalid_match" }
     | { status: "ready"; comparison: VoteComparison }
   > {
-    const page = await this.getPageState(matchId, now);
+    const page = await this.getPageState(matchId, teamId, now);
+    if (page.state === "unavailable") return { status: "invalid_match" };
     if (page.state !== "ready") return { status: "locked" };
 
     const ballotSnapshot = await this.database
@@ -321,7 +332,13 @@ export class AdminResultService {
       .get();
     if (!ballotSnapshot.exists) return { status: "no_ballot" };
     const ballot = fromDocument<Ballot>(ballotSnapshot);
-    if (ballot.voterId !== voterId) return { status: "unavailable" };
+    if (
+      ballot.voterId !== voterId ||
+      ballot.matchId !== matchId ||
+      ballot.teamId !== teamId
+    ) {
+      return { status: "unavailable" };
+    }
 
     const participantSnapshot = await this.database
       .collection(`matches/${matchId}/participants`)
@@ -332,6 +349,7 @@ export class AdminResultService {
           .map((snapshot) => fromDocument<MatchParticipant>(snapshot))
           .filter(
             (participant) =>
+              isMatchContextOwnedByTeam(page.match, participant) &&
               participant.externalProvider !== undefined &&
               participant.externalProviderPlayerId !== undefined,
           )
@@ -443,9 +461,14 @@ export class AdminMatchArchiveService {
         ]),
     );
     const resultIds = new Set(
-      results
-        .filter((snapshot) => snapshot.exists)
-        .map((snapshot) => snapshot.ref.parent.parent?.id),
+      results.flatMap((snapshot) => {
+        const matchId = snapshot.ref.parent.parent?.id;
+        if (!snapshot.exists || !matchId) return [];
+        const result = fromDocument<MatchResult>(snapshot);
+        return result.teamId === teamId && result.matchId === matchId
+          ? [matchId]
+          : [];
+      }),
     );
     return buildMatchArchive(
       matches.map((match) => ({
@@ -468,12 +491,16 @@ export class AdminMatchArchiveService {
       this.database.doc(`competitions/${match.competitionId}`).get(),
       this.database.doc(`matches/${match.id}/results/summary`).get(),
     ]);
+    const summary = result.exists ? fromDocument<MatchResult>(result) : null;
     return {
       match,
       ...(competition.exists
         ? { competitionName: fromDocument<Competition>(competition).name }
         : {}),
-      hasResults: result.exists,
+      hasResults:
+        summary !== null &&
+        summary.matchId === match.id &&
+        summary.teamId === teamId,
     };
   }
 }
@@ -604,11 +631,13 @@ export class AdminBallotService {
 
   async getPageState(
     matchId: string,
+    teamId: string,
     now = new Date(),
   ): Promise<BallotPageState> {
     const matchSnapshot = await this.database.doc(`matches/${matchId}`).get();
     if (!matchSnapshot.exists) return { state: "unavailable" };
     const match = fromDocument<Match>(matchSnapshot);
+    if (!isMatchOwnedByTeam(match, teamId)) return { state: "unavailable" };
     const windowState = getVotingWindowState(match, now);
     if (windowState !== "active") return { state: windowState };
 
@@ -622,7 +651,7 @@ export class AdminBallotService {
       )
       .filter(
         (participant) =>
-          participant.teamId === match.trackedTeamId &&
+          isMatchContextOwnedByTeam(match, participant) &&
           participant.participated,
       )
       .sort(compareParticipants)
@@ -640,7 +669,7 @@ export class AdminBallotService {
     if (
       players.length === 0 ||
       coach === null ||
-      coach.teamId !== match.trackedTeamId
+      !isMatchContextOwnedByTeam(match, coach)
     ) {
       return { state: "unavailable" };
     }
@@ -659,14 +688,30 @@ export class AdminBallotService {
     };
   }
 
-  async hasSubmitted(matchId: string, voterId: string): Promise<boolean> {
-    return (
-      await this.database.doc(`matches/${matchId}/ballots/${voterId}`).get()
-    ).exists;
+  async hasSubmitted(
+    matchId: string,
+    teamId: string,
+    voterId: string,
+  ): Promise<boolean | null> {
+    const matchSnapshot = await this.database.doc(`matches/${matchId}`).get();
+    if (!matchSnapshot.exists) return null;
+    const match = fromDocument<Match>(matchSnapshot);
+    if (!isMatchOwnedByTeam(match, teamId)) return null;
+    const ballotSnapshot = await this.database
+      .doc(`matches/${matchId}/ballots/${voterId}`)
+      .get();
+    if (!ballotSnapshot.exists) return false;
+    const ballot = fromDocument<Ballot>(ballotSnapshot);
+    return ballot.matchId === matchId &&
+      ballot.teamId === teamId &&
+      ballot.voterId === voterId
+      ? true
+      : null;
   }
 
   async submit(
     matchId: string,
+    teamId: string,
     voterId: string,
     input: unknown,
     now = new Date(),
@@ -682,20 +727,19 @@ export class AdminBallotService {
       const ballotReference = this.database.doc(
         `matches/${matchId}/ballots/${voterId}`,
       );
-      const [
-        matchSnapshot,
-        participantSnapshot,
-        coachSnapshot,
-        ballotSnapshot,
-      ] = await Promise.all([
-        transaction.get(matchReference),
-        transaction.get(participantQuery),
-        transaction.get(coachReference),
-        transaction.get(ballotReference),
-      ]);
-      if (ballotSnapshot.exists) return { status: "already_submitted" };
-      if (!matchSnapshot.exists) return { status: "data_unavailable" };
+      const matchSnapshot = await transaction.get(matchReference);
+      if (!matchSnapshot.exists) return { status: "invalid_match" };
       const match = fromDocument<Match>(matchSnapshot);
+      if (!isMatchOwnedByTeam(match, teamId)) {
+        return { status: "invalid_match" };
+      }
+      const [participantSnapshot, coachSnapshot, ballotSnapshot] =
+        await Promise.all([
+          transaction.get(participantQuery),
+          transaction.get(coachReference),
+          transaction.get(ballotReference),
+        ]);
+      if (ballotSnapshot.exists) return { status: "already_submitted" };
       const windowState = getVotingWindowState(match, now);
       if (windowState !== "active") return { status: windowState };
 
@@ -703,7 +747,7 @@ export class AdminBallotService {
         .map((document) => document.data() as Partial<MatchParticipant>)
         .filter(
           (participant) =>
-            participant.teamId === match.trackedTeamId &&
+            isMatchContextOwnedByTeam(match, participant) &&
             participant.participated === true,
         )
         .map((participant) => participant.playerId)
@@ -712,7 +756,8 @@ export class AdminBallotService {
         Partial<CoachAssignment> | undefined;
       if (
         eligiblePlayerIds.length === 0 ||
-        coach?.teamId !== match.trackedTeamId ||
+        coach === undefined ||
+        !isMatchContextOwnedByTeam(match, coach) ||
         typeof coach.coachId !== "string"
       ) {
         return { status: "data_unavailable" };
@@ -2535,6 +2580,10 @@ export class AdminFootballSyncStore
               return "created" as const;
             }
             const existing = fromDocument<T>(snapshot);
+            assertSameTrackedFixture(
+              existing as unknown as Match,
+              incoming as unknown as Match,
+            );
             const merged = preserveMatchLifecycle(
               existing as unknown as Match,
               incoming as unknown as Match,

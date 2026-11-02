@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { clubPath, clubs, matchPath, playerPath, resolveClub } from "./club";
+import {
+  clubPath,
+  clubs,
+  matchApiPath,
+  matchPath,
+  playerPath,
+  resolveClub,
+} from "./club";
 
 describe("club registry and public routes", () => {
   it("resolves only the two declared clubs with distinct stable Team IDs and themes", () => {
@@ -29,6 +36,9 @@ describe("club registry and public routes", () => {
     );
     expect(playerPath(clubs.saprissa, "player/id")).toBe(
       "/saprissa/players/player%2Fid",
+    );
+    expect(matchApiPath(clubs.herediano, "fixture/id", "/ballot")).toBe(
+      "/api/clubs/herediano/matches/fixture%2Fid/ballot",
     );
   });
 });

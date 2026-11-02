@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import type { Club } from "@/config/club";
 import type { BallotContext, BallotRatings } from "@/domain/models";
 import type { Locale } from "@/i18n/config";
 import { formatDate } from "@/i18n/format";
@@ -11,10 +12,12 @@ import { getBallotStatus, submitBallot } from "@/lib/firebase/ballot-client";
 type BallotMessages = Messages["ballot"];
 
 export function RatingBallot({
+  club,
   context,
   locale,
   messages,
 }: {
+  club: Club;
   context: BallotContext;
   locale: Locale;
   messages: BallotMessages;
@@ -33,7 +36,7 @@ export function RatingBallot({
   const cancelButton = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    void getBallotStatus(context.matchId)
+    void getBallotStatus(club, context.matchId)
       .then((result) =>
         setStatus(result === "submitted" ? "submitted" : "editing"),
       )
@@ -41,7 +44,7 @@ export function RatingBallot({
         setError(messages.sessionError);
         setStatus("error");
       });
-  }, [context.matchId, messages.sessionError]);
+  }, [club, context.matchId, messages.sessionError]);
   useEffect(() => {
     if (status === "confirming") confirmationHeading.current?.focus();
   }, [status]);
@@ -70,7 +73,7 @@ export function RatingBallot({
       coachRating: { coachId: context.coach.id, rating: coachRating },
     };
     try {
-      const result = await submitBallot(context.matchId, ratings);
+      const result = await submitBallot(club, context.matchId, ratings);
       if (result === "created" || result === "already_submitted") {
         setStatus("submitted");
       } else {
@@ -79,6 +82,7 @@ export function RatingBallot({
           closed: messages.closedDescription,
           not_open: messages.notOpenDescription,
           data_unavailable: messages.unavailableDescription,
+          invalid_match: messages.unavailableDescription,
           unauthorized: messages.sessionError,
         };
         setError(resultMessages[result] ?? messages.submitError);

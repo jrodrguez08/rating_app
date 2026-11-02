@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import { matchApiPath, type Club } from "@/config/club";
 import type {
   VoteComparison,
   VoteComparisonRow,
@@ -14,10 +15,12 @@ import { getVoterIdToken } from "@/lib/firebase/voter-auth";
 type State = "loading" | "no_ballot" | "unavailable" | VoteComparison;
 
 export function VoteComparisonSection({
+  club,
   matchId,
   locale,
   messages,
 }: {
+  club: Club;
   matchId: string;
   locale: Locale;
   messages: Messages["results"]["comparison"];
@@ -29,7 +32,7 @@ export function VoteComparisonSection({
       try {
         const token = await getVoterIdToken();
         const response = await fetch(
-          `/api/matches/${encodeURIComponent(matchId)}/vote-comparison`,
+          matchApiPath(club, matchId, "/vote-comparison"),
           { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" },
         );
         const payload: unknown = await response.json();
@@ -61,7 +64,7 @@ export function VoteComparisonSection({
     return () => {
       active = false;
     };
-  }, [matchId]);
+  }, [club, matchId]);
 
   return (
     <section

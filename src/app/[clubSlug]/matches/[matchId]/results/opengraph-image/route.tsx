@@ -19,7 +19,10 @@ export async function GET(
   const { clubSlug, matchId } = await params;
   const club = requireActiveClub(clubSlug);
   try {
-    const page = await new AdminResultService().getPublishedPageState(matchId);
+    const page = await new AdminResultService().getPublishedPageState(
+      matchId,
+      club.teamId,
+    );
     if (
       page.state !== "ready" ||
       page.podium === null ||
