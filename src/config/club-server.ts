@@ -1,9 +1,11 @@
 import { notFound } from "next/navigation";
 
 import { resolveClub, type Club } from "./club";
+import { publicClub } from "./club-operations";
 
 export function requireClub(slug: string): Club {
-  return resolveClub(slug) ?? notFound();
+  const club = resolveClub(slug) ?? notFound();
+  return publicClub(club.slug);
 }
 
 export function requireActiveClub(slug: string): Club {

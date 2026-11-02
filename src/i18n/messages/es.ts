@@ -943,8 +943,9 @@ export const esMessages = {
     supporting: "Creado para aficionados. Listo para crecer club por club.",
   },
   operatorNotification: {
-    subject: "Votaci\u00f3n abierta: {home} vs. {away}",
-    intro: "La votaci\u00f3n ya est\u00e1 abierta para {home} vs. {away}.",
+    subject: "{club}: votaci\u00f3n abierta para {home} vs. {away}",
+    intro:
+      "La votaci\u00f3n de {club} ya est\u00e1 abierta para {home} vs. {away}.",
     score: "Marcador: {score}",
     scoreUnavailable: "No disponible",
     matchId: "ID del partido: {matchId}",

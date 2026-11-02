@@ -27,6 +27,8 @@
     "reconcile:player-identities": "tsx scripts/reconcile-player-identities.ts",
     "sync:lifecycle": "tsx --env-file=.env.local scripts/sync-lifecycle.ts",
     "bootstrap:production-team": "tsx scripts/bootstrap-production-team.ts",
+    "bootstrap:saprissa-team": "tsx scripts/bootstrap-saprissa-team.ts",
+    "verify:provider-team": "tsx scripts/verify-provider-team.ts",
     "backfill:team-player-memberships": "tsx scripts/backfill-team-player-memberships.ts",
     "manage:voting-window": "tsx scripts/manage-voting-window.ts",
     "manage:coach-assignment": "tsx scripts/manage-coach-assignment.ts",

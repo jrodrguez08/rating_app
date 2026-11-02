@@ -1,5 +1,5 @@
 import { runConfiguredLifecycle } from "@/application/run-lifecycle";
-import { initialClub } from "@/config/club";
+import { scheduledClubFromRequest } from "@/config/club-operations";
 import {
   AdminFootballSyncStore,
   AdminVotingWindowNotificationStore,
@@ -19,6 +19,15 @@ export async function POST(request: Request) {
   if (!isAuthorizedCronRequest(request.headers.get("authorization"), secret)) {
     return json({ error: "Unauthorized" }, 401);
   }
+  const target = scheduledClubFromRequest(request);
+  if (target.status === "invalid") return json({ error: "Invalid club." }, 400);
+  if (target.status === "disabled") {
+    return json({
+      action: "disabled",
+      club: target.club.slug,
+      providerRequests: 0,
+    });
+  }
   let apiKey: string;
   try {
     apiKey = requireLifecycleRuntimeConfig().apiFootballKey;
@@ -30,7 +39,7 @@ export async function POST(request: Request) {
   try {
     const notificationConfig = readResendNotificationConfig();
     const result = await runConfiguredLifecycle(
-      initialClub.teamId,
+      target.club.teamId,
       new AdminFootballSyncStore(),
       apiKey,
       undefined,
@@ -49,6 +58,7 @@ export async function POST(request: Request) {
     ) {
       console.error("Lifecycle run requires retry.", {
         action: result.action,
+        club: target.club.slug,
         matchId: result.matchId,
         providerRequests: result.providerRequests,
         ...(result.action === "preparing_rating" && result.reason
@@ -58,6 +68,7 @@ export async function POST(request: Request) {
     }
     const safeResult = {
       action: result.action,
+      club: target.club.slug,
       ...(result.matchId ? { matchId: result.matchId } : {}),
       providerRequests: result.providerRequests,
       logs: result.logs,

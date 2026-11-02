@@ -59,12 +59,30 @@ import StandingsPage from "./standings/page";
 import StudioPage from "./studio/page";
 
 beforeEach(() => {
+  vi.unstubAllEnvs();
   Object.values(reads).forEach((read) => read.mockReset());
   reads.home.mockResolvedValue(null);
   reads.matches.mockResolvedValue(null);
 });
 
 describe("club route server boundary", () => {
+  it("exposes Saprissa Home data only with the exact public release flag", async () => {
+    vi.stubEnv("SAPRISSA_PUBLIC_ENABLED", "true");
+    render(
+      await Home({
+        params: Promise.resolve({ clubSlug: "saprissa" }),
+      } as never),
+    );
+    expect(reads.home).toHaveBeenCalledWith("deportivo-saprissa");
+    vi.stubEnv("SAPRISSA_PUBLIC_ENABLED", "false");
+    reads.home.mockClear();
+    render(
+      await Home({
+        params: Promise.resolve({ clubSlug: "saprissa" }),
+      } as never),
+    );
+    expect(reads.home).not.toHaveBeenCalled();
+  });
   it("keeps Saprissa home provider-free and free of Herediano data", async () => {
     render(
       await Home({

@@ -1,5 +1,5 @@
 import { runConfiguredStandingsSync } from "@/application/run-standings-sync";
-import { initialClub } from "@/config/club";
+import { scheduledClubFromRequest } from "@/config/club-operations";
 import { AdminFootballSyncStore } from "@/lib/firebase/server";
 import { isAuthorizedCronRequest } from "@/lib/server/cron-auth";
 import { requireLifecycleRuntimeConfig } from "@/lib/server/environment";
@@ -11,6 +11,15 @@ export async function POST(request: Request) {
   if (!isAuthorizedCronRequest(request.headers.get("authorization"), secret)) {
     return json({ error: "Unauthorized" }, 401);
   }
+  const target = scheduledClubFromRequest(request);
+  if (target.status === "invalid") return json({ error: "Invalid club." }, 400);
+  if (target.status === "disabled") {
+    return json({
+      action: "disabled",
+      club: target.club.slug,
+      providerRequests: 0,
+    });
+  }
   let apiKey: string;
   try {
     apiKey = requireLifecycleRuntimeConfig().apiFootballKey;
@@ -20,12 +29,13 @@ export async function POST(request: Request) {
   }
   try {
     const result = await runConfiguredStandingsSync(
-      initialClub.teamId,
+      target.club.teamId,
       new AdminFootballSyncStore(),
       apiKey,
     );
     const safeResult = {
       action: result.action,
+      club: target.club.slug,
       ...(result.competitionId ? { competitionId: result.competitionId } : {}),
       rows: result.rows,
       providerRequests: result.providerRequests,

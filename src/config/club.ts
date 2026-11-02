@@ -1,5 +1,6 @@
 import type { TeamPresentation } from "@/domain/models";
 import initialTeam from "../../firebase/seed/initial-team.json";
+import saprissaTeam from "../../firebase/seed/saprissa-team.json";
 
 export type ClubSlug = "herediano" | "saprissa";
 
@@ -21,10 +22,10 @@ export const clubs: Readonly<Record<ClubSlug, Club>> = {
   },
   saprissa: {
     slug: "saprissa",
-    teamId: "deportivo-saprissa",
-    displayName: "Deportivo Saprissa",
-    shortName: "Saprissa",
-    brandingKey: "saprissa",
+    teamId: saprissaTeam.id,
+    displayName: saprissaTeam.displayName,
+    shortName: saprissaTeam.shortName,
+    brandingKey: saprissaTeam.brandingKey,
     theme: { primary: "#6f2c91", accent: "#ffffff" },
     publicAvailability: "coming_soon",
   },
@@ -35,6 +36,10 @@ export const initialClub = clubs.herediano;
 
 export function resolveClub(value: string): Club | null {
   return Object.hasOwn(clubs, value) ? clubs[value as ClubSlug] : null;
+}
+
+export function clubForTeam(teamId: string): Club | null {
+  return Object.values(clubs).find((club) => club.teamId === teamId) ?? null;
 }
 
 export function clubPath(club: Club, path = ""): string {

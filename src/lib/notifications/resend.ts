@@ -77,6 +77,7 @@ export class ResendVotingWindowNotifier implements VotingWindowNotifier {
         subject: replace(
           getMessages(this.locale).operatorNotification.subject,
           {
+            club: message.clubName,
             home: message.homeTeamName,
             away: message.awayTeamName,
           },
@@ -107,6 +108,7 @@ function buildMessageText(
       : `${message.score.home}-${message.score.away}`;
   return [
     replace(messages.intro, {
+      club: message.clubName,
       home: message.homeTeamName,
       away: message.awayTeamName,
     }),

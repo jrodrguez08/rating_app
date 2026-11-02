@@ -10,6 +10,8 @@ import {
 
 const message: VotingWindowNotificationMessage = {
   matchId: "match-1",
+  trackedTeamId: "club-sport-herediano",
+  clubName: "Club Sport Herediano",
   windowSequence: 1,
   homeTeamName: "Home",
   awayTeamName: "Away",
@@ -84,7 +86,7 @@ describe("Resend voting-window notifier", () => {
     expect(JSON.parse(String(options?.body))).toEqual({
       from: "Rating App <alerts@example.com>",
       to: ["operator@example.com"],
-      subject: "Voting is open: Home vs Away",
+      subject: "Club Sport Herediano: voting is open for Home vs Away",
       text: expect.stringContaining(
         "Vote: https://ratings.example/matches/match-1/rate",
       ),

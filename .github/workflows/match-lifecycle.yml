@@ -29,3 +29,29 @@ jobs:
           --request POST
           --header "Authorization: Bearer ${CRON_SECRET}"
           "${LIFECYCLE_SYNC_URL}"
+  saprissa:
+    needs: trigger
+    if: always() && vars.SAPRISSA_SCHEDULED_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    env:
+      LIFECYCLE_SYNC_URL: ${{ secrets.SAPRISSA_LIFECYCLE_SYNC_URL }}
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+    steps:
+      - name: Require Saprissa endpoint configuration
+        if: env.LIFECYCLE_SYNC_URL == '' || env.CRON_SECRET == ''
+        run: exit 1
+      - name: Trigger Saprissa lifecycle synchronization
+        if: env.LIFECYCLE_SYNC_URL != '' && env.CRON_SECRET != ''
+        run: |
+          if [[ "${LIFECYCLE_SYNC_URL}" != *'?club=saprissa' ]]; then
+            echo "Saprissa endpoint must end with ?club=saprissa."
+            exit 1
+          fi
+          curl --fail-with-body --silent --show-error \
+          --connect-timeout 10 \
+          --retry 1 --retry-all-errors --retry-max-time 100 \
+          --max-time 45 \
+          --request POST \
+          --header "Authorization: Bearer ${CRON_SECRET}" \
+          "${LIFECYCLE_SYNC_URL}"

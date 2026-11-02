@@ -40,6 +40,7 @@ describe("configured match lifecycle notifications", () => {
               status: "claimed",
               context: {
                 matchId: "match-1",
+                trackedTeamId: "club-sport-herediano",
                 windowSequence: 0,
                 homeTeamName: "Home",
                 awayTeamName: "Away",

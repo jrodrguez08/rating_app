@@ -3,6 +3,7 @@ import type { CSSProperties } from "react";
 
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { clubs, clubPath } from "@/config/club";
+import { publicClub } from "@/config/club-operations";
 import { getMessages } from "@/i18n/messages";
 import { getLocale } from "@/i18n/server";
 
@@ -31,21 +32,24 @@ export default async function ClubSelectionPage() {
         </div>
         <p className="mt-4 text-muted">{messages.clubs.choose}</p>
         <div className="mt-6 grid gap-4 sm:grid-cols-2">
-          {Object.values(clubs).map((club) => (
-            <Link
-              key={club.slug}
-              href={clubPath(club)}
-              className="card flex min-h-24 items-center border-l-4 p-5 text-lg font-bold hover:text-accent"
-              style={
-                {
-                  borderLeftColor: club.theme.primary,
-                  "--club-secondary": club.theme.accent,
-                } as CSSProperties
-              }
-            >
-              {club.displayName}
-            </Link>
-          ))}
+          {Object.values(clubs).map(({ slug }) => {
+            const club = publicClub(slug);
+            return (
+              <Link
+                key={club.slug}
+                href={clubPath(club)}
+                className="card flex min-h-24 items-center border-l-4 p-5 text-lg font-bold hover:text-accent"
+                style={
+                  {
+                    borderLeftColor: club.theme.primary,
+                    "--club-secondary": club.theme.accent,
+                  } as CSSProperties
+                }
+              >
+                {club.displayName}
+              </Link>
+            );
+          })}
         </div>
       </main>
     </>

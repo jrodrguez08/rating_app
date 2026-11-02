@@ -240,6 +240,7 @@ export type LifecycleExecutionClaim =
 
 export interface VotingWindowNotificationContext {
   matchId: string;
+  trackedTeamId: string;
   windowSequence: number;
   homeTeamName: string;
   awayTeamName: string;

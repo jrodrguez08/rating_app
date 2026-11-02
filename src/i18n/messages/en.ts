@@ -924,8 +924,8 @@ export const enMessages = {
     supporting: "Built for supporters. Ready to grow club by club.",
   },
   operatorNotification: {
-    subject: "Voting is open: {home} vs {away}",
-    intro: "Voting is now open for {home} vs {away}.",
+    subject: "{club}: voting is open for {home} vs {away}",
+    intro: "Voting for {club} is now open for {home} vs {away}.",
     score: "Score: {score}",
     scoreUnavailable: "Unavailable",
     matchId: "Match ID: {matchId}",

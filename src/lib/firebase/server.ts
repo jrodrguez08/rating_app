@@ -1561,6 +1561,7 @@ export class AdminVotingWindowNotificationStore implements VotingWindowNotificat
         status: "claimed",
         context: {
           matchId,
+          trackedTeamId: match.trackedTeamId,
           windowSequence,
           homeTeamName: match.homeTeam.name,
           awayTeamName: match.awayTeam.name,

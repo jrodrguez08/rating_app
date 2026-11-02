@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { initialClub, matchPath } from "@/config/club";
+import { clubForTeam, matchPath } from "@/config/club";
 import type {
   VotingWindowNotificationClaim,
   VotingWindowNotificationContext,
@@ -13,6 +13,7 @@ import {
 
 export interface VotingWindowNotificationMessage extends VotingWindowNotificationContext {
   idempotencyKey: string;
+  clubName: string;
   ratingUrl?: string;
 }
 
@@ -74,6 +75,24 @@ export async function notifyVotingWindowOpenedIfPending({
   }
 
   const { context } = claim;
+  const club = clubForTeam(context.trackedTeamId);
+  if (club === null && siteUrl !== undefined) {
+    await store
+      .releaseVotingWindowNotification(
+        matchId,
+        context.windowSequence,
+        attemptId,
+        true,
+      )
+      .catch(() => undefined);
+    emitOperationalLog(log, "voting.notification", {
+      matchId,
+      windowSequence: context.windowSequence,
+      status: "failed",
+      reason: "unknown-team",
+    });
+    return "failed";
+  }
   if (notifier === null) {
     try {
       await store.releaseVotingWindowNotification(
@@ -101,17 +120,15 @@ export async function notifyVotingWindowOpenedIfPending({
   try {
     const delivered = await notifier.send({
       ...context,
+      clubName: club?.displayName ?? "Rating App",
       idempotencyKey: notificationIdempotencyKey(
         matchId,
         context.windowSequence,
       ),
-      ...(siteUrl === undefined
+      ...(siteUrl === undefined || club === null
         ? {}
         : {
-            ratingUrl: new URL(
-              matchPath(initialClub, matchId, "/rate"),
-              siteUrl,
-            ).href,
+            ratingUrl: new URL(matchPath(club, matchId, "/rate"), siteUrl).href,
           }),
     });
     let recorded = false;
