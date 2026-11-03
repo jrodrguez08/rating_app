@@ -15,6 +15,7 @@ import {
   emitOperationalLog,
   type OperationalLogger,
 } from "@/lib/operational-log";
+import { ProviderError } from "@/lib/providers/api-football/errors";
 
 const HOUR = 60 * 60 * 1000;
 const VOTING_WINDOW_MS = 2 * HOUR;
@@ -435,7 +436,7 @@ async function executeMatchLifecycle({
       });
       return {
         ...retryable(provider, refreshed.id, error, "refreshed"),
-        failed: true,
+        ...(!isExpectedEvidenceWait(error) ? { failed: true } : {}),
       };
     }
   }
@@ -569,10 +570,18 @@ async function executeMatchLifecycle({
       fixtureCoachPresent: readiness.fixtureCoachPresent,
       reason: operationalErrorReason(error),
     });
-    await persistRatingBlock(store, preparing, error, currentTime, log);
+    const diagnosticPersisted = await persistRatingBlock(
+      store,
+      preparing,
+      error,
+      currentTime,
+      log,
+    );
     return {
       ...retryable(provider, match.id, error, "preparing_rating"),
-      failed: true,
+      ...(!diagnosticPersisted || !isExpectedEvidenceWait(error)
+        ? { failed: true }
+        : {}),
     };
   }
 }
@@ -583,7 +592,7 @@ async function persistRatingBlock(
   error: unknown,
   now: Date,
   log: OperationalLogger,
-): Promise<void> {
+): Promise<boolean> {
   try {
     await store.updateMatchLifecycle({
       ...match,
@@ -591,32 +600,39 @@ async function persistRatingBlock(
       ratingBlockObservedAt: now.toISOString(),
       updatedAt: now.toISOString(),
     });
+    return true;
   } catch (persistenceError) {
     emitOperationalLog(log, "lifecycle.diagnostic", {
       action: "persistence_failed",
       matchId: match.id,
       reason: operationalErrorReason(persistenceError),
     });
+    return false;
   }
 }
 
 function ratingBlockReason(error: unknown): Match["ratingBlockReason"] {
-  const reason = operationalErrorReason(error);
-  if (reason.includes("ambiguous") && reason.includes("coach")) {
-    return "ambiguous_coach";
-  }
-  if (reason.includes("coach")) return "missing_coach_evidence";
-  if (
-    reason.includes("request") ||
-    reason.includes("rate-limit") ||
-    reason.includes("api-key")
-  ) {
-    return "provider_failure";
-  }
-  if (reason.includes("lineup") || reason.includes("participant")) {
+  if (!(error instanceof ProviderError)) return "unknown";
+  if (error.code === "ambiguous-coach") return "ambiguous_coach";
+  if (error.code === "coach-missing") return "missing_coach_evidence";
+  if (error.code === "lineup-unavailable" || error.code === "lineup-incomplete")
     return "missing_participant_evidence";
-  }
+  if (
+    error.code === "request-failed" ||
+    error.code === "rate-limited" ||
+    error.code === "missing-api-key"
+  )
+    return "provider_failure";
   return "unknown";
+}
+
+function isExpectedEvidenceWait(error: unknown): boolean {
+  return (
+    error instanceof ProviderError &&
+    (error.code === "lineup-unavailable" ||
+      error.code === "lineup-incomplete" ||
+      error.code === "coach-missing")
+  );
 }
 
 async function observePersistedReadiness(
@@ -641,27 +657,7 @@ async function observePersistedReadiness(
 }
 
 function operationalErrorReason(error: unknown): string {
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    typeof error.code === "string"
-  ) {
-    return error.code;
-  }
-  if (
-    error instanceof Error &&
-    error.message.toLowerCase().includes("lineup") &&
-    error.message.toLowerCase().includes("unavailable")
-  ) {
-    return "lineup-unavailable";
-  }
-  if (
-    error instanceof Error &&
-    error.message.toLowerCase().includes("no usable lineup")
-  ) {
-    return "lineup-unavailable";
-  }
+  if (error instanceof ProviderError) return error.code;
   return "participant-sync-failed";
 }
 
@@ -895,17 +891,16 @@ async function persistLineupCaptureOutcome(
 }
 
 function captureFailureOutcome(error: unknown): LineupCaptureOutcome {
-  const reason = operationalErrorReason(error);
-  const message = error instanceof Error ? error.message.toLowerCase() : "";
-  if (reason === "lineup-unavailable") {
-    return message.includes("incomplete") ? "incomplete" : "unavailable";
-  }
-  if (
-    reason.includes("request") ||
-    reason.includes("rate-limit") ||
-    reason.includes("api-key")
-  ) {
-    return "provider_failure";
+  if (error instanceof ProviderError) {
+    if (error.code === "lineup-unavailable") return "unavailable";
+    if (error.code === "lineup-incomplete") return "incomplete";
+    if (error.code === "coach-missing") return "incomplete";
+    if (
+      error.code === "request-failed" ||
+      error.code === "rate-limited" ||
+      error.code === "missing-api-key"
+    )
+      return "provider_failure";
   }
   return "rejected";
 }

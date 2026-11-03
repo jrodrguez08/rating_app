@@ -139,7 +139,7 @@ describe("participant synchronization identities", () => {
         new Date("2026-09-07T11:45:00.000Z"),
         "lineup",
       ),
-    ).rejects.toMatchObject({ code: "lineup-unavailable" });
+    ).rejects.toMatchObject({ code: "lineup-incomplete" });
     expect(store.resolvePlayerProviderAliases).not.toHaveBeenCalled();
     expect(store.replaceMatchParticipants).not.toHaveBeenCalled();
   });
@@ -420,6 +420,34 @@ describe("participant synchronization identities", () => {
         providerParticipantCount: 0,
       }),
     );
+  });
+
+  it("uses verified fixture evidence when the provider lineup is incomplete", async () => {
+    const store = storeWith();
+    store.getVerifiedLineupSnapshot = vi
+      .fn()
+      .mockResolvedValue(verifiedLineup());
+    store.getVerifiedCoachAssignment = vi
+      .fn()
+      .mockResolvedValue(verifiedCoach());
+    store.replaceMatchParticipantContext = vi.fn().mockResolvedValue({
+      players: counts,
+      participants: counts,
+      coaches: counts,
+      coachAssignments: counts,
+    });
+    const provider = providerWith("unused");
+    provider.getMatchEvidence = vi
+      .fn()
+      .mockRejectedValue(
+        new ProviderError(
+          "lineup-incomplete",
+          "Provider supplied ten starters.",
+        ),
+      );
+    const result = await syncMatchParticipants(match.id, provider, store);
+    expect(result).toMatchObject({ starters: 11, participated: 11 });
+    expect(store.replaceMatchParticipantContext).toHaveBeenCalledOnce();
   });
 
   it.each([

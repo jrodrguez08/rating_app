@@ -153,6 +153,17 @@ describe("ApiFootballAdapter", () => {
     ).rejects.toMatchObject({ code: "ambiguous-team" });
   });
 
+  it("keeps a timed-out provider request distinct from unavailable evidence", async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockRejectedValue(new DOMException("Timed out", "TimeoutError"));
+    const adapter = new ApiFootballAdapter("test-key", fetcher);
+    await expect(adapter.getFixture("5001")).rejects.toMatchObject({
+      code: "request-failed",
+    });
+    expect(adapter.requestCount).toBe(1);
+  });
+
   it("parses competition seasons without leaking provider DTOs", async () => {
     const adapter = new ApiFootballAdapter(
       "test-key",
@@ -521,7 +532,7 @@ describe("ApiFootballAdapter", () => {
         "test-key",
         matchContextFetcher(incomplete),
       ).getMatchContext("5001", "1234"),
-    ).rejects.toMatchObject({ code: "lineup-unavailable" });
+    ).rejects.toMatchObject({ code: "lineup-incomplete" });
   });
 
   it.each([null, "not-a-number"])(
@@ -1106,7 +1117,7 @@ describe("ApiFootballAdapter", () => {
         "test-key",
         matchContextFetcher(partial),
       ).getMatchContext("5001", "1234"),
-    ).rejects.toMatchObject({ code: "lineup-unavailable" });
+    ).rejects.toMatchObject({ code: "lineup-incomplete" });
   });
 
   it("does not downgrade a stronger snapshot with a smaller valid lineup", async () => {

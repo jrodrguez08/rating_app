@@ -601,6 +601,8 @@ export class ApiFootballAdapter
       substituteCount > 0
     ) {
       classification = isRecord(lineup?.coach) ? "usable" : "coach-missing";
+    } else if (startXI === "present" && substitutes === "present") {
+      classification = "lineup-incomplete";
     }
     const fixtureCoach = isRecord(lineup?.coach) ? lineup.coach : null;
     const fixtureCoachPresent = fixtureCoach !== null;
@@ -891,7 +893,7 @@ export class ApiFootballAdapter
     if (observed.status === "missing" || !observed.fieldsComplete) return null;
     if (observed.status === "partial") {
       throw new ProviderError(
-        "lineup-unavailable",
+        "lineup-incomplete",
         `Tracked Team lineup for fixture ${externalFixtureId} is incomplete (${observed.starterCount} starters, ${observed.substituteCount} substitutes).`,
       );
     }
