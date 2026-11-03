@@ -546,10 +546,12 @@ export class AdminCoachIdentityService {
             ...(canonical.associatedTeamIds ?? []),
             ...associations.map(({ teamId }) => teamId),
           ],
+          false,
         );
         transaction.update(coachReferences[canonicalIndex], {
           ...canonicalUpdate,
           associatedTeamIds: indexedCanonical.associatedTeamIds,
+          searchHiddenByAlias: false,
           searchPrefixes: indexedCanonical.searchPrefixes,
           teamBrowseKeys: indexedCanonical.teamBrowseKeys,
           teamSearchKeys: indexedCanonical.teamSearchKeys,
@@ -557,6 +559,7 @@ export class AdminCoachIdentityService {
           updatedAt: Timestamp.fromDate(new Date(timestamp)),
         });
         transaction.update(coachReferences[duplicateIndex], {
+          searchHiddenByAlias: true,
           searchPrefixes: [],
           teamBrowseKeys: [],
           teamSearchKeys: [],

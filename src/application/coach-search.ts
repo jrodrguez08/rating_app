@@ -1,18 +1,19 @@
 import type { Coach } from "@/domain/models";
 import { playerSearchPrefixes } from "@/domain/player-search";
 
-export const COACH_SEARCH_INDEX_VERSION = 1;
+export const COACH_SEARCH_INDEX_VERSION = 2;
 
 export function coachWithSearchIndex(
   coach: Coach,
   associatedTeamIds: readonly string[] = coach.associatedTeamIds ?? [],
-  hiddenByAlias = false,
+  hiddenByAlias = coach.searchHiddenByAlias ?? false,
 ): Coach {
   const teams = [...new Set(associatedTeamIds)].sort();
   const prefixes = playerSearchPrefixes(coach.displayName);
   return {
     ...coach,
     associatedTeamIds: teams,
+    searchHiddenByAlias: hiddenByAlias,
     searchPrefixes: hiddenByAlias ? [] : prefixes,
     teamBrowseKeys: hiddenByAlias ? [] : teams,
     teamSearchKeys: hiddenByAlias

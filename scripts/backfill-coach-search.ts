@@ -13,6 +13,11 @@ import {
   coachWithSearchIndex,
   COACH_SEARCH_INDEX_VERSION,
 } from "../src/application/coach-search";
+import {
+  coachProviderAliasId,
+  proposedCoachProviderAlias,
+  resolvePersistedCoachProviderAlias,
+} from "../src/domain/coach-identity";
 import type {
   Coach,
   CoachAssignment,
@@ -104,6 +109,18 @@ export async function runCoachSearchBackfill(
   );
   const teams = new Map<string, Set<string>>();
   const hiddenByAlias = new Set<string>();
+  const byProviderIdentity = new Map<string, Coach[]>();
+  for (const coach of coaches.values()) {
+    if (!coach.externalProvider || !coach.externalProviderId) continue;
+    const key = JSON.stringify([
+      coach.externalProvider,
+      coach.externalProviderId,
+    ]);
+    const matches = byProviderIdentity.get(key) ?? [];
+    matches.push(coach);
+    byProviderIdentity.set(key, matches);
+  }
+  const canonicalBindings = new Map<string, string>();
   let blockingIssues = 0;
   const add = (coachId: string, teamId: string) => {
     if (!coaches.has(coachId) || !teamId) {
@@ -124,57 +141,107 @@ export async function runCoachSearchBackfill(
   }
   for (const document of aliases) {
     const alias = fromSnapshot<CoachProviderAlias>(document);
-    if (!coaches.has(alias.canonicalCoachId)) {
+    const canonical = coaches.get(alias.canonicalCoachId);
+    if (
+      !alias.externalProvider ||
+      !alias.externalProviderCoachId ||
+      !canonical ||
+      document.id !==
+        coachProviderAliasId(
+          alias.externalProvider,
+          alias.externalProviderCoachId,
+        )
+    ) {
       blockingIssues += 1;
       continue;
     }
-    const providerCoach = [...coaches.values()].find(
-      (coach) =>
-        coach.externalProvider === alias.externalProvider &&
-        coach.externalProviderId === alias.externalProviderCoachId,
-    );
-    if (providerCoach) {
-      if (providerCoach.id !== alias.canonicalCoachId) {
-        hiddenByAlias.add(providerCoach.id);
+    const key = JSON.stringify([
+      alias.externalProvider,
+      alias.externalProviderCoachId,
+    ]);
+    const matches = byProviderIdentity.get(key) ?? [];
+    const priorBinding = canonicalBindings.get(canonical.id);
+    if (
+      matches.length === 0 ||
+      ((canonical.externalProvider || canonical.externalProviderId) &&
+        (canonical.externalProvider !== alias.externalProvider ||
+          canonical.externalProviderId !== alias.externalProviderCoachId)) ||
+      (priorBinding && priorBinding !== key)
+    ) {
+      blockingIssues += 1;
+      continue;
+    }
+    try {
+      resolvePersistedCoachProviderAlias(
+        alias,
+        proposedCoachProviderAlias(
+          alias.externalProvider,
+          alias.externalProviderCoachId,
+          alias.createdAt,
+          canonical.id,
+        ),
+      );
+    } catch {
+      blockingIssues += 1;
+      continue;
+    }
+    canonicalBindings.set(canonical.id, key);
+    for (const source of matches) {
+      if (source.id !== canonical.id) hiddenByAlias.add(source.id);
+      for (const teamId of source.associatedTeamIds ?? []) {
+        add(canonical.id, teamId);
       }
-      for (const teamId of teams.get(providerCoach.id)?.values() ?? []) {
-        add(alias.canonicalCoachId, teamId);
+      for (const teamId of teams.get(source.id)?.values() ?? []) {
+        add(canonical.id, teamId);
       }
     }
   }
+  const indexed = new Map(
+    [...coaches.values()].map((coach) => [
+      coach.id,
+      coachWithSearchIndex(
+        coach,
+        [...(coach.associatedTeamIds ?? []), ...(teams.get(coach.id) ?? [])],
+        hiddenByAlias.has(coach.id),
+      ),
+    ]),
+  );
   const changed = [...coaches.values()].filter((coach) => {
-    const indexed = coachWithSearchIndex(
-      coach,
-      [...(coach.associatedTeamIds ?? []), ...(teams.get(coach.id) ?? [])],
-      hiddenByAlias.has(coach.id),
-    );
+    const prepared = indexed.get(coach.id)!;
     return (
-      !isDeepStrictEqual(coach.associatedTeamIds, indexed.associatedTeamIds) ||
-      !isDeepStrictEqual(coach.searchPrefixes, indexed.searchPrefixes) ||
-      !isDeepStrictEqual(coach.teamBrowseKeys, indexed.teamBrowseKeys) ||
-      !isDeepStrictEqual(coach.teamSearchKeys, indexed.teamSearchKeys) ||
+      !isDeepStrictEqual(coach.associatedTeamIds, prepared.associatedTeamIds) ||
+      !isDeepStrictEqual(
+        coach.searchHiddenByAlias,
+        prepared.searchHiddenByAlias,
+      ) ||
+      !isDeepStrictEqual(coach.searchPrefixes, prepared.searchPrefixes) ||
+      !isDeepStrictEqual(coach.teamBrowseKeys, prepared.teamBrowseKeys) ||
+      !isDeepStrictEqual(coach.teamSearchKeys, prepared.teamSearchKeys) ||
       !isDeepStrictEqual(
         coach.unassociatedSearchKeys,
-        indexed.unassociatedSearchKeys,
+        prepared.unassociatedSearchKeys,
       )
     );
   });
   const indexStatus = blockingIssues === 0 ? "complete" : "incomplete";
   if (apply) {
+    await database.doc("coachSearchIndex/state").set({
+      status: "incomplete",
+      schemaVersion: COACH_SEARCH_INDEX_VERSION,
+      blockingIssueCount: blockingIssues,
+      auditedAt: Timestamp.now(),
+    });
     for (let offset = 0; offset < changed.length; offset += 400) {
       const batch = database.batch();
       for (const coach of changed.slice(offset, offset + 400)) {
-        const indexed = coachWithSearchIndex(
-          coach,
-          [...(coach.associatedTeamIds ?? []), ...(teams.get(coach.id) ?? [])],
-          hiddenByAlias.has(coach.id),
-        );
+        const prepared = indexed.get(coach.id)!;
         batch.update(database.doc(`coaches/${coach.id}`), {
-          associatedTeamIds: indexed.associatedTeamIds,
-          searchPrefixes: indexed.searchPrefixes,
-          teamBrowseKeys: indexed.teamBrowseKeys,
-          teamSearchKeys: indexed.teamSearchKeys,
-          unassociatedSearchKeys: indexed.unassociatedSearchKeys,
+          associatedTeamIds: prepared.associatedTeamIds,
+          searchHiddenByAlias: prepared.searchHiddenByAlias,
+          searchPrefixes: prepared.searchPrefixes,
+          teamBrowseKeys: prepared.teamBrowseKeys,
+          teamSearchKeys: prepared.teamSearchKeys,
+          unassociatedSearchKeys: prepared.unassociatedSearchKeys,
         });
       }
       await batch.commit();
@@ -196,7 +263,7 @@ export async function runCoachSearchBackfill(
     changedCoaches: changed.length,
     blockingIssues,
     indexStatus,
-    writes: apply ? changed.length + 1 : 0,
+    writes: apply ? changed.length + 2 : 0,
   };
 }
 

@@ -121,6 +121,7 @@ describe("admin Coach identity reconciliation", () => {
     expect(afterFirst[0].data()).toMatchObject({
       displayName: "Jafet Soto",
       identityProvenance: "operator_verified",
+      searchHiddenByAlias: false,
     });
     if (photoCase.expectedPhotoUrl === undefined) {
       expect(afterFirst[0].data()).not.toHaveProperty("photoUrl");
@@ -129,6 +130,7 @@ describe("admin Coach identity reconciliation", () => {
     }
     expect(afterFirst[1].data()).toMatchObject(before[1].data() ?? {});
     expect(afterFirst[1].data()).toMatchObject({
+      searchHiddenByAlias: true,
       searchPrefixes: [],
       teamBrowseKeys: [],
       teamSearchKeys: [],

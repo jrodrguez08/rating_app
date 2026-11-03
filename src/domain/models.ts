@@ -417,6 +417,7 @@ export interface Coach {
   teamBrowseKeys?: EntityId[];
   teamSearchKeys?: string[];
   unassociatedSearchKeys?: string[];
+  searchHiddenByAlias?: boolean;
   createdAt: string;
   updatedAt: string;
 }
