@@ -139,6 +139,95 @@ describe("GET /api/internal/health", () => {
     });
   });
 
+  it.each(["preparing_rating", "refreshed"])(
+    "reports a persisted %s execution failure and clears it after recovery",
+    async (action) => {
+      vi.stubEnv("SAPRISSA_SCHEDULED_ENABLED", "true");
+      const values: Record<string, object> = {
+        "teams/club-sport-herediano": {},
+        "teams/deportivo-saprissa": { externalProviderId: "816" },
+        "footballSyncMetadata/deportivo-saprissa": {
+          lastLifecycleAction: action,
+          lastLifecycleFailed: true,
+          lastLifecycleMatchId: "match-s",
+        },
+        "matches/match-s": {
+          trackedTeamId: "deportivo-saprissa",
+          ratingState: "preparing_rating",
+        },
+      };
+      mocks.doc.mockImplementation((path: string) => ({
+        get: async () => ({
+          exists: path in values,
+          data: () => values[path],
+        }),
+      }));
+      const failed = await authorizedRequest();
+      expect(failed.status).toBe(503);
+      await expect(failed.json()).resolves.toMatchObject({
+        clubs: { herediano: "ready", saprissa: "operational_failure" },
+      });
+      values["footballSyncMetadata/deportivo-saprissa"] = {
+        lastLifecycleAction: "preparing_rating",
+        lastLifecycleFailed: false,
+        lastLifecycleMatchId: "match-s",
+      };
+      const recovered = await authorizedRequest();
+      expect(recovered.status).toBe(200);
+      await expect(recovered.json()).resolves.toMatchObject({
+        clubs: { saprissa: "awaiting_evidence" },
+      });
+    },
+  );
+
+  it("reports a Herediano failure while Saprissa is disabled", async () => {
+    mocks.doc.mockImplementation((path: string) => ({
+      get: async () => ({
+        exists: path === "teams/club-sport-herediano",
+        data: () =>
+          path === "footballSyncMetadata/club-sport-herediano"
+            ? {
+                lastLifecycleAction: "preparing_rating",
+                lastLifecycleFailed: true,
+              }
+            : {},
+      }),
+    }));
+    const response = await authorizedRequest();
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({
+      clubs: { herediano: "operational_failure", saprissa: "disabled" },
+    });
+    expect(mocks.doc).not.toHaveBeenCalledWith(
+      "footballSyncMetadata/deportivo-saprissa",
+    );
+  });
+
+  it("does not use a foreign Match as Saprissa evidence", async () => {
+    vi.stubEnv("SAPRISSA_SCHEDULED_ENABLED", "true");
+    const values: Record<string, object> = {
+      "teams/club-sport-herediano": {},
+      "teams/deportivo-saprissa": { externalProviderId: "816" },
+      "footballSyncMetadata/deportivo-saprissa": {
+        lastLifecycleAction: "preparing_rating",
+        lastLifecycleFailed: false,
+        lastLifecycleMatchId: "match-h",
+      },
+      "matches/match-h": {
+        trackedTeamId: "club-sport-herediano",
+        ratingState: "preparing_rating",
+      },
+    };
+    mocks.doc.mockImplementation((path: string) => ({
+      get: async () => ({ exists: path in values, data: () => values[path] }),
+    }));
+    const response = await authorizedRequest();
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      clubs: { herediano: "ready", saprissa: "no_relevant_fixture" },
+    });
+  });
+
   it("fails malformed scheduled enablement closed", async () => {
     vi.stubEnv("SAPRISSA_SCHEDULED_ENABLED", "yes");
     const response = await authorizedRequest();

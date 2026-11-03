@@ -223,6 +223,7 @@ export interface MatchLifecycleStore extends FootballSyncStore {
       action: string;
       matchId?: string;
       providerRequests: number;
+      failed?: boolean;
     },
   ): Promise<void>;
 }

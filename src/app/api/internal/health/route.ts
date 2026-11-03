@@ -29,6 +29,7 @@ export async function GET(request: Request) {
       .doc(`footballSyncMetadata/${clubs.herediano.teamId}`)
       .get();
     const heredianoStatus =
+      heredianoMetadata.data?.()?.lastLifecycleFailed === true ||
       heredianoMetadata.data?.()?.lastLifecycleAction === "retryable_error"
         ? "operational_failure"
         : "ready";
@@ -84,7 +85,10 @@ export async function GET(request: Request) {
     const action = metadata.data()?.lastLifecycleAction;
     const matchId = metadata.data()?.lastLifecycleMatchId;
     let saprissaStatus = "no_relevant_fixture";
-    if (action === "retryable_error") {
+    if (
+      metadata.data()?.lastLifecycleFailed === true ||
+      action === "retryable_error"
+    ) {
       saprissaStatus = "operational_failure";
     } else if (typeof matchId === "string" && matchId !== "") {
       const match = await database.doc(`matches/${matchId}`).get();

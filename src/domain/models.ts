@@ -170,6 +170,7 @@ export interface FootballSyncMetadata {
   lastLifecycleCompletedAt?: string;
   lastLifecycleAttemptId?: string;
   lastLifecycleAction?: string;
+  lastLifecycleFailed?: boolean;
   lastLifecycleMatchId?: string;
   lastLifecycleProviderRequests?: number;
   updatedAt: string;

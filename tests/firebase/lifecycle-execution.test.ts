@@ -86,4 +86,36 @@ describe("lifecycle execution coordination", () => {
     expect(metadata?.lifecycleLeaseUntil).toBeDefined();
     expect(metadata).not.toHaveProperty("lastLifecycleAttemptId");
   });
+
+  it("persists the latest failure outcome and clears it after a successful retry", async () => {
+    const teamId = `team-lifecycle-outcome-${Date.now()}`;
+    const store = new AdminFootballSyncStore(database);
+    await store.claimLifecycleExecution(teamId, "failed-attempt", "scheduled");
+    await store.completeLifecycleExecution(teamId, "failed-attempt", {
+      action: "preparing_rating",
+      matchId: "match-1",
+      providerRequests: 4,
+      failed: true,
+    });
+    const reference = database.doc(`footballSyncMetadata/${teamId}`);
+    expect((await reference.get()).data()).toMatchObject({
+      lastLifecycleAction: "preparing_rating",
+      lastLifecycleFailed: true,
+    });
+    await store.claimLifecycleExecution(
+      teamId,
+      "recovered-attempt",
+      "scheduled",
+    );
+    await store.completeLifecycleExecution(teamId, "recovered-attempt", {
+      action: "preparing_rating",
+      matchId: "match-1",
+      providerRequests: 4,
+      failed: false,
+    });
+    expect((await reference.get()).data()).toMatchObject({
+      lastLifecycleAction: "preparing_rating",
+      lastLifecycleFailed: false,
+    });
+  });
 });

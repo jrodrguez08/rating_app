@@ -40,6 +40,7 @@ export interface LifecycleResult {
   matchId?: string;
   providerRequests: number;
   reason?: string;
+  failed?: boolean;
 }
 
 export interface LifecycleDependencies {
@@ -290,7 +291,10 @@ async function executeMatchLifecycle({
       reason: "verified-lineup-invalid",
       providerRequests: provider.requestCount,
     });
-    return retryable(provider, refreshed.id, error, "refreshed");
+    return {
+      ...retryable(provider, refreshed.id, error, "refreshed"),
+      failed: true,
+    };
   }
   if (lineupCapture.action === "skip") {
     const providerRequestBudget = lineupCaptureProviderRequestBudget(
@@ -429,7 +433,10 @@ async function executeMatchLifecycle({
           providerRequestBudget - provider.requestCount,
         ),
       });
-      return retryable(provider, refreshed.id, error, "refreshed");
+      return {
+        ...retryable(provider, refreshed.id, error, "refreshed"),
+        failed: true,
+      };
     }
   }
 
@@ -443,6 +450,14 @@ async function executeMatchLifecycle({
       action: "refreshed",
       matchId: refreshed.id,
       providerRequests: provider.requestCount,
+      ...(lineupCapture.action === "skip" &&
+      ["cooldown", "retry-ceiling", "provider-budget"].includes(
+        lineupCapture.reason,
+      ) &&
+      (refreshed.lineupCaptureLastOutcome === "provider_failure" ||
+        refreshed.lineupCaptureLastOutcome === "rejected")
+        ? { failed: true }
+        : {}),
     };
   }
 
@@ -555,7 +570,10 @@ async function executeMatchLifecycle({
       reason: operationalErrorReason(error),
     });
     await persistRatingBlock(store, preparing, error, currentTime, log);
-    return retryable(provider, match.id, error, "preparing_rating");
+    return {
+      ...retryable(provider, match.id, error, "preparing_rating"),
+      failed: true,
+    };
   }
 }
 

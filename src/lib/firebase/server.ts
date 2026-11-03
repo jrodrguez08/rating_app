@@ -1889,7 +1889,12 @@ export class AdminFootballSyncStore
   async completeLifecycleExecution(
     teamId: string,
     attemptId: string,
-    result: { action: string; matchId?: string; providerRequests: number },
+    result: {
+      action: string;
+      matchId?: string;
+      providerRequests: number;
+      failed?: boolean;
+    },
   ): Promise<void> {
     const reference = this.database.doc(`footballSyncMetadata/${teamId}`);
     await this.database.runTransaction(async (transaction) => {
@@ -1904,6 +1909,7 @@ export class AdminFootballSyncStore
           lifecycleLeaseUntil: FieldValue.delete(),
           lastLifecycleCompletedAt: Timestamp.fromDate(now),
           lastLifecycleAction: result.action,
+          lastLifecycleFailed: result.failed === true,
           lastLifecycleAttemptId: attemptId,
           ...(result.matchId ? { lastLifecycleMatchId: result.matchId } : {}),
           lastLifecycleProviderRequests: result.providerRequests,

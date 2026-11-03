@@ -527,12 +527,22 @@ describe("match lifecycle synchronization", () => {
     });
 
     expect(result.action).toBe("refreshed");
+    expect(result.failed).toBe(true);
     expect(store.matches[0]).toMatchObject({
       status: "live",
       elapsedMinute: 13,
       lineupCaptureLastOutcome: "provider_failure",
     });
     expect(store.matches[0].lineupSnapshotAt).toBeUndefined();
+    const cooldown = await runAt(
+      store,
+      fixture1551706Provider(),
+      new Date(now.getTime() + 5 * 60_000),
+      async () => {
+        throw new Error("Cooldown must avoid a provider lineup request.");
+      },
+    );
+    expect(cooldown).toMatchObject({ action: "refreshed", failed: true });
   });
 
   it("runs final reconciliation after the live retry ceiling", async () => {
@@ -854,6 +864,7 @@ describe("match lifecycle synchronization", () => {
     store.participantCount = 10;
     const result = await run(store, new FixtureProvider(fixture("finished")));
     expect(result.action).toBe("preparing_rating");
+    expect(result.failed).toBeUndefined();
     expect(store.matches[0]).toMatchObject({
       ratingState: "preparing_rating",
       participantSyncedAt: NOW.toISOString(),
@@ -1144,6 +1155,7 @@ describe("match lifecycle synchronization", () => {
       },
     );
     expect(result.action).toBe("preparing_rating");
+    expect(result.failed).toBe(true);
     expect(secondStore.matches[0].votingOpensAt).toBeUndefined();
     expect(secondStore.matches[0]).toMatchObject({
       ratingBlockReason: "missing_participant_evidence",
