@@ -1,12 +1,15 @@
 import { readFileSync } from "node:fs";
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { siteIdentity } from "@/config/site";
 
 const resultServiceMock = vi.hoisted(() => ({
   getPublishedPageState: vi.fn(),
 }));
+const localeMock = vi.hoisted(() => ({ getLocale: vi.fn() }));
+
+vi.mock("@/i18n/server", () => localeMock);
 
 vi.mock("next/font/google", () => ({
   DotGothic16: () => ({ variable: "font-dot-gothic-test" }),
@@ -41,11 +44,14 @@ import {
 } from "./[clubSlug]/social-card/route";
 
 beforeEach(() => {
+  localeMock.getLocale.mockResolvedValue("es");
   resultServiceMock.getPublishedPageState.mockReset();
   resultServiceMock.getPublishedPageState.mockResolvedValue({
     state: "unavailable",
   });
 });
+
+afterEach(() => vi.unstubAllEnvs());
 
 describe("public app identity metadata", () => {
   it("publishes canonical Spanish root, Open Graph, and Twitter metadata", () => {
@@ -182,12 +188,52 @@ describe("public app identity metadata", () => {
       width: 1200,
       height: 630,
       url: expect.stringContaining(
-        "/herediano/matches/published-match/results/opengraph-image?v=",
+        "/herediano/matches/published-match/results/opengraph-image?lang=es&v=",
       ),
     });
     expect(metadata.twitter).toMatchObject({
       card: "summary_large_image",
-      images: [expect.stringContaining("/opengraph-image?v=")],
+      images: [expect.stringContaining("/opengraph-image?lang=es&v=")],
+    });
+  });
+
+  it("uses English result metadata and an explicitly English image URL", async () => {
+    localeMock.getLocale.mockResolvedValue("en");
+    resultServiceMock.getPublishedPageState.mockResolvedValueOnce({
+      state: "ready",
+      match: {
+        trackedTeamId: "deportivo-saprissa",
+        homeTeam: { name: "Herediano" },
+        awayTeam: { name: "Saprissa" },
+      },
+      podium: {
+        score: { home: 2, away: 1 },
+        generatedAt: "2026-10-20T05:00:00.000Z",
+      },
+    });
+    vi.stubEnv("SAPRISSA_PUBLIC_ENABLED", "true");
+    const metadata = await generateResultMetadata({
+      params: Promise.resolve({
+        clubSlug: "saprissa",
+        matchId: "published-match",
+      }),
+    } as never);
+    expect(metadata.title).toContain("Fans' top players");
+    expect(metadata.description).toContain(
+      "Published Deportivo Saprissa results",
+    );
+    expect(metadata.openGraph).toMatchObject({
+      locale: "en_US",
+      images: [
+        {
+          url: expect.stringContaining("?lang=en&v="),
+          alt: expect.stringContaining("Deportivo Saprissa podium"),
+        },
+      ],
+    });
+    expect(metadata.twitter).toMatchObject({
+      title: expect.stringContaining("Fans' top players"),
+      images: [expect.stringContaining("?lang=en&v=")],
     });
   });
 

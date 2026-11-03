@@ -48,7 +48,7 @@ describe("published rating Story pagination", () => {
   it("creates a safe, page-specific filename", () => {
     expect(
       publishedRatingStoryFilename("saprissa", "match/unsafe id", 2, 2),
-    ).toBe("rating-app-saprissa-match-unsafe-id-calificaciones-2-de-2.png");
+    ).toBe("rating-app-saprissa-match-unsafe-id-es-calificaciones-2-de-2.png");
   });
 });
 

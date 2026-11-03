@@ -8,6 +8,8 @@ import { STORY_IMAGE_SIZE } from "@/components/published-podium-image";
 import { PublishedRatingTableImage } from "@/components/published-rating-table-image";
 import { requireActiveClub } from "@/config/club-server";
 import { siteUrl } from "@/config/site";
+import { imageLocaleFromRequest } from "@/i18n/config";
+import { getMessages } from "@/i18n/messages";
 import { AdminResultService } from "@/lib/firebase/server";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +21,7 @@ export async function GET(
 ) {
   const { clubSlug, matchId } = await params;
   const club = requireActiveClub(clubSlug);
+  const locale = imageLocaleFromRequest(request);
   try {
     const pageNumber = requestedPage(request);
     if (pageNumber === null) return unavailableImage();
@@ -41,6 +44,8 @@ export async function GET(
     return new ImageResponse(
       <PublishedRatingTableImage
         club={club}
+        locale={locale}
+        messages={getMessages(locale).results.image}
         podium={published.podium}
         storyPage={storyPage}
         siteHost={siteUrl.hostname}
@@ -49,7 +54,7 @@ export async function GET(
         ...STORY_IMAGE_SIZE,
         headers: {
           "Cache-Control": "no-store",
-          "Content-Disposition": `${storyDisposition(request)}; filename="${publishedRatingStoryFilename(club.slug, matchId, storyPage.page, storyPage.pageCount)}"`,
+          "Content-Disposition": `${storyDisposition(request)}; filename="${publishedRatingStoryFilename(club.slug, matchId, storyPage.page, storyPage.pageCount, locale)}"`,
         },
       },
     );

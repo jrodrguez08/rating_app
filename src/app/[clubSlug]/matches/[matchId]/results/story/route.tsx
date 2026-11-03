@@ -6,6 +6,8 @@ import {
 } from "@/components/published-podium-image";
 import { requireActiveClub } from "@/config/club-server";
 import { siteUrl } from "@/config/site";
+import { imageLocaleFromRequest, type Locale } from "@/i18n/config";
+import { getMessages } from "@/i18n/messages";
 import { AdminResultService } from "@/lib/firebase/server";
 import { loadSocialPlayerPhotos } from "@/lib/server/social-player-photo";
 
@@ -18,6 +20,7 @@ export async function GET(
 ) {
   const { clubSlug, matchId } = await params;
   const club = requireActiveClub(clubSlug);
+  const locale = imageLocaleFromRequest(request);
   try {
     const page = await new AdminResultService().getPublishedPageState(
       matchId,
@@ -34,6 +37,8 @@ export async function GET(
     return new ImageResponse(
       <PublishedPodiumImage
         club={club}
+        locale={locale}
+        messages={getMessages(locale).results.image}
         podium={page.podium}
         variant="story"
         photoDataUrls={photos}
@@ -43,7 +48,7 @@ export async function GET(
         ...STORY_IMAGE_SIZE,
         headers: {
           "Cache-Control": "no-store",
-          "Content-Disposition": `${storyDisposition(request)}; filename="${storyFilename(club.slug, matchId)}"`,
+          "Content-Disposition": `${storyDisposition(request)}; filename="${storyFilename(club.slug, matchId, locale)}"`,
         },
       },
     );
@@ -65,8 +70,12 @@ function unavailableImage() {
   });
 }
 
-function storyFilename(clubSlug: string, matchId: string): string {
+function storyFilename(
+  clubSlug: string,
+  matchId: string,
+  locale: Locale,
+): string {
   const safeClubSlug = clubSlug.replace(/[^a-zA-Z0-9_-]/g, "-");
   const safeMatchId = matchId.replace(/[^a-zA-Z0-9_-]/g, "-");
-  return `rating-app-${safeClubSlug}-${safeMatchId}-historia.png`;
+  return `rating-app-${safeClubSlug}-${safeMatchId}-${locale}-historia.png`;
 }

@@ -10,9 +10,9 @@ import {
 
 const projectId = "demo-rating-app-e2e";
 const ownerUid = "e2e-owner";
-const fixtureId = "e2e-shared-fixture";
-const publishedFixtureId = "e2e-published-fixture";
-const preparationFixtureId = "e2e-preparation-fixture";
+const fixtureId = "990001";
+const publishedFixtureId = "990002";
+const preparationFixtureId = "990003";
 const clubs = [
   {
     slug: "herediano",
@@ -211,7 +211,14 @@ export default async function seed(): Promise<void> {
             new Date(now.getTime() - (published ? 80_000_000 : 1_800_000)),
           ),
           votingClosesAt: Timestamp.fromDate(
-            new Date(now.getTime() + (published ? -72_000_000 : 7_200_000)),
+            new Date(
+              now.getTime() +
+                (published
+                  ? -72_000_000
+                  : club.slug === "herediano"
+                    ? 7_200_000
+                    : 10_800_000),
+            ),
           ),
           externalProvider: "api-football",
           externalProviderFixtureId: published

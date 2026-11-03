@@ -14,6 +14,7 @@ export const esMessages = {
     title: "Rating App",
     description:
       "Calificaciones de aficionados para los jugadores y entrenadores que marcaron el partido.",
+    socialImageAlt: "Rating App, calificaciones de la afición",
   },
   common: {
     language: "Idioma",
@@ -318,6 +319,22 @@ export const esMessages = {
     },
   },
   results: {
+    metadata: {
+      title:
+        "{club} | {home} {score} {away} | La afición eligió sus mejores jugadores",
+      description:
+        "Resultados publicados de {club} en {home} vs {away}: marcador {score} y los jugadores mejor calificados por la afición.",
+      imageAlt: "Podio de {club} en {home} vs {away}, {score}",
+    },
+    image: {
+      podiumHeading: "LOS MEJORES DEL PARTIDO",
+      openGraphHeading: "LA AFICIÓN ELIGIÓ",
+      viewResults: "VER RESULTADOS COMPLETOS",
+      tableHeading: "Calificaciones del partido",
+      player: "JUGADOR",
+      rating: "NOTA",
+      tableFooter: "Calificaciones de la afición",
+    },
     eyebrow: "Resultados de la comunidad",
     title: "Resultados del partido",
     versus: "VS",

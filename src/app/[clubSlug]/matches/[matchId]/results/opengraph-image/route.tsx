@@ -6,6 +6,8 @@ import {
 } from "@/components/published-podium-image";
 import { requireActiveClub } from "@/config/club-server";
 import { siteUrl } from "@/config/site";
+import { imageLocaleFromRequest } from "@/i18n/config";
+import { getMessages } from "@/i18n/messages";
 import { AdminResultService } from "@/lib/firebase/server";
 import { loadSocialPlayerPhotos } from "@/lib/server/social-player-photo";
 
@@ -13,11 +15,12 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ clubSlug: string; matchId: string }> },
 ) {
   const { clubSlug, matchId } = await params;
   const club = requireActiveClub(clubSlug);
+  const locale = imageLocaleFromRequest(request);
   try {
     const page = await new AdminResultService().getPublishedPageState(
       matchId,
@@ -34,6 +37,8 @@ export async function GET(
     return new ImageResponse(
       <PublishedPodiumImage
         club={club}
+        locale={locale}
+        messages={getMessages(locale).results.image}
         podium={page.podium}
         variant="open-graph"
         photoDataUrls={photos}

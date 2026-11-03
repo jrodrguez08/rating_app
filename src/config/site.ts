@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 
+import { defaultLocale, openGraphLocales, type Locale } from "@/i18n/config";
+import { getMessages } from "@/i18n/messages";
+
 import { clubPath, resolveClub } from "./club";
 
 const PRODUCTION_SITE_URL = "https://rating-app-amber.vercel.app";
@@ -43,6 +46,7 @@ export const siteUrl = resolveSiteUrl();
 export function buildPageMetadata(
   pathname: string,
   overrides: Pick<Metadata, "title" | "description"> = {},
+  locale: Locale = defaultLocale,
 ): Metadata {
   const club = resolveClub(pathname.split("/")[1] ?? "");
   const suppliedTitle = overrides.title ?? siteIdentity.name;
@@ -62,7 +66,7 @@ export function buildPageMetadata(
     alternates: { canonical: pathname },
     openGraph: {
       type: "website",
-      locale: "es_CR",
+      locale: openGraphLocales[locale],
       url: pathname,
       siteName: siteIdentity.name,
       title,
@@ -73,7 +77,7 @@ export function buildPageMetadata(
               url: imagePath,
               width: 1200,
               height: 630,
-              alt: siteIdentity.socialImageAlt,
+              alt: getMessages(locale).metadata.socialImageAlt,
             },
           ]
         : [],

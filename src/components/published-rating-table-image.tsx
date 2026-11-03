@@ -3,18 +3,24 @@ import type { PublishedRatingStoryPage } from "@/application/published-rating-st
 import type { Club } from "@/config/club";
 import { getTeamBadgePresentation } from "@/config/team-badges";
 import { siteIdentity } from "@/config/site";
+import type { Locale } from "@/i18n/config";
 import { formatDate, formatRating } from "@/i18n/format";
+import type { Messages } from "@/i18n/messages";
 
 export function PublishedRatingTableImage({
   club,
   podium,
   storyPage,
   siteHost,
+  locale,
+  messages,
 }: {
   club: Club;
   podium: PublishedResultPodium;
   storyPage: PublishedRatingStoryPage;
   siteHost: string;
+  locale: Locale;
+  messages: Messages["results"]["image"];
 }) {
   return (
     <div
@@ -70,7 +76,7 @@ export function PublishedRatingTableImage({
                 fontWeight: 900,
               }}
             >
-              Calificaciones del partido
+              {messages.tableHeading}
             </div>
           </div>
           <div
@@ -96,7 +102,7 @@ export function PublishedRatingTableImage({
         >
           {club.displayName}
         </div>
-        <MatchHeader podium={podium} club={club} />
+        <MatchHeader podium={podium} club={club} locale={locale} />
       </header>
       <div
         style={{
@@ -126,11 +132,11 @@ export function PublishedRatingTableImage({
           >
             #
           </span>
-          <span style={{ display: "flex", flex: 1 }}>JUGADOR</span>
+          <span style={{ display: "flex", flex: 1 }}>{messages.player}</span>
           <span
             style={{ width: 150, display: "flex", justifyContent: "center" }}
           >
-            NOTA
+            {messages.rating}
           </span>
         </div>
         {storyPage.players.map((player, index) => (
@@ -200,7 +206,7 @@ export function PublishedRatingTableImage({
                 fontWeight: 900,
               }}
             >
-              {formatRating(player.average, "es")}
+              {formatRating(player.average, locale)}
             </span>
           </div>
         ))}
@@ -218,7 +224,7 @@ export function PublishedRatingTableImage({
           fontWeight: 800,
         }}
       >
-        <span>Calificaciones de la afición</span>
+        <span>{messages.tableFooter}</span>
         <span style={{ color: club.theme.accent }}>{siteHost}</span>
       </footer>
     </div>
@@ -228,9 +234,11 @@ export function PublishedRatingTableImage({
 function MatchHeader({
   podium,
   club,
+  locale,
 }: {
   podium: PublishedResultPodium;
   club: Club;
+  locale: Locale;
 }) {
   return (
     <div
@@ -274,7 +282,7 @@ function MatchHeader({
             fontWeight: 700,
           }}
         >
-          {formatDate(podium.publishedMatchDate, "es", {
+          {formatDate(podium.publishedMatchDate, locale, {
             day: "numeric",
             month: "short",
             year: "numeric",

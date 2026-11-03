@@ -6,6 +6,7 @@ import { MatchResults, ResultRouteState } from "@/components/match-results";
 import { matchPath } from "@/config/club";
 import { requireActiveClub } from "@/config/club-server";
 import { buildPageMetadata, siteIdentity, siteUrl } from "@/config/site";
+import { openGraphLocales } from "@/i18n/config";
 import { getMessages } from "@/i18n/messages";
 import { getLocale } from "@/i18n/server";
 import { AdminResultService } from "@/lib/firebase/server";
@@ -28,8 +29,14 @@ export async function generateMetadata({
 }: PageProps<"/[clubSlug]/matches/[matchId]/results">): Promise<Metadata> {
   const { clubSlug, matchId } = await params;
   const club = requireActiveClub(clubSlug);
+  const locale = await getLocale();
+  const messages = getMessages(locale).results;
   const pathname = matchPath(club, matchId, "/results");
-  const fallback = buildPageMetadata(pathname);
+  const fallback = buildPageMetadata(
+    pathname,
+    { title: messages.title, description: messages.unavailableDescription },
+    locale,
+  );
   try {
     const pageState = await readPublishedResult(matchId, club.teamId);
     if (pageState.state !== "ready" || pageState.podium === null) {
@@ -37,11 +44,22 @@ export async function generateMetadata({
     }
     const { match, podium } = pageState;
     const score = `${podium.score.home} - ${podium.score.away}`;
-    const title = `${club.displayName} | ${match.homeTeam.name} ${score} ${match.awayTeam.name} | La afición eligió sus mejores jugadores`;
-    const description = `Resultados publicados de ${club.displayName} en ${match.homeTeam.name} vs ${match.awayTeam.name}: marcador ${score} y los jugadores mejor calificados por la afición.`;
+    const fields = {
+      club: club.displayName,
+      home: match.homeTeam.name,
+      away: match.awayTeam.name,
+      score,
+    };
+    const fill = (template: string) =>
+      template.replace(
+        /\{(club|home|away|score)\}/g,
+        (_, field: keyof typeof fields) => fields[field],
+      );
+    const title = fill(messages.metadata.title);
+    const description = fill(messages.metadata.description);
     const canonicalUrl = new URL(pathname, siteUrl).href;
     const imageUrl = new URL(
-      `${pathname}/opengraph-image?v=${encodeURIComponent(podium.generatedAt)}`,
+      `${pathname}/opengraph-image?lang=${locale}&v=${encodeURIComponent(podium.generatedAt)}`,
       siteUrl,
     ).href;
     return {
@@ -50,7 +68,7 @@ export async function generateMetadata({
       alternates: { canonical: canonicalUrl },
       openGraph: {
         type: "website",
-        locale: "es_CR",
+        locale: openGraphLocales[locale],
         url: canonicalUrl,
         siteName: siteIdentity.name,
         title,
@@ -60,7 +78,7 @@ export async function generateMetadata({
             url: imageUrl,
             width: 1200,
             height: 630,
-            alt: `Podio de ${club.displayName} en ${match.homeTeam.name} vs ${match.awayTeam.name}, ${score}`,
+            alt: fill(messages.metadata.imageAlt),
           },
         ],
       },

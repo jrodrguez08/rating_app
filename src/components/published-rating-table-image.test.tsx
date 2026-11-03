@@ -6,10 +6,34 @@ import { describe, expect, it } from "vitest";
 import type { PublishedResultPodium } from "@/application/published-result-podium";
 import { buildPublishedRatingStoryPages } from "@/application/published-rating-story";
 import { resolveClub } from "@/config/club";
+import { getMessages } from "@/i18n/messages";
 
+import { PublishedPodiumImage } from "./published-podium-image";
 import { PublishedRatingTableImage } from "./published-rating-table-image";
 
 describe("published rating table Story image", () => {
+  it.each(["es", "en"] as const)(
+    "renders %s podium image text and ratings",
+    (locale) => {
+      const messages = getMessages(locale).results.image;
+      const markup = renderToStaticMarkup(
+        <PublishedPodiumImage
+          club={resolveClub("saprissa")!}
+          podium={podium}
+          variant="open-graph"
+          photoDataUrls={new Map()}
+          siteHost="rating-app.test"
+          locale={locale}
+          messages={messages}
+        />,
+      );
+      expect(markup).toContain(messages.openGraphHeading);
+      expect(markup).toContain(messages.viewResults);
+      expect(markup).toContain(locale === "es" ? "9,4" : "9.4");
+      expect(markup).toContain("Deportivo Saprissa");
+      expect(markup).toContain("Pérez Zeledón");
+    },
+  );
   it("renders the match header, page number, long names, ratings, and shared MVPs", () => {
     const storyPage = buildPublishedRatingStoryPages(podium)[0];
     const markup = renderToStaticMarkup(
@@ -18,6 +42,8 @@ describe("published rating table Story image", () => {
         podium={podium}
         storyPage={storyPage}
         siteHost="rating-app.test"
+        locale="es"
+        messages={getMessages("es").results.image}
       />,
     );
 
@@ -34,6 +60,26 @@ describe("published rating table Story image", () => {
     expect(markup.match(/MVP/g)).toHaveLength(2);
     expect(markup).toContain("Calificaciones de la afición");
     expect(markup).not.toContain("voter");
+  });
+
+  it("renders English labels, dates, and decimal ratings for Saprissa", () => {
+    const markup = renderToStaticMarkup(
+      <PublishedRatingTableImage
+        club={resolveClub("saprissa")!}
+        podium={podium}
+        storyPage={buildPublishedRatingStoryPages(podium)[0]}
+        siteHost="rating-app.test"
+        locale="en"
+        messages={getMessages("en").results.image}
+      />,
+    );
+    expect(markup).toContain("Match ratings");
+    expect(markup).toContain("PLAYER");
+    expect(markup).toContain("RATING");
+    expect(markup).toContain("Ratings from the fans");
+    expect(markup).toContain("9.4");
+    expect(markup).toContain("Oct 19, 2026");
+    expect(markup).not.toContain("Calificaciones del partido");
   });
 });
 

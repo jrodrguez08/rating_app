@@ -56,7 +56,7 @@ export function MatchResults({
         page: storyPage.page,
         pageCount: storyPage.pageCount,
         url: new URL(
-          `${matchPath(club, match.id, "/results/story/table")}?page=${storyPage.page}`,
+          `${matchPath(club, match.id, "/results/story/table")}?page=${storyPage.page}&lang=${locale}`,
           siteUrl,
         ).href,
         filename: publishedRatingStoryFilename(
@@ -64,6 +64,7 @@ export function MatchResults({
           match.id,
           storyPage.page,
           storyPage.pageCount,
+          locale,
         ),
       }))
     : [];
@@ -119,10 +120,12 @@ export function MatchResults({
                   new URL(matchPath(club, match.id, "/results"), siteUrl).href
                 }
                 storyUrl={
-                  new URL(matchPath(club, match.id, "/results/story"), siteUrl)
-                    .href
+                  new URL(
+                    `${matchPath(club, match.id, "/results/story")}?lang=${locale}`,
+                    siteUrl,
+                  ).href
                 }
-                storyFilename={`rating-app-${club.slug}-${match.id}-historia.png`}
+                storyFilename={`rating-app-${club.slug}-${match.id}-${locale}-historia.png`}
                 ratingStoryPages={ratingStoryPages}
                 shareTitle={`${match.homeTeam.name} ${podium.score.home} - ${podium.score.away} ${match.awayTeam.name}`}
                 shareText={messages.sharing.shareText}

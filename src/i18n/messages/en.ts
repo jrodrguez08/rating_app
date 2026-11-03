@@ -15,6 +15,7 @@ export const enMessages = {
     title: "Rating App",
     description:
       "Supporter ratings for the players and coaches who shape the match.",
+    socialImageAlt: "Rating App, ratings from the fans",
   },
   common: {
     language: "Language",
@@ -309,6 +310,21 @@ export const enMessages = {
     },
   },
   results: {
+    metadata: {
+      title: "{club} | {home} {score} {away} | Fans' top players",
+      description:
+        "Published {club} results for {home} vs {away}: {score} and the players rated highest by fans.",
+      imageAlt: "{club} podium for {home} vs {away}, {score}",
+    },
+    image: {
+      podiumHeading: "MATCH DAY'S BEST",
+      openGraphHeading: "THE FANS CHOSE",
+      viewResults: "VIEW FULL RESULTS",
+      tableHeading: "Match ratings",
+      player: "PLAYER",
+      rating: "RATING",
+      tableFooter: "Ratings from the fans",
+    },
     eyebrow: "Community results",
     title: "Match results",
     versus: "VS",

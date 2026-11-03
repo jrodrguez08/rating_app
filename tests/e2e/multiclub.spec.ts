@@ -1,8 +1,9 @@
 import { mkdir, writeFile } from "node:fs/promises";
 
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import { e2eMatches } from "./seed";
+import { finalizeVotedMatch, inspectVotedMatch } from "./finalize";
 
 const evidence = "test-results/visual";
 
@@ -53,44 +54,13 @@ test("neutral selector and distinct club themes remain usable on mobile and desk
   }
 });
 
-test("shared fixture keeps ballots and published content in separate club contexts", async ({
+test("seeded published fixture supplies visual coverage for both clubs", async ({
   page,
 }) => {
   test.setTimeout(180_000);
   await mkdir(evidence, { recursive: true });
   for (const club of ["herediano", "saprissa"] as const) {
-    const open = e2eMatches[club].open;
     const published = e2eMatches[club].published;
-    await page.goto(`/${club}/matches/${open}`);
-    await expect(
-      page.getByRole("link", { name: /calificar/i }),
-    ).toHaveAttribute("href", `/${club}/matches/${open}/rate`);
-    await page.goto(`/${club}/matches/${open}/rate`);
-    await expect(page.locator("fieldset")).toHaveCount(17);
-    await expect(
-      page.getByText(
-        `${club === "herediano" ? "Herediano" : "Saprissa"} Entrenador`,
-      ),
-    ).toBeVisible();
-    await page.screenshot({
-      path: `${evidence}/${club}-ballot-desktop.png`,
-      fullPage: true,
-    });
-    const fields = page.locator("fieldset");
-    for (let index = 0; index < 17; index += 1) {
-      await fields.nth(index).getByRole("button", { name: /: 8$/ }).click();
-    }
-    await page
-      .getByRole("button", { name: /enviar|votar|confirmar calificaciones/i })
-      .last()
-      .click();
-    const confirmation = page.getByRole("alertdialog");
-    await expect(confirmation).toBeVisible();
-    await confirmation.getByRole("button").first().click();
-    await expect(page.locator("#submitted-heading")).toBeVisible();
-    await page.reload();
-    await expect(page.locator("#submitted-heading")).toBeVisible();
-
     await page.goto(`/${club}/matches/${published}/results`);
     await expect(page.locator("#results-heading")).toBeVisible();
     await expect(
@@ -160,6 +130,205 @@ test("shared fixture keeps ballots and published content in separate club contex
     }
   }
 });
+
+test("the same shared fixture aggregates each club's browser ballot independently", async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  const clubs = ["herediano", "saprissa"] as const;
+  const teamIds = {
+    herediano: "club-sport-herediano",
+    saprissa: "deportivo-saprissa",
+  } as const;
+
+  for (const club of clubs) {
+    const matchId = e2eMatches[club].open;
+    await page.goto(`/${club}/matches/${matchId}`);
+    await expect(
+      page.getByRole("link", { name: /calificar/i }),
+    ).toHaveAttribute("href", `/${club}/matches/${matchId}/rate`);
+    await page.goto(`/${club}/matches/${matchId}/rate`);
+    const fields = page.locator("fieldset");
+    await expect(fields).toHaveCount(17);
+    await page.screenshot({
+      path: `${evidence}/${club}-voted-ballot-es.png`,
+      fullPage: true,
+    });
+    for (let index = 0; index < 17; index += 1) {
+      const rating =
+        index === 16
+          ? club === "herediano"
+            ? 7
+            : 5
+          : club === "herediano"
+            ? 6
+            : 4;
+      await fields
+        .nth(index)
+        .getByRole("button", { name: new RegExp(`: ${rating}$`) })
+        .click();
+    }
+    await fields
+      .filter({
+        hasText:
+          club === "herediano"
+            ? "Herediano Nombre extraordinariamente largo"
+            : "Saprissa Jugador 2",
+      })
+      .first()
+      .getByRole("button", { name: club === "herediano" ? /: 10$/ : /: 9$/ })
+      .click();
+    await page
+      .getByRole("button", { name: /enviar|votar|confirmar calificaciones/i })
+      .last()
+      .click();
+    const confirmation = page.getByRole("alertdialog");
+    await expect(confirmation).toBeVisible();
+    await confirmation.getByRole("button").first().click();
+    await expect(page.locator("#submitted-heading")).toBeVisible();
+    await page.reload();
+    await expect(page.locator("#submitted-heading")).toBeVisible();
+
+    const before = await inspectVotedMatch(matchId, teamIds[club]);
+    expect(before.ratingState).toBe("rating_ready");
+    expect(before.ballotIds).toHaveLength(1);
+    expect(before.resultExists).toBe(false);
+    expect(before.page.state).toBe("locked");
+    expect(
+      (
+        await page.request.get(
+          `/${club}/matches/${matchId}/results/story?lang=en`,
+        )
+      ).status(),
+    ).toBe(404);
+  }
+
+  const heredianoId = e2eMatches.herediano.open;
+  const saprissaId = e2eMatches.saprissa.open;
+  const heredianoBefore = await inspectVotedMatch(
+    heredianoId,
+    teamIds.herediano,
+  );
+  const saprissaBefore = await inspectVotedMatch(saprissaId, teamIds.saprissa);
+  expect(heredianoBefore.ballotIds[0]).toBe(saprissaBefore.ballotIds[0]);
+
+  const herediano = await finalizeVotedMatch(heredianoId, teamIds.herediano);
+  expect(herediano.result.ballotCount).toBe(1);
+  expect(herediano.result.coachResult.average).toBe(7);
+  expect(herediano.result.mvpPlayerIds).toEqual(["e2e-herediano-player-1"]);
+  expect(herediano.result.playerResults["e2e-herediano-player-1"].average).toBe(
+    10,
+  );
+  expect(Object.keys(herediano.result.playerResults)).toHaveLength(16);
+  expect(
+    Object.keys(herediano.result.playerResults).every((id) =>
+      id.startsWith("e2e-herediano-"),
+    ),
+  ).toBe(true);
+  const saprissaStillOpen = await inspectVotedMatch(
+    saprissaId,
+    teamIds.saprissa,
+  );
+  expect(saprissaStillOpen.ratingState).toBe("rating_ready");
+  expect(saprissaStillOpen.resultExists).toBe(false);
+  await page.goto(`/saprissa/matches/${saprissaId}/results`);
+  await expect(page.locator("#result-state-heading")).toBeVisible();
+  expect(
+    (
+      await page.request.get(
+        `/saprissa/matches/${saprissaId}/results/opengraph-image?lang=en`,
+      )
+    ).status(),
+  ).toBe(404);
+  await inspectActualPublishedViews(page, "herediano", heredianoId, 10);
+
+  const saprissa = await finalizeVotedMatch(saprissaId, teamIds.saprissa);
+  expect(saprissa.result.ballotCount).toBe(1);
+  expect(saprissa.result.coachResult.average).toBe(5);
+  expect(saprissa.result.mvpPlayerIds).toEqual(["e2e-saprissa-player-2"]);
+  expect(saprissa.result.playerResults["e2e-saprissa-player-2"].average).toBe(
+    9,
+  );
+  expect(Object.keys(saprissa.result.playerResults)).toHaveLength(16);
+  expect(
+    Object.keys(saprissa.result.playerResults).every((id) =>
+      id.startsWith("e2e-saprissa-"),
+    ),
+  ).toBe(true);
+  await inspectActualPublishedViews(page, "saprissa", saprissaId, 9);
+});
+
+async function inspectActualPublishedViews(
+  page: Page,
+  club: "herediano" | "saprissa",
+  matchId: string,
+  mvpRating: number,
+) {
+  const resultPath = `/${club}/matches/${matchId}/results`;
+  await page.goto(resultPath);
+  await selectLanguage(page, "es");
+  for (const locale of ["es", "en"] as const) {
+    await selectLanguage(page, locale);
+    const title = locale === "es" ? "Resultados del partido" : "Match results";
+    await expect(page.getByRole("heading", { name: title })).toBeVisible();
+    await expect(page.locator('meta[property="og:locale"]')).toHaveAttribute(
+      "content",
+      locale === "es" ? "es_CR" : "en_US",
+    );
+    const imageUrl = await page
+      .locator('meta[property="og:image"]')
+      .getAttribute("content");
+    expect(imageUrl).toContain(`lang=${locale}`);
+    expect(imageUrl).toContain("&v=");
+    await expect(page.locator("a[download]").first()).toHaveAttribute(
+      "href",
+      new RegExp(`story\\?lang=${locale}$`),
+    );
+    await expect(page.locator("ol li").first()).toContainText(
+      locale === "es" ? `${mvpRating},0` : `${mvpRating}.0`,
+    );
+    await page.screenshot({
+      path: `${evidence}/${club}-voted-results-${locale}.png`,
+      fullPage: true,
+    });
+    for (const [kind, route, width, height] of [
+      ["og", "opengraph-image", 1200, 630],
+      ["podium", "story", 1080, 1920],
+      ["ratings", "story/table?page=1", 1080, 1920],
+    ] as const) {
+      const separator = route.includes("?") ? "&" : "?";
+      const response = await page.request.get(
+        `${resultPath}/${route}${separator}lang=${locale}`,
+      );
+      expect(response.status()).toBe(200);
+      expect(response.headers()["content-type"]).toContain("image/png");
+      const png = await response.body();
+      expect(png.readUInt32BE(16)).toBe(width);
+      expect(png.readUInt32BE(20)).toBe(height);
+      await writeFile(`${evidence}/${club}-voted-${kind}-${locale}.png`, png);
+    }
+  }
+  const mvpIndex = club === "herediano" ? 1 : 2;
+  await page.goto(`/${club}/players/e2e-${club}-player-${mvpIndex}`);
+  await expect(page.locator("#main-content")).toContainText(
+    club === "herediano" ? "Nombre extraordinariamente largo" : "Jugador 2",
+  );
+  await page.goto(`/${club}/studio?match=${matchId}`);
+  await expect(page.locator("#main-content")).toContainText("2 - 1");
+  await page.goto(`/${club}/studio/overlay/${matchId}`);
+  await expect(page.locator("#main-content")).toContainText("2 - 1");
+}
+
+async function selectLanguage(page: Page, locale: "es" | "en") {
+  if ((await page.locator("html").getAttribute("lang")) === locale) return;
+  await page.locator('header button[aria-haspopup="menu"]').click();
+  await page
+    .getByRole("menuitemradio", {
+      name: locale === "es" ? "Español" : "English",
+    })
+    .click();
+  await expect(page.locator("html")).toHaveAttribute("lang", locale);
+}
 
 test("the real emulator owner can switch club dashboards", async ({ page }) => {
   test.setTimeout(90_000);

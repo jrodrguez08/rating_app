@@ -7,7 +7,9 @@ import type {
 import type { Club } from "@/config/club";
 import { getTeamBadgePresentation } from "@/config/team-badges";
 import { siteIdentity } from "@/config/site";
+import type { Locale } from "@/i18n/config";
 import { formatRating } from "@/i18n/format";
+import type { Messages } from "@/i18n/messages";
 
 export const OPEN_GRAPH_IMAGE_SIZE = { width: 1200, height: 630 } as const;
 export const STORY_IMAGE_SIZE = { width: 1080, height: 1920 } as const;
@@ -18,12 +20,16 @@ export function PublishedPodiumImage({
   variant,
   photoDataUrls,
   siteHost,
+  locale,
+  messages,
 }: {
   club: Club;
   podium: PublishedResultPodium;
   variant: "open-graph" | "story";
   photoDataUrls: ReadonlyMap<string, string>;
   siteHost: string;
+  locale: Locale;
+  messages: Messages["results"]["image"];
 }) {
   const story = variant === "story";
   return (
@@ -65,7 +71,7 @@ export function PublishedPodiumImage({
               letterSpacing: story ? 4 : 3,
             }}
           >
-            {story ? "LOS MEJORES DEL PARTIDO" : "LA AFICIÓN ELIGIÓ"}
+            {story ? messages.podiumHeading : messages.openGraphHeading}
           </div>
           <div
             style={{
@@ -132,6 +138,7 @@ export function PublishedPodiumImage({
                   player={player}
                   club={club}
                   story={story}
+                  locale={locale}
                   photoDataUrl={photoDataUrls.get(player.playerId)}
                 />
               ) : null}
@@ -152,7 +159,7 @@ export function PublishedPodiumImage({
           fontWeight: 800,
         }}
       >
-        <span>{story ? siteHost : "VER RESULTADOS COMPLETOS"}</span>
+        <span>{story ? siteHost : messages.viewResults}</span>
         <span style={{ color: club.theme.accent }}>RATING APP</span>
       </footer>
     </div>
@@ -253,11 +260,13 @@ function PlayerPodium({
   story,
   photoDataUrl,
   club,
+  locale,
 }: {
   player: PublishedPodiumPlayer;
   story: boolean;
   photoDataUrl?: string;
   club: Club;
+  locale: Locale;
 }) {
   const first = player.rank === 1;
   const medal = first ? "#f5c518" : player.rank === 2 ? "#c9cdd3" : "#c57b43";
@@ -382,7 +391,7 @@ function PlayerPodium({
             fontWeight: 900,
           }}
         >
-          {formatRating(player.average, "es")}
+          {formatRating(player.average, locale)}
         </div>
       </div>
       <div

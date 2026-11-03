@@ -38,6 +38,50 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("published result social images", () => {
+  it.each([
+    ["herediano", context, "club-sport-herediano"],
+    ["saprissa", saprissaContext, "deportivo-saprissa"],
+  ] as const)(
+    "keeps %s English downloads distinct from Spanish fallback",
+    async (_club, routeContext, teamId) => {
+      vi.stubEnv("SAPRISSA_PUBLIC_ENABLED", "true");
+      serviceMocks.getPublishedPageState.mockResolvedValue({
+        ...readyPage,
+        match: { ...match, trackedTeamId: teamId },
+        result: { ...result, teamId },
+      });
+      const [english, unsupported, table] = await Promise.all([
+        getStoryImage(
+          new Request("https://rating-app.test/story?lang=en"),
+          routeContext,
+        ),
+        getStoryImage(
+          new Request("https://rating-app.test/story?lang=fr"),
+          routeContext,
+        ),
+        getRatingTableStoryImage(
+          new Request("https://rating-app.test/story/table?page=1&lang=en"),
+          routeContext,
+        ),
+      ]);
+      expect(english.status).toBe(200);
+      expect(english.headers.get("content-disposition")).toContain(
+        "-en-historia.png",
+      );
+      expect(unsupported.headers.get("content-disposition")).toContain(
+        "-es-historia.png",
+      );
+      expect(table.headers.get("content-disposition")).toContain(
+        "-en-calificaciones-",
+      );
+      expect(pngDimensions(await english.arrayBuffer())).toEqual(
+        STORY_IMAGE_SIZE,
+      );
+      expect(pngDimensions(await table.arrayBuffer())).toEqual(
+        STORY_IMAGE_SIZE,
+      );
+    },
+  );
   it("keeps Saprissa result images unavailable while public exposure is disabled", async () => {
     serviceMocks.getPublishedPageState.mockResolvedValue(readyPage);
     await expect(
@@ -83,10 +127,10 @@ describe("published result social images", () => {
     expect(pngDimensions(await story.arrayBuffer())).toEqual(STORY_IMAGE_SIZE);
     expect(pngDimensions(await table.arrayBuffer())).toEqual(STORY_IMAGE_SIZE);
     expect(story.headers.get("content-disposition")).toContain(
-      "rating-app-saprissa-match-1-historia.png",
+      "rating-app-saprissa-match-1-es-historia.png",
     );
     expect(table.headers.get("content-disposition")).toContain(
-      "rating-app-saprissa-match-1-calificaciones",
+      "rating-app-saprissa-match-1-es-calificaciones",
     );
 
     serviceMocks.getPublishedPageState.mockResolvedValue(readyPage);
@@ -143,7 +187,7 @@ describe("published result social images", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("image/png");
     expect(response.headers.get("content-disposition")).toContain(
-      "rating-app-herediano-match-1-historia.png",
+      "rating-app-herediano-match-1-es-historia.png",
     );
     expect(response.headers.get("content-disposition")).toMatch(/^attachment;/);
     const image = await response.arrayBuffer();
@@ -162,7 +206,7 @@ describe("published result social images", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("image/png");
     expect(response.headers.get("content-disposition")).toBe(
-      'inline; filename="rating-app-herediano-match-1-historia.png"',
+      'inline; filename="rating-app-herediano-match-1-es-historia.png"',
     );
   });
 
@@ -188,11 +232,11 @@ describe("published result social images", () => {
     expect(first.headers.get("content-type")).toBe("image/png");
     expect(first.headers.get("cache-control")).toBe("no-store");
     expect(first.headers.get("content-disposition")).toBe(
-      'attachment; filename="rating-app-herediano-match-1-calificaciones-1-de-2.png"',
+      'attachment; filename="rating-app-herediano-match-1-es-calificaciones-1-de-2.png"',
     );
     expect(pngDimensions(await first.arrayBuffer())).toEqual(STORY_IMAGE_SIZE);
     expect(second.headers.get("content-disposition")).toBe(
-      'inline; filename="rating-app-herediano-match-1-calificaciones-2-de-2.png"',
+      'inline; filename="rating-app-herediano-match-1-es-calificaciones-2-de-2.png"',
     );
     expect(serviceMocks.loadSocialPlayerPhotos).not.toHaveBeenCalled();
   });
