@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import type { PublishedResultPodium } from "@/application/published-result-podium";
 import { buildPublishedRatingStoryPages } from "@/application/published-rating-story";
+import { resolveClub } from "@/config/club";
 
 import { PublishedRatingTableImage } from "./published-rating-table-image";
 
@@ -13,6 +14,7 @@ describe("published rating table Story image", () => {
     const storyPage = buildPublishedRatingStoryPages(podium)[0];
     const markup = renderToStaticMarkup(
       <PublishedRatingTableImage
+        club={resolveClub("herediano")!}
         podium={podium}
         storyPage={storyPage}
         siteHost="rating-app.test"

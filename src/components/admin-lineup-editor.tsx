@@ -715,6 +715,7 @@ export function AdminLineupEditor({
           </section>
 
           <DndContext
+            id={`lineup-${detail.match.id}`}
             sensors={sensors}
             onDragEnd={handleDragEnd}
             accessibility={{

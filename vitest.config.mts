@@ -9,6 +9,6 @@ export default defineConfig({
     maxWorkers: 4,
     setupFiles: ["./vitest.setup.ts"],
     globals: true,
-    exclude: [...configDefaults.exclude, "tests/firebase/**"],
+    exclude: [...configDefaults.exclude, "tests/firebase/**", "tests/e2e/**"],
   },
 });

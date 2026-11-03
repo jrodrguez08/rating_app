@@ -13,7 +13,9 @@ export function formatDate(
   return new Intl.DateTimeFormat(localeTags[locale], {
     timeZone: "America/Costa_Rica",
     ...options,
-  }).format(new Date(value));
+  })
+    .format(new Date(value))
+    .replace(/\u00a0/g, " ");
 }
 
 export function formatVotingDeadline(

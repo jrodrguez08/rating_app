@@ -78,7 +78,7 @@ export function AppShell({
             />
           </div>
           <nav aria-label={messages.navigation.label}>
-            <ul className="flex min-h-10 items-end gap-3 sm:gap-5">
+            <ul className="flex min-h-10 flex-wrap items-end gap-x-3 sm:gap-x-5">
               {navigation.map((item) => (
                 <li key={item.href}>
                   <Link

@@ -31,10 +31,12 @@ export function buildPublishedRatingStoryPages(
 }
 
 export function publishedRatingStoryFilename(
+  clubSlug: string,
   matchId: string,
   page: number,
   pageCount: number,
 ): string {
+  const safeClubSlug = clubSlug.replace(/[^a-zA-Z0-9_-]/g, "-");
   const safeMatchId = matchId.replace(/[^a-zA-Z0-9_-]/g, "-");
-  return `rating-app-${safeMatchId}-calificaciones-${page}-de-${pageCount}.png`;
+  return `rating-app-${safeClubSlug}-${safeMatchId}-calificaciones-${page}-de-${pageCount}.png`;
 }

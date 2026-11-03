@@ -33,6 +33,7 @@ export async function GET(
     const photos = await loadSocialPlayerPhotos(page.podium.topThree);
     return new ImageResponse(
       <PublishedPodiumImage
+        club={club}
         podium={page.podium}
         variant="open-graph"
         photoDataUrls={photos}

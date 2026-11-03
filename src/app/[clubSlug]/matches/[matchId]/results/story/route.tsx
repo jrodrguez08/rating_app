@@ -33,6 +33,7 @@ export async function GET(
     const photos = await loadSocialPlayerPhotos(page.podium.topThree);
     return new ImageResponse(
       <PublishedPodiumImage
+        club={club}
         podium={page.podium}
         variant="story"
         photoDataUrls={photos}
@@ -42,7 +43,7 @@ export async function GET(
         ...STORY_IMAGE_SIZE,
         headers: {
           "Cache-Control": "no-store",
-          "Content-Disposition": `${storyDisposition(request)}; filename="${storyFilename(matchId)}"`,
+          "Content-Disposition": `${storyDisposition(request)}; filename="${storyFilename(club.slug, matchId)}"`,
         },
       },
     );
@@ -64,7 +65,8 @@ function unavailableImage() {
   });
 }
 
-function storyFilename(matchId: string): string {
+function storyFilename(clubSlug: string, matchId: string): string {
+  const safeClubSlug = clubSlug.replace(/[^a-zA-Z0-9_-]/g, "-");
   const safeMatchId = matchId.replace(/[^a-zA-Z0-9_-]/g, "-");
-  return `rating-app-${safeMatchId}-historia.png`;
+  return `rating-app-${safeClubSlug}-${safeMatchId}-historia.png`;
 }

@@ -101,7 +101,7 @@ describe("public app identity metadata", () => {
         new URL(pageMetadata.openGraph!.url as string, metadataBase).pathname,
       ).toBe(pathname);
       expect(pageMetadata.openGraph).toMatchObject({
-        title,
+        title: `${title} | Club Sport Herediano`,
         siteName: "Rating App",
         type: "website",
         locale: "es_CR",
@@ -199,7 +199,8 @@ describe("public app identity metadata", () => {
     });
     expect(metadata.manifest).toBe("/manifest.webmanifest");
     expect(viewport).toEqual({ themeColor: "#101113", colorScheme: "dark" });
-    expect(readFileSync("src/app/icon.svg", "utf8")).toContain("#b20d24");
+    expect(readFileSync("src/app/icon.svg", "utf8")).toContain("#36475c");
+    expect(readFileSync("src/app/icon.svg", "utf8")).not.toContain("#b20d24");
   });
 
   it("returns a focused install manifest without adding offline behavior", () => {

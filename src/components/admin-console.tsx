@@ -133,7 +133,10 @@ export function AdminConsole({
     ...overview.attentionMatches.filter(
       (match) => match.votingPresentation === "preparation",
     ),
-  ];
+  ].filter(
+    (match, index, matches) =>
+      matches.findIndex((candidate) => candidate.id === match.id) === index,
+  );
 
   function refresh() {
     startRefresh(() => router.refresh());

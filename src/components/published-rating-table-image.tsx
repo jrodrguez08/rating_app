@@ -1,14 +1,17 @@
 import type { PublishedResultPodium } from "@/application/published-result-podium";
 import type { PublishedRatingStoryPage } from "@/application/published-rating-story";
+import type { Club } from "@/config/club";
 import { getTeamBadgePresentation } from "@/config/team-badges";
 import { siteIdentity } from "@/config/site";
 import { formatDate, formatRating } from "@/i18n/format";
 
 export function PublishedRatingTableImage({
+  club,
   podium,
   storyPage,
   siteHost,
 }: {
+  club: Club;
   podium: PublishedResultPodium;
   storyPage: PublishedRatingStoryPage;
   siteHost: string;
@@ -28,7 +31,6 @@ export function PublishedRatingTableImage({
         fontFamily: "Arial, sans-serif",
       }}
     >
-      <Decorations />
       <header
         style={{
           display: "flex",
@@ -52,7 +54,7 @@ export function PublishedRatingTableImage({
             <div
               style={{
                 display: "flex",
-                color: siteIdentity.accentColor,
+                color: club.theme.accent,
                 fontSize: 27,
                 fontWeight: 800,
                 letterSpacing: 3,
@@ -74,8 +76,8 @@ export function PublishedRatingTableImage({
           <div
             style={{
               display: "flex",
-              border: `3px solid ${siteIdentity.accentColor}`,
-              color: siteIdentity.accentColor,
+              border: `3px solid ${club.theme.accent}`,
+              color: club.theme.accent,
               padding: "10px 16px",
               fontSize: 25,
               fontWeight: 900,
@@ -84,7 +86,17 @@ export function PublishedRatingTableImage({
             {storyPage.page} / {storyPage.pageCount}
           </div>
         </div>
-        <MatchHeader podium={podium} />
+        <div
+          style={{
+            display: "flex",
+            marginTop: 12,
+            fontSize: 26,
+            fontWeight: 800,
+          }}
+        >
+          {club.displayName}
+        </div>
+        <MatchHeader podium={podium} club={club} />
       </header>
       <div
         style={{
@@ -101,7 +113,7 @@ export function PublishedRatingTableImage({
             height: 50,
             display: "flex",
             alignItems: "center",
-            borderBottom: `3px solid ${siteIdentity.primaryColor}`,
+            borderBottom: `3px solid ${club.theme.primary}`,
             background: "#202328",
             color: "#c9cdd3",
             fontSize: 22,
@@ -167,8 +179,8 @@ export function PublishedRatingTableImage({
                     display: "flex",
                     flexShrink: 0,
                     marginLeft: 14,
-                    border: `2px solid ${siteIdentity.accentColor}`,
-                    color: siteIdentity.accentColor,
+                    border: `2px solid ${club.theme.accent}`,
+                    color: club.theme.accent,
                     padding: "4px 8px",
                     fontSize: 18,
                     fontWeight: 900,
@@ -183,7 +195,7 @@ export function PublishedRatingTableImage({
                 width: 150,
                 display: "flex",
                 justifyContent: "center",
-                color: siteIdentity.accentColor,
+                color: club.theme.accent,
                 fontSize: 39,
                 fontWeight: 900,
               }}
@@ -200,20 +212,26 @@ export function PublishedRatingTableImage({
           justifyContent: "space-between",
           position: "relative",
           marginTop: "auto",
-          borderTop: `3px solid ${siteIdentity.primaryColor}`,
+          borderTop: `3px solid ${club.theme.primary}`,
           paddingTop: 22,
           fontSize: 23,
           fontWeight: 800,
         }}
       >
         <span>Calificaciones de la afición</span>
-        <span style={{ color: siteIdentity.accentColor }}>{siteHost}</span>
+        <span style={{ color: club.theme.accent }}>{siteHost}</span>
       </footer>
     </div>
   );
 }
 
-function MatchHeader({ podium }: { podium: PublishedResultPodium }) {
+function MatchHeader({
+  podium,
+  club,
+}: {
+  podium: PublishedResultPodium;
+  club: Club;
+}) {
   return (
     <div
       style={{
@@ -221,7 +239,7 @@ function MatchHeader({ podium }: { podium: PublishedResultPodium }) {
         alignItems: "center",
         justifyContent: "center",
         marginTop: 30,
-        border: `4px solid ${siteIdentity.primaryColor}`,
+        border: `4px solid ${club.theme.primary}`,
         boxShadow: "10px 10px 0 #050506",
         background: "#191b1f",
         padding: "19px 24px",
@@ -239,7 +257,7 @@ function MatchHeader({ podium }: { podium: PublishedResultPodium }) {
         <span
           style={{
             display: "flex",
-            color: siteIdentity.accentColor,
+            color: club.theme.accent,
             fontSize: 66,
             fontWeight: 900,
             whiteSpace: "nowrap",
@@ -306,43 +324,6 @@ function Team({ team }: { team: PublishedResultPodium["homeTeam"] }) {
       >
         {team.name}
       </span>
-    </div>
-  );
-}
-
-function Decorations() {
-  return (
-    <div
-      aria-hidden="true"
-      style={{
-        position: "absolute",
-        inset: 0,
-        display: "flex",
-        border: `22px solid ${siteIdentity.primaryColor}`,
-      }}
-    >
-      <div
-        style={{
-          position: "absolute",
-          top: "8%",
-          left: "5%",
-          right: "5%",
-          bottom: "7%",
-          display: "flex",
-          border: "3px solid rgba(247,242,232,0.08)",
-        }}
-      />
-      <div
-        style={{
-          position: "absolute",
-          top: 0,
-          right: 0,
-          width: 210,
-          height: 22,
-          display: "flex",
-          background: siteIdentity.accentColor,
-        }}
-      />
     </div>
   );
 }

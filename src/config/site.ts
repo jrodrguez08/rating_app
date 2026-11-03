@@ -12,8 +12,8 @@ export const siteIdentity = {
   socialImageAlt: "Rating App, calificaciones de la afición",
   themeColor: "#101113",
   backgroundColor: "#101113",
-  primaryColor: "#b20d24",
-  accentColor: "#f5c518",
+  primaryColor: "#36475c",
+  accentColor: "#d1e0f0",
 } as const;
 
 export function resolveSiteUrl(
@@ -44,13 +44,21 @@ export function buildPageMetadata(
   pathname: string,
   overrides: Pick<Metadata, "title" | "description"> = {},
 ): Metadata {
-  const title = overrides.title ?? siteIdentity.name;
-  const description = overrides.description ?? siteIdentity.socialDescription;
   const club = resolveClub(pathname.split("/")[1] ?? "");
+  const suppliedTitle = overrides.title ?? siteIdentity.name;
+  const title =
+    club &&
+    typeof suppliedTitle === "string" &&
+    !suppliedTitle.includes(club.displayName)
+      ? `${suppliedTitle} | ${club.displayName}`
+      : suppliedTitle;
+  const description = overrides.description ?? siteIdentity.socialDescription;
   const imagePath = club ? clubPath(club, "/social-card") : undefined;
 
   return {
     ...overrides,
+    title,
+    description,
     alternates: { canonical: pathname },
     openGraph: {
       type: "website",

@@ -4,6 +4,7 @@ import type {
   PublishedPodiumPlayer,
   PublishedResultPodium,
 } from "@/application/published-result-podium";
+import type { Club } from "@/config/club";
 import { getTeamBadgePresentation } from "@/config/team-badges";
 import { siteIdentity } from "@/config/site";
 import { formatRating } from "@/i18n/format";
@@ -12,11 +13,13 @@ export const OPEN_GRAPH_IMAGE_SIZE = { width: 1200, height: 630 } as const;
 export const STORY_IMAGE_SIZE = { width: 1080, height: 1920 } as const;
 
 export function PublishedPodiumImage({
+  club,
   podium,
   variant,
   photoDataUrls,
   siteHost,
 }: {
+  club: Club;
   podium: PublishedResultPodium;
   variant: "open-graph" | "story";
   photoDataUrls: ReadonlyMap<string, string>;
@@ -38,7 +41,6 @@ export function PublishedPodiumImage({
         fontFamily: "Arial, sans-serif",
       }}
     >
-      <Decorations story={story} />
       <header
         style={{
           display: "flex",
@@ -57,7 +59,7 @@ export function PublishedPodiumImage({
         >
           <div
             style={{
-              color: siteIdentity.accentColor,
+              color: club.theme.accent,
               fontSize: story ? 31 : 23,
               fontWeight: 800,
               letterSpacing: story ? 4 : 3,
@@ -76,8 +78,18 @@ export function PublishedPodiumImage({
           >
             Rating App
           </div>
+          <div
+            style={{
+              display: "flex",
+              marginTop: 8,
+              fontSize: story ? 28 : 18,
+              fontWeight: 800,
+            }}
+          >
+            {club.displayName}
+          </div>
         </div>
-        <MatchScore podium={podium} story={story} />
+        <MatchScore podium={podium} story={story} club={club} />
       </header>
       <div
         style={{
@@ -118,6 +130,7 @@ export function PublishedPodiumImage({
               {player ? (
                 <PlayerPodium
                   player={player}
+                  club={club}
                   story={story}
                   photoDataUrl={photoDataUrls.get(player.playerId)}
                 />
@@ -133,14 +146,14 @@ export function PublishedPodiumImage({
           justifyContent: "space-between",
           position: "relative",
           marginTop: story ? 54 : 18,
-          borderTop: `3px solid ${siteIdentity.primaryColor}`,
+          borderTop: `3px solid ${club.theme.primary}`,
           paddingTop: story ? 28 : 14,
           fontSize: story ? 28 : 20,
           fontWeight: 800,
         }}
       >
         <span>{story ? siteHost : "VER RESULTADOS COMPLETOS"}</span>
-        <span style={{ color: siteIdentity.accentColor }}>RATING APP</span>
+        <span style={{ color: club.theme.accent }}>RATING APP</span>
       </footer>
     </div>
   );
@@ -149,9 +162,11 @@ export function PublishedPodiumImage({
 function MatchScore({
   podium,
   story,
+  club,
 }: {
   podium: PublishedResultPodium;
   story: boolean;
+  club: Club;
 }) {
   return (
     <div
@@ -160,7 +175,7 @@ function MatchScore({
         alignItems: "center",
         justifyContent: "center",
         marginTop: story ? 58 : 0,
-        border: `4px solid ${siteIdentity.primaryColor}`,
+        border: `4px solid ${club.theme.primary}`,
         boxShadow: story ? "12px 12px 0 #050506" : "8px 8px 0 #050506",
         background: "#191b1f",
         padding: story ? "30px 34px" : "15px 20px",
@@ -171,7 +186,7 @@ function MatchScore({
         style={{
           display: "flex",
           margin: story ? "0 28px" : "0 20px",
-          color: siteIdentity.accentColor,
+          color: club.theme.accent,
           fontSize: story ? 86 : 55,
           fontWeight: 900,
           whiteSpace: "nowrap",
@@ -237,10 +252,12 @@ function PlayerPodium({
   player,
   story,
   photoDataUrl,
+  club,
 }: {
   player: PublishedPodiumPlayer;
   story: boolean;
   photoDataUrl?: string;
+  club: Club;
 }) {
   const first = player.rank === 1;
   const medal = first ? "#f5c518" : player.rank === 2 ? "#c9cdd3" : "#c57b43";
@@ -260,9 +277,9 @@ function PlayerPodium({
           style={{
             display: "flex",
             marginBottom: story ? 18 : 8,
-            border: `3px solid ${siteIdentity.accentColor}`,
+            border: `3px solid ${club.theme.accent}`,
             background: "#101113",
-            color: siteIdentity.accentColor,
+            color: club.theme.accent,
             padding: story ? "9px 16px" : "5px 10px",
             fontSize: story ? 24 : 16,
             fontWeight: 900,
@@ -314,9 +331,9 @@ function PlayerPodium({
               top: 8,
               left: 8,
               display: "flex",
-              border: `3px solid ${siteIdentity.accentColor}`,
+              border: `3px solid ${club.theme.accent}`,
               background: "#101113",
-              color: siteIdentity.accentColor,
+              color: club.theme.accent,
               padding: "5px 10px",
               fontSize: 16,
               fontWeight: 900,
@@ -336,7 +353,7 @@ function PlayerPodium({
           justifyContent: "center",
           marginTop: story ? 20 : 10,
           border: `4px solid ${medal}`,
-          background: first ? siteIdentity.primaryColor : "#202328",
+          background: first ? club.theme.primary : "#202328",
           padding: story ? "18px 13px" : "10px 9px",
           textAlign: "center",
         }}
@@ -385,54 +402,6 @@ function PlayerPodium({
       >
         {player.rank}
       </div>
-    </div>
-  );
-}
-
-function Decorations({ story }: { story: boolean }) {
-  return (
-    <div
-      aria-hidden="true"
-      style={{
-        position: "absolute",
-        inset: 0,
-        display: "flex",
-        border: `${story ? 22 : 14}px solid ${siteIdentity.primaryColor}`,
-      }}
-    >
-      <div
-        style={{
-          position: "absolute",
-          top: "11%",
-          left: "6%",
-          right: "6%",
-          bottom: "9%",
-          display: "flex",
-          border: "3px solid rgba(247,242,232,0.10)",
-        }}
-      />
-      <div
-        style={{
-          position: "absolute",
-          top: story ? 520 : 258,
-          left: "15%",
-          right: "15%",
-          height: story ? 430 : 190,
-          display: "flex",
-          border: "3px solid rgba(245,197,24,0.12)",
-        }}
-      />
-      <div
-        style={{
-          position: "absolute",
-          top: 0,
-          right: 0,
-          width: story ? 210 : 170,
-          height: story ? 22 : 14,
-          display: "flex",
-          background: siteIdentity.accentColor,
-        }}
-      />
     </div>
   );
 }

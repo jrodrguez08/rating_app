@@ -298,6 +298,26 @@ describe("admin console", () => {
     ).toHaveAttribute("href", "/admin/matches/current?club=herediano");
   });
 
+  it("shows a match once when both dashboard lists contain it", () => {
+    const overview = emptyOverview();
+    const shared = operation("preparation", "not_ready", "shared");
+    overview.upcomingLiveMatches = [shared];
+    overview.attentionMatches = [shared];
+    render(
+      <AdminConsole
+        club={initialClub}
+        teamAvailable
+        messages={messages}
+        overview={overview}
+      />,
+    );
+
+    const section = screen
+      .getByRole("heading", { name: messages.preparationSection })
+      .closest("section");
+    expect(within(section!).getAllByRole("listitem")).toHaveLength(1);
+  });
+
   it("keeps reconciliation, refresh, and sign out accessible by keyboard", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn().mockResolvedValue({ ok: true });

@@ -97,7 +97,7 @@ export default async function AdminMatchPage({
           </section>
         ) : (
           <AdminLineupEditor
-            key={`${club.slug}:${detail.match.id}`}
+            key={`${club.slug}:${detail.match.id}:lineup`}
             detail={detail}
             messages={messages}
             teamId={club.teamId}
@@ -116,20 +116,20 @@ export default async function AdminMatchPage({
           </section>
         ) : (
           <AdminMatchCoachPanel
-            key={`${club.slug}:${detail.match.id}`}
+            key={`${club.slug}:${detail.match.id}:coach`}
             detail={detail}
             messages={messages}
             teamId={club.teamId}
           />
         )}
         <AdminManualVotingPanel
-          key={`${club.slug}:${detail.match.id}`}
+          key={`${club.slug}:${detail.match.id}:voting`}
           detail={detail}
           messages={messages}
           teamId={club.teamId}
         />
         <AdminProviderCheck
-          key={`${club.slug}:${detail.match.id}`}
+          key={`${club.slug}:${detail.match.id}:provider`}
           match={detail.match}
           messages={messages}
           teamId={club.teamId}

@@ -1,6 +1,6 @@
 // @vitest-environment node
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PublishedResultPodium } from "@/application/published-result-podium";
 import type { Match, MatchResult } from "@/domain/models";
@@ -35,7 +35,67 @@ beforeEach(() => {
   serviceMocks.loadSocialPlayerPhotos.mockResolvedValue(new Map());
 });
 
+afterEach(() => vi.unstubAllEnvs());
+
 describe("published result social images", () => {
+  it("keeps Saprissa result images unavailable while public exposure is disabled", async () => {
+    serviceMocks.getPublishedPageState.mockResolvedValue(readyPage);
+    await expect(
+      getOpenGraphImage(
+        new Request("https://rating-app.test/image"),
+        saprissaContext,
+      ),
+    ).rejects.toThrow();
+    expect(serviceMocks.getPublishedPageState).not.toHaveBeenCalled();
+  });
+
+  it("renders Saprissa images only for its published Match and labels downloads by club", async () => {
+    vi.stubEnv("SAPRISSA_PUBLIC_ENABLED", "true");
+    const saprissaMatch = { ...match, trackedTeamId: "deportivo-saprissa" };
+    serviceMocks.getPublishedPageState.mockResolvedValue({
+      ...readyPage,
+      match: saprissaMatch,
+      result: { ...result, teamId: saprissaMatch.trackedTeamId },
+    });
+
+    const [openGraph, story, table] = await Promise.all([
+      getOpenGraphImage(
+        new Request("https://rating-app.test/image"),
+        saprissaContext,
+      ),
+      getStoryImage(
+        new Request("https://rating-app.test/story"),
+        saprissaContext,
+      ),
+      getRatingTableStoryImage(
+        new Request("https://rating-app.test/story/table"),
+        saprissaContext,
+      ),
+    ]);
+
+    expect(serviceMocks.getPublishedPageState).toHaveBeenCalledWith(
+      "match-1",
+      "deportivo-saprissa",
+    );
+    expect(pngDimensions(await openGraph.arrayBuffer())).toEqual(
+      OPEN_GRAPH_IMAGE_SIZE,
+    );
+    expect(pngDimensions(await story.arrayBuffer())).toEqual(STORY_IMAGE_SIZE);
+    expect(pngDimensions(await table.arrayBuffer())).toEqual(STORY_IMAGE_SIZE);
+    expect(story.headers.get("content-disposition")).toContain(
+      "rating-app-saprissa-match-1-historia.png",
+    );
+    expect(table.headers.get("content-disposition")).toContain(
+      "rating-app-saprissa-match-1-calificaciones",
+    );
+
+    serviceMocks.getPublishedPageState.mockResolvedValue(readyPage);
+    const wrongClub = await getStoryImage(
+      new Request("https://rating-app.test/story"),
+      saprissaContext,
+    );
+    expect(wrongClub.status).toBe(404);
+  });
   it("does not render an image for a result bound to a different Team", async () => {
     serviceMocks.getPublishedPageState.mockResolvedValue({
       ...readyPage,
@@ -83,7 +143,7 @@ describe("published result social images", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("image/png");
     expect(response.headers.get("content-disposition")).toContain(
-      "rating-app-match-1-historia.png",
+      "rating-app-herediano-match-1-historia.png",
     );
     expect(response.headers.get("content-disposition")).toMatch(/^attachment;/);
     const image = await response.arrayBuffer();
@@ -102,7 +162,7 @@ describe("published result social images", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("image/png");
     expect(response.headers.get("content-disposition")).toBe(
-      'inline; filename="rating-app-match-1-historia.png"',
+      'inline; filename="rating-app-herediano-match-1-historia.png"',
     );
   });
 
@@ -128,11 +188,11 @@ describe("published result social images", () => {
     expect(first.headers.get("content-type")).toBe("image/png");
     expect(first.headers.get("cache-control")).toBe("no-store");
     expect(first.headers.get("content-disposition")).toBe(
-      'attachment; filename="rating-app-match-1-calificaciones-1-de-2.png"',
+      'attachment; filename="rating-app-herediano-match-1-calificaciones-1-de-2.png"',
     );
     expect(pngDimensions(await first.arrayBuffer())).toEqual(STORY_IMAGE_SIZE);
     expect(second.headers.get("content-disposition")).toBe(
-      'inline; filename="rating-app-match-1-calificaciones-2-de-2.png"',
+      'inline; filename="rating-app-herediano-match-1-calificaciones-2-de-2.png"',
     );
     expect(serviceMocks.loadSocialPlayerPhotos).not.toHaveBeenCalled();
   });
@@ -202,6 +262,9 @@ describe("published result social images", () => {
 
 const context = {
   params: Promise.resolve({ clubSlug: "herediano", matchId: "match-1" }),
+};
+const saprissaContext = {
+  params: Promise.resolve({ clubSlug: "saprissa", matchId: "match-1" }),
 };
 
 const match: Match = {

@@ -37,8 +37,8 @@ export async function generateMetadata({
     }
     const { match, podium } = pageState;
     const score = `${podium.score.home} - ${podium.score.away}`;
-    const title = `${match.homeTeam.name} ${score} ${match.awayTeam.name} | La afición eligió sus mejores jugadores`;
-    const description = `Resultados publicados de ${match.homeTeam.name} vs ${match.awayTeam.name}: marcador ${score} y los jugadores mejor calificados por la afición.`;
+    const title = `${club.displayName} | ${match.homeTeam.name} ${score} ${match.awayTeam.name} | La afición eligió sus mejores jugadores`;
+    const description = `Resultados publicados de ${club.displayName} en ${match.homeTeam.name} vs ${match.awayTeam.name}: marcador ${score} y los jugadores mejor calificados por la afición.`;
     const canonicalUrl = new URL(pathname, siteUrl).href;
     const imageUrl = new URL(
       `${pathname}/opengraph-image?v=${encodeURIComponent(podium.generatedAt)}`,
@@ -60,7 +60,7 @@ export async function generateMetadata({
             url: imageUrl,
             width: 1200,
             height: 630,
-            alt: `Podio de ${match.homeTeam.name} vs ${match.awayTeam.name}, ${score}`,
+            alt: `Podio de ${club.displayName} en ${match.homeTeam.name} vs ${match.awayTeam.name}, ${score}`,
           },
         ],
       },

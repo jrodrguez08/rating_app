@@ -60,6 +60,7 @@ export function MatchResults({
           siteUrl,
         ).href,
         filename: publishedRatingStoryFilename(
+          club.slug,
           match.id,
           storyPage.page,
           storyPage.pageCount,
@@ -121,7 +122,7 @@ export function MatchResults({
                   new URL(matchPath(club, match.id, "/results/story"), siteUrl)
                     .href
                 }
-                storyFilename={`rating-app-${match.id}-historia.png`}
+                storyFilename={`rating-app-${club.slug}-${match.id}-historia.png`}
                 ratingStoryPages={ratingStoryPages}
                 shareTitle={`${match.homeTeam.name} ${podium.score.home} - ${podium.score.away} ${match.awayTeam.name}`}
                 shareText={messages.sharing.shareText}

@@ -40,6 +40,7 @@ export async function GET(
 
     return new ImageResponse(
       <PublishedRatingTableImage
+        club={club}
         podium={published.podium}
         storyPage={storyPage}
         siteHost={siteUrl.hostname}
@@ -48,7 +49,7 @@ export async function GET(
         ...STORY_IMAGE_SIZE,
         headers: {
           "Cache-Control": "no-store",
-          "Content-Disposition": `${storyDisposition(request)}; filename="${publishedRatingStoryFilename(matchId, storyPage.page, storyPage.pageCount)}"`,
+          "Content-Disposition": `${storyDisposition(request)}; filename="${publishedRatingStoryFilename(club.slug, matchId, storyPage.page, storyPage.pageCount)}"`,
         },
       },
     );
