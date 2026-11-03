@@ -1,6 +1,5 @@
 import type { NextRequest } from "next/server";
 
-import { initialClub } from "@/config/club";
 import {
   AdminProviderCheckRejectedError,
   AdminProviderCheckService,
@@ -11,6 +10,7 @@ import {
   adminError,
   adminJson,
   requireAdminRequest,
+  requireAdminActionClub,
 } from "@/lib/server/admin-request";
 import { requireApiFootballRuntimeConfig } from "@/lib/server/environment";
 
@@ -21,12 +21,7 @@ export async function POST(request: NextRequest) {
   try {
     const identity = await requireAdminRequest(request, true);
     const action = parseAction(await request.json());
-    if (action.trackedTeamId !== initialClub.teamId) {
-      throw new AdminProviderCheckRejectedError(
-        "binding_conflict",
-        "El equipo no coincide con la configuración de la aplicación.",
-      );
-    }
+    requireAdminActionClub(request, action.trackedTeamId);
     const { apiFootballKey } = requireApiFootballRuntimeConfig();
     const provider = new ApiFootballAdapter(apiFootballKey, fetch, (entry) =>
       console.info(entry),

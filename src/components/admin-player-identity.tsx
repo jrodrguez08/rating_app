@@ -10,6 +10,7 @@ import {
   type RefObject,
 } from "react";
 
+import { adminPath, adminClubForTeam } from "@/config/club";
 import type { Messages } from "@/i18n/messages";
 import type { AdminPlayerOption } from "@/lib/firebase/admin-console";
 import type {
@@ -36,6 +37,7 @@ export function AdminPlayerIdentityReconciliation({
   teamId: string;
   teamName: string;
 }) {
+  const club = adminClubForTeam(teamId);
   const [suggestions, setSuggestions] = useState<
     PlayerIdentitySuggestionResult | undefined
   >();
@@ -64,16 +66,19 @@ export function AdminPlayerIdentityReconciliation({
 
   const loadSuggestions = useCallback(async () => {
     try {
-      const response = await fetch("/api/admin/player-identities/suggestions", {
-        cache: "no-store",
-      });
+      const response = await fetch(
+        `/api/admin/player-identities/suggestions?club=${club.slug}`,
+        {
+          cache: "no-store",
+        },
+      );
       const value: unknown = await response.json();
       if (!response.ok || !isSuggestionResult(value)) throw new Error();
       setSuggestions(value);
     } catch {
       setError(messages.playerSearchError);
     }
-  }, [messages.playerSearchError]);
+  }, [club.slug, messages.playerSearchError]);
 
   const loadPlayers = useCallback(
     async (cursor?: string, signal?: AbortSignal) => {
@@ -81,10 +86,13 @@ export function AdminPlayerIdentityReconciliation({
       try {
         const parameters = new URLSearchParams({ query: search.trim() });
         if (cursor) parameters.set("cursor", cursor);
-        const response = await fetch(`/api/admin/players?${parameters}`, {
-          cache: "no-store",
-          signal,
-        });
+        const response = await fetch(
+          `/api/admin/players?${parameters}&club=${club.slug}`,
+          {
+            cache: "no-store",
+            signal,
+          },
+        );
         const value: unknown = await response.json();
         if (!response.ok || !isPlayerSearchResponse(value)) throw new Error();
         setPlayers((current) =>
@@ -101,7 +109,7 @@ export function AdminPlayerIdentityReconciliation({
         setSearching(false);
       }
     },
-    [messages.playerSearchError, search],
+    [club.slug, messages.playerSearchError, search],
   );
 
   useEffect(() => {
@@ -132,7 +140,7 @@ export function AdminPlayerIdentityReconciliation({
       .split("; ")
       .find((item) => item.startsWith("rating_admin_csrf="))
       ?.split("=")[1];
-    const response = await fetch(path, {
+    const response = await fetch(`${path}?club=${club.slug}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -331,7 +339,7 @@ export function AdminPlayerIdentityReconciliation({
 
   return (
     <div className="grid gap-6">
-      <Link className="button-utility w-fit px-4 py-3" href="/admin">
+      <Link className="button-utility w-fit px-4 py-3" href={adminPath(club)}>
         {messages.backToConsole}
       </Link>
       <header className="card p-5">

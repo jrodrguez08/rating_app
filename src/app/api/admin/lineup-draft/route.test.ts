@@ -61,21 +61,24 @@ describe("admin lineup draft route", () => {
       request({ ...action, trackedTeamId: "opponent-team" }),
     );
 
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(403);
     expect(mocks.save).not.toHaveBeenCalled();
   });
 });
 
 function request(body: unknown) {
   const csrf = "a".repeat(43);
-  return new NextRequest("http://localhost:3000/api/admin/lineup-draft", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Cookie: `rating_admin_csrf=${csrf}`,
-      Origin: "http://localhost:3000",
-      "X-Admin-CSRF": csrf,
+  return new NextRequest(
+    "http://localhost:3000/api/admin/lineup-draft?club=herediano",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `rating_admin_csrf=${csrf}`,
+        Origin: "http://localhost:3000",
+        "X-Admin-CSRF": csrf,
+      },
+      body: JSON.stringify(body),
     },
-    body: JSON.stringify(body),
-  });
+  );
 }

@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
+import { notFound } from "next/navigation";
 
 import { AdminConsole, AdminLogin } from "@/components/admin-console";
-import { initialClub } from "@/config/club";
+import { initialClub, resolveClub } from "@/config/club";
 import { getMessages } from "@/i18n/messages";
 import { AdminConsoleService } from "@/lib/firebase/admin-console";
+import { getServerFirestore } from "@/lib/firebase/server";
 import {
   ADMIN_SESSION_COOKIE,
   verifyAdminSession,
@@ -17,7 +19,19 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false, nocache: true },
 };
 
-export default async function AdminPage() {
+export default async function AdminPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ club?: string | string[] }>;
+}) {
+  const requestedClub = (await searchParams).club;
+  const club =
+    requestedClub === undefined
+      ? initialClub
+      : typeof requestedClub === "string"
+        ? resolveClub(requestedClub)
+        : null;
+  if (!club) notFound();
   const messages = getMessages("es").admin;
   const cookieStore = await cookies();
   let authenticated = false;
@@ -28,15 +42,18 @@ export default async function AdminPage() {
     authenticated = false;
   }
   const overview = authenticated
-    ? await new AdminConsoleService().overview()
+    ? await new AdminConsoleService().overview(club.teamId)
     : null;
+  const teamAvailable = overview
+    ? (await getServerFirestore().doc(`teams/${club.teamId}`).get()).exists
+    : false;
   return (
     <main
       className="page-shell py-8"
       style={
         {
-          "--club-primary": initialClub.theme.primary,
-          "--club-secondary": initialClub.theme.accent,
+          "--club-primary": club.theme.primary,
+          "--club-secondary": club.theme.accent,
         } as React.CSSProperties
       }
     >
@@ -46,7 +63,13 @@ export default async function AdminPage() {
         <p className="text-muted mt-3 max-w-2xl">{messages.description}</p>
       </header>
       {overview ? (
-        <AdminConsole overview={overview} messages={messages} />
+        <AdminConsole
+          key={club.slug}
+          overview={overview}
+          messages={messages}
+          club={club}
+          teamAvailable={teamAvailable}
+        />
       ) : (
         <AdminLogin messages={messages} />
       )}

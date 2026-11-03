@@ -18,7 +18,9 @@ describe("AdminConsoleService overview queries", () => {
     } as unknown as Firestore;
     const now = new Date("2026-11-01T02:05:00.000Z");
 
-    await new AdminConsoleService(database, undefined, () => now).overview();
+    await new AdminConsoleService(database, undefined, () => now).overview(
+      initialClub.teamId,
+    );
 
     expect(database.collection).toHaveBeenCalledOnce();
     expect(database.collection).toHaveBeenCalledWith("matches");

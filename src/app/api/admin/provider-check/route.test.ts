@@ -91,13 +91,16 @@ describe("admin provider check route", () => {
 });
 
 function request() {
-  return new NextRequest("http://localhost:3000/api/admin/provider-check", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Origin: "http://localhost:3000",
-      "X-Admin-CSRF": "c".repeat(43),
+  return new NextRequest(
+    "http://localhost:3000/api/admin/provider-check?club=herediano",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost:3000",
+        "X-Admin-CSRF": "c".repeat(43),
+      },
+      body: JSON.stringify(action),
     },
-    body: JSON.stringify(action),
-  });
+  );
 }

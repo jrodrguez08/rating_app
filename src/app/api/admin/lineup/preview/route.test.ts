@@ -106,6 +106,14 @@ describe("admin verified lineup preview route", () => {
     expect(mocks.issuePreview).toHaveBeenCalledWith("owner-uid", action);
   });
 
+  it("rejects a selected club that differs from the signed lineup Team", async () => {
+    expect((await POST(request("saprissa"))).status).toBe(403);
+    expect((await POST(request("unknown"))).status).toBe(403);
+    expect((await POST(request(""))).status).toBe(403);
+    expect(mocks.preview).not.toHaveBeenCalled();
+    expect(mocks.issuePreview).not.toHaveBeenCalled();
+  });
+
   it("returns a stable actionable conflict without exposing internal details", async () => {
     mocks.preview.mockRejectedValue(
       new AdminLineupError(
@@ -170,10 +178,13 @@ describe("admin verified lineup preview route", () => {
   });
 });
 
-function request() {
-  return new NextRequest("http://localhost:3000/api/admin/lineup/preview", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(action),
-  });
+function request(club = "herediano") {
+  return new NextRequest(
+    `http://localhost:3000/api/admin/lineup/preview${club ? `?club=${club}` : ""}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(action),
+    },
+  );
 }

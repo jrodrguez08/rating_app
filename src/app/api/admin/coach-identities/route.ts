@@ -5,11 +5,13 @@ import {
   adminError,
   adminJson,
   requireAdminRequest,
+  requireAdminClub,
 } from "@/lib/server/admin-request";
 
 export async function GET(request: NextRequest) {
   try {
     await requireAdminRequest(request);
+    const club = requireAdminClub(request);
     const query = request.nextUrl.searchParams.get("query") ?? "";
     const cursor = request.nextUrl.searchParams.get("cursor") ?? undefined;
     if (
@@ -19,7 +21,7 @@ export async function GET(request: NextRequest) {
       return adminJson({ coaches: [] }, 400);
     }
     return adminJson(
-      await new AdminCoachIdentityService().search(query, cursor),
+      await new AdminCoachIdentityService().search(club.teamId, query, cursor),
     );
   } catch (error) {
     return adminError(error);

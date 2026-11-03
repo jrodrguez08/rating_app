@@ -274,7 +274,7 @@ describe("admin lineup editor", () => {
     await user.click(addStarter);
     expect(screen.getByText("11/11")).toBeVisible();
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/admin/players/internal-id",
+      "/api/admin/players/internal-id?club=herediano",
       expect.objectContaining({ method: "POST" }),
     );
   });
@@ -477,15 +477,15 @@ describe("admin lineup editor", () => {
       if (path.includes("/api/admin/players?")) {
         return Promise.resolve(jsonResponse({ players: [] }));
       }
-      if (path.endsWith("/preview")) {
+      if (path.includes("/preview?")) {
         return Promise.resolve(
           jsonResponse({ previewToken: "lineup-preview", plan: {} }),
         );
       }
-      if (path.endsWith("/authorize")) {
+      if (path.includes("/authorize?")) {
         return Promise.resolve(jsonResponse({ authorized: true }));
       }
-      if (path.endsWith("/apply")) {
+      if (path.includes("/apply?")) {
         return Promise.resolve(jsonResponse({ auditId: "lineup-audit" }));
       }
       throw new Error(`Unexpected request: ${path}`);

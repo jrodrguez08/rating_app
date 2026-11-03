@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { formatDate } from "@/i18n/format";
+import { adminClubForTeam } from "@/config/club";
 import type { Messages } from "@/i18n/messages";
 import type {
   AdminProviderCheckPerson,
@@ -24,6 +25,7 @@ export function AdminProviderCheck({
   teamId: string;
   initialReport?: AdminProviderCheckReport | null;
 }) {
+  const club = adminClubForTeam(teamId);
   const [report, setReport] = useState<AdminProviderCheckReport | null>(
     initialReport ?? null,
   );
@@ -39,18 +41,21 @@ export function AdminProviderCheck({
         .split("; ")
         .find((item) => item.startsWith("rating_admin_csrf="))
         ?.split("=")[1];
-      const response = await fetch("/api/admin/provider-check", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Admin-CSRF": csrf ?? "",
+      const response = await fetch(
+        `/api/admin/provider-check?club=${club.slug}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Admin-CSRF": csrf ?? "",
+          },
+          body: JSON.stringify({
+            matchId: match.id,
+            trackedTeamId: teamId,
+            externalFixtureId: match.externalFixtureId,
+          }),
         },
-        body: JSON.stringify({
-          matchId: match.id,
-          trackedTeamId: teamId,
-          externalFixtureId: match.externalFixtureId,
-        }),
-      });
+      );
       const result: unknown = await response.json();
       if (!response.ok) {
         throw new Error(responseError(result, messages.genericError));

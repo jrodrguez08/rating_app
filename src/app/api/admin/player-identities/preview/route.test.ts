@@ -79,7 +79,7 @@ describe("admin Player identity preview route", () => {
       request({ ...action, trackedTeamId: "another-team" }),
     );
 
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(403);
     expect(mocks.preview).not.toHaveBeenCalled();
     expect(mocks.issuePreview).not.toHaveBeenCalled();
   });
@@ -87,7 +87,7 @@ describe("admin Player identity preview route", () => {
 
 function request(body: unknown): NextRequest {
   return new NextRequest(
-    "https://rating.test/api/admin/player-identities/preview",
+    "https://rating.test/api/admin/player-identities/preview?club=herediano",
     {
       method: "POST",
       body: JSON.stringify(body),

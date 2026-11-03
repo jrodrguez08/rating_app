@@ -1,7 +1,6 @@
 import { Timestamp, type Firestore } from "firebase-admin/firestore";
 
 import { CURRENT_MATCH_GRACE_MS } from "@/application/public-match-selection";
-import { initialClub } from "@/config/club";
 import type {
   AdminLineupDraft,
   Coach,
@@ -209,7 +208,7 @@ export class AdminConsoleService {
     private readonly now: () => Date = () => new Date(),
   ) {}
 
-  async overview(): Promise<AdminOverview> {
+  async overview(teamId: string): Promise<AdminOverview> {
     const now = this.now();
     const currentMatchThreshold = Timestamp.fromMillis(
       now.getTime() - CURRENT_MATCH_GRACE_MS,
@@ -223,7 +222,7 @@ export class AdminConsoleService {
       attentionSnapshot,
     ] = await Promise.all([
       matches
-        .where("trackedTeamId", "==", initialClub.teamId)
+        .where("trackedTeamId", "==", teamId)
         .where("status", "==", "live")
         .where("ratingState", "in", ["not_ready", "preparing_rating"])
         .where("kickoffAt", ">=", currentMatchThreshold)
@@ -231,7 +230,7 @@ export class AdminConsoleService {
         .limit(PREPARATION_MATCH_LIMIT)
         .get(),
       matches
-        .where("trackedTeamId", "==", initialClub.teamId)
+        .where("trackedTeamId", "==", teamId)
         .where("status", "==", "scheduled")
         .where("ratingState", "in", ["not_ready", "preparing_rating"])
         .where("kickoffAt", ">=", currentMatchThreshold)
@@ -239,19 +238,19 @@ export class AdminConsoleService {
         .limit(PREPARATION_MATCH_LIMIT)
         .get(),
       matches
-        .where("trackedTeamId", "==", initialClub.teamId)
+        .where("trackedTeamId", "==", teamId)
         .where("ratingState", "==", "rating_ready")
         .orderBy("kickoffAt", "desc")
         .limit(PREPARATION_MATCH_LIMIT)
         .get(),
       matches
-        .where("trackedTeamId", "==", initialClub.teamId)
+        .where("trackedTeamId", "==", teamId)
         .where("ratingState", "==", "rating_closed")
         .orderBy("kickoffAt", "desc")
         .limit(PREPARATION_MATCH_LIMIT)
         .get(),
       matches
-        .where("trackedTeamId", "==", initialClub.teamId)
+        .where("trackedTeamId", "==", teamId)
         .where("status", "==", "finished")
         .where("ratingState", "==", "preparing_rating")
         .orderBy("kickoffAt", "desc")
@@ -313,12 +312,13 @@ export class AdminConsoleService {
 
   async detail(
     matchId: string,
+    teamId: string,
     ownerId?: string,
   ): Promise<AdminMatchDetail | null> {
     const matchSnapshot = await this.database.doc(`matches/${matchId}`).get();
     if (!matchSnapshot.exists) return null;
     const match = fromSnapshot<Match>(matchSnapshot);
-    if (match.trackedTeamId !== initialClub.teamId) return null;
+    if (match.trackedTeamId !== teamId) return null;
     const [
       participantSnapshot,
       verifiedSnapshot,
@@ -329,7 +329,7 @@ export class AdminConsoleService {
     ] = await Promise.all([
       this.database.collection(`matches/${matchId}/participants`).get(),
       this.database.doc(`matches/${matchId}/verifiedLineups/current`).get(),
-      this.database.doc(`footballSyncMetadata/${initialClub.teamId}`).get(),
+      this.database.doc(`footballSyncMetadata/${teamId}`).get(),
       ownerId
         ? this.database.doc(`matches/${matchId}/lineupDrafts/${ownerId}`).get()
         : Promise.resolve(undefined),
@@ -517,6 +517,7 @@ export class AdminConsoleService {
   }
 
   async searchPlayers(
+    teamId: string,
     query: string,
     cursor?: string,
   ): Promise<AdminPlayerSearchPage> {
@@ -525,7 +526,7 @@ export class AdminConsoleService {
     }
     const page = await searchIndexedTeamPlayers(
       this.database,
-      initialClub.teamId,
+      teamId,
       query,
       cursor,
       this.observePlayerIndexRead,

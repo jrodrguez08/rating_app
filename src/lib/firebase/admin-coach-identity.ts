@@ -117,7 +117,11 @@ export class AdminCoachIdentityCommitError extends Error {
 export class AdminCoachIdentityService {
   constructor(private readonly database: Firestore = getServerFirestore()) {}
 
-  async search(query: string, cursor?: string): Promise<CoachSearchResult> {
+  async search(
+    teamId: string,
+    query: string,
+    cursor?: string,
+  ): Promise<CoachSearchResult> {
     const normalizedQuery = normalizePlayerSearch(query);
     let scanned = 0;
     let after = cursor;
@@ -150,13 +154,16 @@ export class AdminCoachIdentityService {
     );
     return {
       coaches: coaches
+        .filter((coach) =>
+          relevantToTeam(associations.get(coach.id) ?? [], teamId),
+        )
         .slice(0, PAGE_SIZE)
         .map((coach) => option(coach, associations.get(coach.id) ?? [])),
       ...(!exhausted && after ? { nextCursor: after } : {}),
     };
   }
 
-  async suggestions(): Promise<CoachIdentitySuggestionResult> {
+  async suggestions(teamId: string): Promise<CoachIdentitySuggestionResult> {
     const [manualSnapshot, providerSnapshot] = await Promise.all([
       this.database
         .collection("coaches")
@@ -186,19 +193,29 @@ export class AdminCoachIdentityService {
     const all = [...manual, ...provider];
     const associations = await this.loadAssociations(all.map(({ id }) => id));
     const candidates = manual
+      .filter((coach) =>
+        relevantToTeam(associations.get(coach.id) ?? [], teamId),
+      )
       .flatMap((manualCoach) =>
-        provider.flatMap((providerCoach) => {
-          const signals = suggestionSignals(
-            manualCoach,
-            associations.get(manualCoach.id) ?? [],
-            providerCoach,
-            associations.get(providerCoach.id) ?? [],
-          );
-          if (!signals.includes("name") && !signals.includes("abbreviation")) {
-            return [];
-          }
-          return [{ manualCoach, providerCoach, signals }];
-        }),
+        provider
+          .filter((coach) =>
+            relevantToTeam(associations.get(coach.id) ?? [], teamId),
+          )
+          .flatMap((providerCoach) => {
+            const signals = suggestionSignals(
+              manualCoach,
+              associations.get(manualCoach.id) ?? [],
+              providerCoach,
+              associations.get(providerCoach.id) ?? [],
+            );
+            if (
+              !signals.includes("name") &&
+              !signals.includes("abbreviation")
+            ) {
+              return [];
+            }
+            return [{ manualCoach, providerCoach, signals }];
+          }),
       )
       .sort(
         (left, right) =>
@@ -413,6 +430,21 @@ export class AdminCoachIdentityService {
           };
         }),
       ];
+      if (
+        coaches.some(
+          (coach) =>
+            !relevantToTeam(
+              associations.filter(
+                (association) => association.coachId === coach.id,
+              ),
+              input.trackedTeamId,
+            ),
+        )
+      ) {
+        throw new AdminCoachIdentityRejectedError(
+          "La identidad no corresponde al club seleccionado.",
+        );
+      }
       const matchIds = [...new Set(associations.map(({ matchId }) => matchId))];
       const [matchSnapshots, resultSnapshots, ballotSnapshots] =
         matchIds.length === 0
@@ -558,6 +590,7 @@ export class AdminCoachIdentityService {
       });
       transaction.create(auditReference, {
         operatorUid: input.operatorId,
+        trackedTeamId: input.trackedTeamId,
         action: "coach_identity_apply",
         resourceId: adminCoachIdentityResourceId(input),
         firstCoachId: input.firstCoachId,
@@ -764,6 +797,16 @@ function option(
   };
 }
 
+function relevantToTeam(
+  associations: CoachAssociation[],
+  teamId: string,
+): boolean {
+  return (
+    associations.length === 0 ||
+    associations.some((association) => association.teamId === teamId)
+  );
+}
+
 function evidence(
   coach: Coach,
   associations: CoachAssociation[],
@@ -825,6 +868,7 @@ function append(
 
 function validateInput(input: AdminCoachIdentityInput): void {
   if (
+    !validEntityId(input.trackedTeamId) ||
     !validEntityId(input.firstCoachId) ||
     !validEntityId(input.secondCoachId) ||
     !validEntityId(input.canonicalCoachId) ||

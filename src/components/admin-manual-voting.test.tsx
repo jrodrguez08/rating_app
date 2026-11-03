@@ -163,7 +163,7 @@ function renderPanel(value: AdminMatchDetail) {
     <AdminManualVotingPanel
       detail={value}
       messages={messages}
-      teamId="team-manual"
+      teamId="club-sport-herediano"
     />,
   );
 }

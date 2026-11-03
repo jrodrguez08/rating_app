@@ -40,6 +40,13 @@ describe("admin Player identity action", () => {
   });
 
   it("binds authorization to the selected survivor and decision", () => {
+    const otherTeam = { ...action, trackedTeamId: "deportivo-saprissa" };
+    expect(hashAdminPlayerIdentityAction(otherTeam)).not.toBe(
+      hashAdminPlayerIdentityAction(action),
+    );
+    expect(adminPlayerIdentityResourceId(otherTeam)).not.toBe(
+      adminPlayerIdentityResourceId(action),
+    );
     expect(
       hashAdminPlayerIdentityAction({
         ...action,

@@ -373,7 +373,9 @@ describe("admin Coach identity reconciliation", () => {
       token,
     );
 
-    expect((await service.suggestions()).suggestions).not.toEqual(
+    expect(
+      (await service.suggestions("club-sport-herediano")).suggestions,
+    ).not.toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           first: expect.objectContaining({ id: action.firstCoachId }),
@@ -472,6 +474,7 @@ async function seedPair(
   await seedAssociation(`manual-${seed}`, manualId, true);
   await seedAssociation(`provider-${seed}`, providerId, false);
   return {
+    trackedTeamId: "club-sport-herediano",
     firstCoachId: manualId,
     secondCoachId: providerId,
     canonicalCoachId: manualId,

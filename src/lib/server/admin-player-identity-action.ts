@@ -27,7 +27,7 @@ export function hashAdminPlayerIdentityAction(
 export function adminPlayerIdentityResourceId(
   action: AdminPlayerIdentityAction,
 ): string {
-  return [action.firstPlayerId, action.secondPlayerId].sort().join(":");
+  return `${action.trackedTeamId}:${[action.firstPlayerId, action.secondPlayerId].sort().join(":")}`;
 }
 
 export function adminPlayerIdentityAuditId(challengeId: string): string {

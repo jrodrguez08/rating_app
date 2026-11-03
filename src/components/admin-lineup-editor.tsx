@@ -13,6 +13,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 
+import { adminPath, adminClubForTeam } from "@/config/club";
 import type { Messages } from "@/i18n/messages";
 import type {
   AdminMatchDetail,
@@ -59,6 +60,7 @@ export function AdminLineupEditor({
   messages: AdminMessages;
   teamId: string;
 }) {
+  const club = adminClubForTeam(teamId);
   const router = useRouter();
   const initialParticipants = useMemo(
     () => buildInitialParticipants(detail),
@@ -150,7 +152,7 @@ export function AdminLineupEditor({
         setSearchLoading(true);
         try {
           const response = await fetch(
-            `/api/admin/players?query=${encodeURIComponent(query)}`,
+            `/api/admin/players?query=${encodeURIComponent(query)}&club=${club.slug}`,
             { cache: "no-store", signal: controller.signal },
           );
           const value: unknown = await response.json();
@@ -178,7 +180,7 @@ export function AdminLineupEditor({
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [editable, messages.playerSearchError, search, selectedIds]);
+  }, [club.slug, editable, messages.playerSearchError, search, selectedIds]);
 
   async function loadMorePlayers() {
     if (!searchCursor || searchLoading) return;
@@ -189,9 +191,12 @@ export function AdminLineupEditor({
         query: search.trim(),
         cursor: searchCursor,
       });
-      const response = await fetch(`/api/admin/players?${parameters}`, {
-        cache: "no-store",
-      });
+      const response = await fetch(
+        `/api/admin/players?${parameters}&club=${club.slug}`,
+        {
+          cache: "no-store",
+        },
+      );
       const value: unknown = await response.json();
       if (!response.ok || !isPlayerSearchResponse(value)) throw new Error();
       const available = value.players.filter(
@@ -241,7 +246,7 @@ export function AdminLineupEditor({
       .split("; ")
       .find((item) => item.startsWith("rating_admin_csrf="))
       ?.split("=")[1];
-    const response = await fetch(path, {
+    const response = await fetch(`${path}?club=${club.slug}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -544,7 +549,7 @@ export function AdminLineupEditor({
 
   return (
     <div className="grid gap-6">
-      <Link className="button-utility w-fit px-4 py-3" href="/admin">
+      <Link className="button-utility w-fit px-4 py-3" href={adminPath(club)}>
         {messages.backToConsole}
       </Link>
       <MatchSummary detail={detail} messages={messages} />

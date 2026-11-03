@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 
-import { initialClub, matchPath } from "@/config/club";
+import { adminClubForTeam, matchPath } from "@/config/club";
 import { formatDate } from "@/i18n/format";
 import type { Messages } from "@/i18n/messages";
 import type { AdminMatchDetail } from "@/lib/firebase/admin-console";
@@ -21,6 +21,7 @@ export function AdminManualVotingPanel({
   messages: AdminMessages;
   teamId: string;
 }) {
+  const club = adminClubForTeam(teamId);
   const router = useRouter();
   const [closeMode, setCloseMode] = useState<"default" | "custom">("default");
   const [customClosesAtLocal, setCustomClosesAtLocal] = useState("");
@@ -56,7 +57,7 @@ export function AdminManualVotingPanel({
       .split("; ")
       .find((item) => item.startsWith("rating_admin_csrf="))
       ?.split("=")[1];
-    const response = await fetch(path, {
+    const response = await fetch(`${path}?club=${club.slug}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -130,7 +131,7 @@ export function AdminManualVotingPanel({
       {availability.state === "voting_open" ||
       availability.state === "voting_expired" ||
       availability.state === "results_published" ? (
-        <VotingSummary detail={detail} messages={messages} />
+        <VotingSummary detail={detail} messages={messages} club={club} />
       ) : (
         <ul className="game-inset grid gap-2 p-4 text-sm">
           <Check
@@ -251,9 +252,11 @@ function blockedStatusDescription(
 function VotingSummary({
   detail,
   messages,
+  club,
 }: {
   detail: AdminMatchDetail;
   messages: AdminMessages;
+  club: ReturnType<typeof adminClubForTeam>;
 }) {
   const match = detail.match;
   const coachName =
@@ -300,7 +303,7 @@ function VotingSummary({
       {match.votingPresentation === "published" ? (
         <Link
           className="button-secondary mt-2 inline-flex min-h-11 items-center justify-center px-4"
-          href={matchPath(initialClub, match.id, "/results")}
+          href={matchPath(club, match.id, "/results")}
         >
           {messages.viewResults}
         </Link>

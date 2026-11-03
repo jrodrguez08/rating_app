@@ -494,6 +494,10 @@ export const esMessages = {
     signingOut: "Cerrando sesión…",
     unavailable: "La consola administrativa no está configurada.",
     adminActions: "Acciones de la consola",
+    clubSelection: "Seleccionar club para administrar",
+    selectedClub: "Club seleccionado",
+    clubNotPrepared:
+      "Este club todavía no está preparado. La consola no crea datos ni inicia la sincronización al abrirse.",
     openVotingSection: "Votaciones abiertas",
     preparationSection: "Próximos partidos y en preparación",
     reviewSection: "Partidos por revisar",

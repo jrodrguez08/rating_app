@@ -1,7 +1,6 @@
 import type { NextRequest } from "next/server";
 
 import { runConfiguredLifecycle } from "@/application/run-lifecycle";
-import { initialClub } from "@/config/club";
 import {
   AdminLifecycleService,
   type AdminLifecycleInput,
@@ -21,6 +20,8 @@ import {
   adminJson,
   parseAdminLifecycleAction,
   requireAdminRequest,
+  requireAdminClub,
+  requireAdminActionClub,
 } from "@/lib/server/admin-request";
 import { requireLifecycleRuntimeConfig } from "@/lib/server/environment";
 
@@ -37,6 +38,7 @@ export async function POST(request: NextRequest) {
   let disposition: "committed" | "idempotent_retry" | undefined;
   try {
     const identity = await requireAdminRequest(request, true);
+    const club = requireAdminClub(request);
     const body: unknown = await request.json();
     if (typeof body !== "object" || body === null) {
       throw new Error("Invalid request.");
@@ -44,14 +46,12 @@ export async function POST(request: NextRequest) {
     const action = parseAdminLifecycleAction(
       "action" in body ? body.action : undefined,
     );
+    requireAdminActionClub(request, action.trackedTeamId);
     const confirmation = "confirmation" in body ? body.confirmation : undefined;
     if (confirmation !== `request-lifecycle:${action.matchId}`) {
       throw new Error(
         "Lifecycle confirmation does not match the selected match.",
       );
-    }
-    if (action.trackedTeamId !== initialClub.teamId) {
-      throw new Error("Invalid team.");
     }
     const apiKey = requireLifecycleRuntimeConfig().apiFootballKey;
     input = { ...action, operatorId: identity.uid };
@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
     requestAttemptId = claim.requestAttemptId;
     const notificationConfig = readResendNotificationConfig();
     const result = await runConfiguredLifecycle(
-      initialClub.teamId,
+      club.teamId,
       new AdminFootballSyncStore(),
       apiKey,
       undefined,

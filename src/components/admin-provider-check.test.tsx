@@ -63,7 +63,7 @@ describe("admin post-match provider check", () => {
       screen.queryByText(/1551706|player-|coach-/),
     ).not.toBeInTheDocument();
     expect(fetcher).toHaveBeenCalledWith(
-      "/api/admin/provider-check",
+      "/api/admin/provider-check?club=herediano",
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({

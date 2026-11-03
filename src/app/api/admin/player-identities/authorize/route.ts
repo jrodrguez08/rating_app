@@ -15,6 +15,7 @@ import {
   adminJson,
   parseAdminPlayerIdentityAction,
   requireAdminRequest,
+  requireAdminActionClub,
 } from "@/lib/server/admin-request";
 
 const messages = getMessages("es").admin;
@@ -30,6 +31,7 @@ export async function POST(request: NextRequest) {
     const action = parseAdminPlayerIdentityAction(
       "action" in body ? body.action : undefined,
     );
+    requireAdminActionClub(request, action.trackedTeamId);
     const previewToken = "previewToken" in body ? body.previewToken : undefined;
     const passphrase = "passphrase" in body ? body.passphrase : undefined;
     if (typeof previewToken !== "string" || typeof passphrase !== "string") {

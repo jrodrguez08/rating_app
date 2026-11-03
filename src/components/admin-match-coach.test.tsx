@@ -39,7 +39,7 @@ describe("match-specific verified coach panel", () => {
         <AdminMatchCoachPanel
           detail={detail(status)}
           messages={messages}
-          teamId="team-manual"
+          teamId="club-sport-herediano"
         />,
       );
 
@@ -60,7 +60,7 @@ describe("match-specific verified coach panel", () => {
       await user.click(screen.getByRole("button", { name: messages.apply }));
 
       expect(fetchMock).toHaveBeenCalledWith(
-        "/api/admin/coach-assignment/preview",
+        "/api/admin/coach-assignment/preview?club=herediano",
         expect.objectContaining({
           body: expect.stringContaining('"matchId":"match-coach"'),
         }),

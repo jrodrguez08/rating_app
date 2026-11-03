@@ -40,7 +40,7 @@ describe("admin Player identity suggestions route", () => {
       new AdminAuthorizationError(401),
     );
     const request = new NextRequest(
-      "https://rating.test/api/admin/player-identities/suggestions",
+      "https://rating.test/api/admin/player-identities/suggestions?club=herediano",
     );
 
     const response = await GET(request);
@@ -51,7 +51,7 @@ describe("admin Player identity suggestions route", () => {
 
   it("returns suggestions from the tracked Team index", async () => {
     const request = new NextRequest(
-      "https://rating.test/api/admin/player-identities/suggestions",
+      "https://rating.test/api/admin/player-identities/suggestions?club=herediano",
     );
 
     const response = await GET(request);

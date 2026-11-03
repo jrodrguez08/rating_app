@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 
+import { adminClubForTeam } from "@/config/club";
 import type { Messages } from "@/i18n/messages";
 import { formatDate } from "@/i18n/format";
 import type { AdminMatchOperation } from "@/lib/firebase/admin-console";
@@ -27,6 +28,7 @@ export function AdminLifecycleActionPanel({
   messages: AdminMessages;
   teamId: string;
 }) {
+  const club = adminClubForTeam(teamId);
   const [preview, setPreview] = useState<Record<string, unknown> | null>(null);
   const [previewToken, setPreviewToken] = useState("");
   const [authorized, setAuthorized] = useState(false);
@@ -51,7 +53,7 @@ export function AdminLifecycleActionPanel({
       .split("; ")
       .find((item) => item.startsWith("rating_admin_csrf="))
       ?.split("=")[1];
-    const response = await fetch(path, {
+    const response = await fetch(`${path}?club=${club.slug}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

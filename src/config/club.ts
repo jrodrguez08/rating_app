@@ -31,8 +31,11 @@ export const clubs: Readonly<Record<ClubSlug, Club>> = {
   },
 };
 
-/** Administrative and provider operations remain on the initial Team until later phases. */
 export const initialClub = clubs.herediano;
+
+export function adminPath(club: Club, path = ""): string {
+  return `/admin${path}?club=${club.slug}`;
+}
 
 export function resolveClub(value: string): Club | null {
   return Object.hasOwn(clubs, value) ? clubs[value as ClubSlug] : null;
@@ -40,6 +43,12 @@ export function resolveClub(value: string): Club | null {
 
 export function clubForTeam(teamId: string): Club | null {
   return Object.values(clubs).find((club) => club.teamId === teamId) ?? null;
+}
+
+export function adminClubForTeam(teamId: string): Club {
+  const club = clubForTeam(teamId);
+  if (!club) throw new Error("Unknown admin Team.");
+  return club;
 }
 
 export function clubPath(club: Club, path = ""): string {

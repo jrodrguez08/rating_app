@@ -9,6 +9,7 @@ import {
   type FormEvent,
 } from "react";
 
+import { adminPath, adminClubForTeam } from "@/config/club";
 import type { Messages } from "@/i18n/messages";
 import type {
   AdminCoachIdentityPlan,
@@ -27,11 +28,14 @@ type SelectionOrigin = "suggestion" | "manual";
 
 export function AdminCoachIdentityReconciliation({
   messages,
+  teamId,
   teamName,
 }: {
   messages: AdminMessages;
+  teamId: string;
   teamName: string;
 }) {
+  const club = adminClubForTeam(teamId);
   const [suggestions, setSuggestions] = useState<
     CoachIdentitySuggestionResult | undefined
   >();
@@ -60,16 +64,19 @@ export function AdminCoachIdentityReconciliation({
 
   const loadSuggestions = useCallback(async () => {
     try {
-      const response = await fetch("/api/admin/coach-identities/suggestions", {
-        cache: "no-store",
-      });
+      const response = await fetch(
+        `/api/admin/coach-identities/suggestions?club=${club.slug}`,
+        {
+          cache: "no-store",
+        },
+      );
       const value: unknown = await response.json();
       if (!response.ok || !isSuggestionResult(value)) throw new Error();
       setSuggestions(value);
     } catch {
       setError(messages.coachSearchError);
     }
-  }, [messages.coachSearchError]);
+  }, [club.slug, messages.coachSearchError]);
 
   const loadCoaches = useCallback(
     async (cursor?: string, signal?: AbortSignal) => {
@@ -78,7 +85,7 @@ export function AdminCoachIdentityReconciliation({
         const parameters = new URLSearchParams({ query: search.trim() });
         if (cursor) parameters.set("cursor", cursor);
         const response = await fetch(
-          `/api/admin/coach-identities?${parameters}`,
+          `/api/admin/coach-identities?${parameters}&club=${club.slug}`,
           { cache: "no-store", signal },
         );
         const value: unknown = await response.json();
@@ -97,7 +104,7 @@ export function AdminCoachIdentityReconciliation({
         setSearching(false);
       }
     },
-    [messages.coachSearchError, search],
+    [club.slug, messages.coachSearchError, search],
   );
 
   useEffect(() => {
@@ -128,7 +135,7 @@ export function AdminCoachIdentityReconciliation({
       .split("; ")
       .find((item) => item.startsWith("rating_admin_csrf="))
       ?.split("=")[1];
-    const response = await fetch(path, {
+    const response = await fetch(`${path}?club=${club.slug}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -156,6 +163,7 @@ export function AdminCoachIdentityReconciliation({
     decision: "match" | "nonmatch",
   ): AdminCoachIdentityAction {
     return {
+      trackedTeamId: teamId,
       firstCoachId: pair[0].id,
       secondCoachId: pair[1].id,
       canonicalCoachId: keeperId,
@@ -329,7 +337,7 @@ export function AdminCoachIdentityReconciliation({
 
   return (
     <div className="grid gap-6">
-      <Link className="button-utility w-fit px-4 py-3" href="/admin">
+      <Link className="button-utility w-fit px-4 py-3" href={adminPath(club)}>
         {messages.backToConsole}
       </Link>
       <header className="card p-5">

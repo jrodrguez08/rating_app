@@ -7,6 +7,7 @@ import {
   adminJson,
   parseAdminLifecycleAction,
   requireAdminRequest,
+  requireAdminActionClub,
 } from "@/lib/server/admin-request";
 
 export const runtime = "nodejs";
@@ -15,6 +16,7 @@ export async function POST(request: NextRequest) {
   try {
     const identity = await requireAdminRequest(request, true);
     const action = parseAdminLifecycleAction(await request.json());
+    requireAdminActionClub(request, action.trackedTeamId);
     const receipt = await new AdminLifecycleService().inspectAuthorized(
       { ...action, operatorId: identity.uid },
       request.cookies.get(ADMIN_LIFECYCLE_ACTION_COOKIE)?.value,

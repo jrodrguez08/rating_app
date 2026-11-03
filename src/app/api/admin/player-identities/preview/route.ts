@@ -1,6 +1,5 @@
 import type { NextRequest } from "next/server";
 
-import { initialClub } from "@/config/club";
 import { AdminPlayerIdentityService } from "@/lib/firebase/admin-player-identity";
 import { AdminSecurityStore } from "@/lib/firebase/admin-security";
 import {
@@ -8,15 +7,14 @@ import {
   adminJson,
   parseAdminPlayerIdentityAction,
   requireAdminRequest,
+  requireAdminActionClub,
 } from "@/lib/server/admin-request";
 
 export async function POST(request: NextRequest) {
   try {
     const identity = await requireAdminRequest(request, true);
     const action = parseAdminPlayerIdentityAction(await request.json());
-    if (action.trackedTeamId !== initialClub.teamId) {
-      throw new Error("Invalid Team.");
-    }
+    requireAdminActionClub(request, action.trackedTeamId);
     const plan = await new AdminPlayerIdentityService().preview({
       ...action,
       operatorId: identity.uid,

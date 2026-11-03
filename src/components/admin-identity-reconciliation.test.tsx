@@ -19,13 +19,13 @@ describe("admin identity tabs", () => {
         const path = String(input);
         if (path.includes("/coach-identities")) {
           return response(
-            path.endsWith("/suggestions")
+            path.includes("/suggestions?")
               ? { providerDataAvailable: false, suggestions: [] }
               : { coaches: [] },
           );
         }
         return response(
-          path.endsWith("/suggestions")
+          path.includes("/suggestions?")
             ? { providerDataAvailable: false, suggestions: [] }
             : { players: [] },
         );

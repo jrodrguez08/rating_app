@@ -13,6 +13,7 @@ import {
   adminJson,
   parseAdminPlayerIdentityAction,
   requireAdminRequest,
+  requireAdminActionClub,
 } from "@/lib/server/admin-request";
 
 export async function POST(request: NextRequest) {
@@ -29,6 +30,7 @@ export async function POST(request: NextRequest) {
     const action = parseAdminPlayerIdentityAction(
       "action" in body ? body.action : undefined,
     );
+    requireAdminActionClub(request, action.trackedTeamId);
     const resourceId = adminPlayerIdentityResourceId(action);
     audit = {
       uid: identity.uid,

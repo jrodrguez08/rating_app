@@ -34,6 +34,7 @@ vi.mock(
 import { POST } from "./route";
 
 const action = {
+  trackedTeamId: "club-sport-herediano",
   firstCoachId: "coach-one",
   secondCoachId: "coach-two",
   canonicalCoachId: "coach-one",
@@ -70,11 +71,20 @@ describe("admin Coach identity preview route", () => {
     });
     expect(mocks.issuePreview).toHaveBeenCalledWith("owner-uid", action);
   });
+
+  it("rejects a Coach identity action for another selected Team", async () => {
+    const response = await POST(
+      request({ ...action, trackedTeamId: "deportivo-saprissa" }),
+    );
+    expect(response.status).toBe(403);
+    expect(mocks.preview).not.toHaveBeenCalled();
+    expect(mocks.issuePreview).not.toHaveBeenCalled();
+  });
 });
 
 function request(body: unknown) {
   return new NextRequest(
-    "https://rating.test/api/admin/coach-identities/preview",
+    "https://rating.test/api/admin/coach-identities/preview?club=herediano",
     {
       method: "POST",
       body: JSON.stringify(body),

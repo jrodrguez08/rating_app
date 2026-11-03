@@ -167,16 +167,19 @@ describe("admin lifecycle apply route", () => {
 
 function applyRequest(confirmation = `request-lifecycle:${action.matchId}`) {
   const csrf = "a".repeat(43);
-  return new NextRequest("http://localhost:3000/api/admin/lifecycle/apply", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Cookie: `rating_admin_lifecycle_action=${"b".repeat(43)}; rating_admin_csrf=${csrf}`,
-      Origin: "http://localhost:3000",
-      "X-Admin-CSRF": csrf,
+  return new NextRequest(
+    "http://localhost:3000/api/admin/lifecycle/apply?club=herediano",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `rating_admin_lifecycle_action=${"b".repeat(43)}; rating_admin_csrf=${csrf}`,
+        Origin: "http://localhost:3000",
+        "X-Admin-CSRF": csrf,
+      },
+      body: JSON.stringify({ action, confirmation }),
     },
-    body: JSON.stringify({ action, confirmation }),
-  });
+  );
 }
 
 function receipt(status: string, retryable = true) {

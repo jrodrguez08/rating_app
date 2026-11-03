@@ -14,6 +14,7 @@ import {
   adminJson,
   parseAdminLifecycleAction,
   requireAdminRequest,
+  requireAdminActionClub,
 } from "@/lib/server/admin-request";
 
 const messages = getMessages("es").admin;
@@ -29,6 +30,7 @@ export async function POST(request: NextRequest) {
     const action = parseAdminLifecycleAction(
       "action" in body ? body.action : undefined,
     );
+    requireAdminActionClub(request, action.trackedTeamId);
     audit = { uid: identity.uid, matchId: action.matchId };
     const previewToken = "previewToken" in body ? body.previewToken : undefined;
     const passphrase = "passphrase" in body ? body.passphrase : undefined;

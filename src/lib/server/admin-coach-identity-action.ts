@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 export interface AdminCoachIdentityAction {
+  trackedTeamId: string;
   firstCoachId: string;
   secondCoachId: string;
   canonicalCoachId: string;
@@ -13,6 +14,7 @@ export function hashAdminCoachIdentityAction(
   return createHash("sha256")
     .update(
       JSON.stringify({
+        trackedTeamId: action.trackedTeamId,
         firstCoachId: action.firstCoachId,
         secondCoachId: action.secondCoachId,
         canonicalCoachId: action.canonicalCoachId,
@@ -25,7 +27,7 @@ export function hashAdminCoachIdentityAction(
 export function adminCoachIdentityResourceId(
   action: AdminCoachIdentityAction,
 ): string {
-  return [action.firstCoachId, action.secondCoachId].sort().join(":");
+  return `${action.trackedTeamId}:${[action.firstCoachId, action.secondCoachId].sort().join(":")}`;
 }
 
 export function adminCoachIdentityAuditId(challengeId: string): string {

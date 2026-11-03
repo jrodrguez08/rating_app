@@ -1,7 +1,6 @@
 import type { NextRequest } from "next/server";
 
 import { notifyVotingWindowOpenedIfPending } from "@/application/voting-window-notification";
-import { initialClub } from "@/config/club";
 import { AdminManualVotingService } from "@/lib/firebase/admin-manual-voting";
 import { AdminVotingWindowNotificationStore } from "@/lib/firebase/server";
 import {
@@ -15,6 +14,7 @@ import {
   adminJson,
   parseAdminManualVotingAction,
   requireAdminRequest,
+  requireAdminActionClub,
 } from "@/lib/server/admin-request";
 
 export async function POST(request: NextRequest) {
@@ -25,11 +25,10 @@ export async function POST(request: NextRequest) {
     const action = parseAdminManualVotingAction(
       "action" in body ? body.action : undefined,
     );
+    requireAdminActionClub(request, action.trackedTeamId);
     const confirmation = "confirmation" in body ? body.confirmation : undefined;
     if (confirmation !== `open-voting:${action.matchId}`)
       throw new Error("Manual voting confirmation is invalid.");
-    if (action.trackedTeamId !== initialClub.teamId)
-      throw new Error("Invalid team.");
     const result = await new AdminManualVotingService().applyAuthorized(
       { ...action, operatorId: identity.uid },
       request.cookies.get(ADMIN_MANUAL_VOTING_ACTION_COOKIE)?.value,

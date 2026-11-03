@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useMemo, useState, type FormEvent } from "react";
 
+import { adminClubForTeam } from "@/config/club";
 import type { Messages } from "@/i18n/messages";
 import type { AdminMatchDetail } from "@/lib/firebase/admin-console";
 import type { AdminCoachAction } from "@/lib/server/admin-coach-action";
@@ -18,6 +19,7 @@ export function AdminMatchCoachPanel({
   messages: AdminMessages;
   teamId: string;
 }) {
+  const club = adminClubForTeam(teamId);
   const router = useRouter();
   const coaches = detail.coaches ?? [];
   const [coachId, setCoachId] = useState("");
@@ -49,7 +51,7 @@ export function AdminMatchCoachPanel({
       .split("; ")
       .find((item) => item.startsWith("rating_admin_csrf="))
       ?.split("=")[1];
-    const response = await fetch(path, {
+    const response = await fetch(`${path}?club=${club.slug}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

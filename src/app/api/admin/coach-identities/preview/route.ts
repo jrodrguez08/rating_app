@@ -10,12 +10,14 @@ import {
   adminJson,
   parseAdminCoachIdentityAction,
   requireAdminRequest,
+  requireAdminActionClub,
 } from "@/lib/server/admin-request";
 
 export async function POST(request: NextRequest) {
   try {
     const identity = await requireAdminRequest(request, true);
     const action = parseAdminCoachIdentityAction(await request.json());
+    requireAdminActionClub(request, action.trackedTeamId);
     const plan = await new AdminCoachIdentityService().preview({
       ...action,
       operatorId: identity.uid,

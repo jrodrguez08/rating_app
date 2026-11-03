@@ -14,6 +14,7 @@ import {
   adminJson,
   parseAdminLineupAction,
   requireAdminRequest,
+  requireAdminActionClub,
 } from "@/lib/server/admin-request";
 
 const messages = getMessages("es").admin;
@@ -31,6 +32,7 @@ export async function POST(request: NextRequest) {
     const action = parseAdminLineupAction(
       "action" in body ? body.action : undefined,
     );
+    requireAdminActionClub(request, action.trackedTeamId);
     matchId = action.matchId;
     audit = { uid: identity.uid, matchId: action.matchId };
     const previewToken = "previewToken" in body ? body.previewToken : undefined;

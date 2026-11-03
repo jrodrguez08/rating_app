@@ -87,20 +87,29 @@ describe("admin verified lineup apply route", () => {
       expect.objectContaining({ outcome: "failed" }),
     );
   });
+
+  it("rejects a completed Herediano action replay under Saprissa context", async () => {
+    expect((await POST(applyRequest(undefined, "saprissa"))).status).toBe(403);
+    expect(mocks.applyAuthorized).not.toHaveBeenCalled();
+  });
 });
 
 function applyRequest(
   confirmation = `prepare-verified-lineup:${action.matchId}`,
+  club = "herediano",
 ) {
   const csrf = "a".repeat(43);
-  return new NextRequest("http://localhost:3000/api/admin/lineup/apply", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Cookie: `rating_admin_lineup_action=${"b".repeat(43)}; rating_admin_csrf=${csrf}`,
-      Origin: "http://localhost:3000",
-      "X-Admin-CSRF": csrf,
+  return new NextRequest(
+    `http://localhost:3000/api/admin/lineup/apply?club=${club}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `rating_admin_lineup_action=${"b".repeat(43)}; rating_admin_csrf=${csrf}`,
+        Origin: "http://localhost:3000",
+        "X-Admin-CSRF": csrf,
+      },
+      body: JSON.stringify({ action, confirmation }),
     },
-    body: JSON.stringify({ action, confirmation }),
-  });
+  );
 }

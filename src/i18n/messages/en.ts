@@ -482,6 +482,10 @@ export const enMessages = {
     signingOut: "Signing out…",
     unavailable: "The admin console is not configured.",
     adminActions: "Console actions",
+    clubSelection: "Select club to administer",
+    selectedClub: "Selected club",
+    clubNotPrepared:
+      "This club has not been prepared yet. Opening the console does not create data or start synchronization.",
     openVotingSection: "Open voting windows",
     preparationSection: "Upcoming matches and preparation",
     reviewSection: "Matches to review",

@@ -70,14 +70,17 @@ describe("admin lifecycle status route", () => {
 
 function statusRequest() {
   const csrf = "a".repeat(43);
-  return new NextRequest("http://localhost:3000/api/admin/lifecycle/status", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Cookie: `rating_admin_lifecycle_action=${"b".repeat(43)}; rating_admin_csrf=${csrf}`,
-      Origin: "http://localhost:3000",
-      "X-Admin-CSRF": csrf,
+  return new NextRequest(
+    "http://localhost:3000/api/admin/lifecycle/status?club=herediano",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `rating_admin_lifecycle_action=${"b".repeat(43)}; rating_admin_csrf=${csrf}`,
+        Origin: "http://localhost:3000",
+        "X-Admin-CSRF": csrf,
+      },
+      body: JSON.stringify(action),
     },
-    body: JSON.stringify(action),
-  });
+  );
 }

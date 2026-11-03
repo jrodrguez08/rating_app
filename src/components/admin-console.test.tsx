@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { clubs, initialClub } from "@/config/club";
 import { getMessages } from "@/i18n/messages";
 import type {
   AdminMatchOperation,
@@ -33,6 +34,46 @@ vi.mock("firebase/auth", () => ({
 const messages = getMessages("es").admin;
 
 describe("admin console", () => {
+  it("keeps selected club navigation explicit and shows an unprepared Team", () => {
+    const { rerender } = render(
+      <AdminConsole
+        club={clubs.saprissa}
+        teamAvailable={false}
+        messages={messages}
+        overview={emptyOverview()}
+      />,
+    );
+    const selection = screen.getByRole("navigation", {
+      name: messages.clubSelection,
+    });
+    expect(
+      within(selection).getByRole("link", { name: clubs.saprissa.displayName }),
+    ).toHaveAttribute("aria-current", "page");
+    expect(
+      within(selection).getByRole("link", { name: "Club Sport Herediano" }),
+    ).toHaveAttribute("href", "/admin?club=herediano");
+    expect(screen.getByRole("status")).toHaveTextContent(
+      messages.clubNotPrepared,
+    );
+    expect(
+      screen.getByRole("link", { name: messages.identityReconciliation }),
+    ).toHaveAttribute("href", "/admin/player-identities?club=saprissa");
+
+    rerender(
+      <AdminConsole
+        club={clubs.herediano}
+        teamAvailable
+        messages={messages}
+        overview={emptyOverview()}
+      />,
+    );
+    expect(
+      within(selection).getByRole("link", { name: "Club Sport Herediano" }),
+    ).toHaveAttribute("aria-current", "page");
+    expect(
+      screen.queryByText(messages.clubNotPrepared),
+    ).not.toBeInTheDocument();
+  });
   beforeEach(() => {
     vi.unstubAllGlobals();
     vi.clearAllMocks();
@@ -111,7 +152,14 @@ describe("admin console", () => {
   });
 
   it("removes the legacy coach form and groups every authoritative match state", () => {
-    render(<AdminConsole messages={messages} overview={dashboardOverview()} />);
+    render(
+      <AdminConsole
+        club={initialClub}
+        teamAvailable
+        messages={messages}
+        overview={dashboardOverview()}
+      />,
+    );
 
     expect(
       screen.queryByText("Recuperación de director técnico"),
@@ -144,7 +192,14 @@ describe("admin console", () => {
   });
 
   it("shows readable match details without technical identifiers", () => {
-    render(<AdminConsole messages={messages} overview={dashboardOverview()} />);
+    render(
+      <AdminConsole
+        club={initialClub}
+        teamAvailable
+        messages={messages}
+        overview={dashboardOverview()}
+      />,
+    );
 
     const upcoming = matchCard("Cartaginés");
     expect(upcoming).not.toBeNull();
@@ -162,11 +217,18 @@ describe("admin console", () => {
   });
 
   it("keeps each match action and adds administration access to published results", () => {
-    render(<AdminConsole messages={messages} overview={dashboardOverview()} />);
+    render(
+      <AdminConsole
+        club={initialClub}
+        teamAvailable
+        messages={messages}
+        overview={dashboardOverview()}
+      />,
+    );
 
     expect(matchLink("Cartaginés", messages.prepareMatch)).toHaveAttribute(
       "href",
-      "/admin/matches/upcoming",
+      "/admin/matches/upcoming?club=herediano",
     );
     expect(matchLink("Pérez Zeledón", messages.viewVoting)).toHaveAttribute(
       "href",
@@ -174,7 +236,7 @@ describe("admin console", () => {
     );
     expect(matchLink("Saprissa", messages.inspect)).toHaveAttribute(
       "href",
-      "/admin/matches/expired",
+      "/admin/matches/expired?club=herediano",
     );
     expect(matchLink("Alajuelense", messages.viewResults)).toHaveAttribute(
       "href",
@@ -182,11 +244,11 @@ describe("admin console", () => {
     );
     expect(matchLink("Alajuelense", messages.administerMatch)).toHaveAttribute(
       "href",
-      "/admin/matches/published",
+      "/admin/matches/published?club=herediano",
     );
     expect(matchLink("Liberia", messages.inspect)).toHaveAttribute(
       "href",
-      "/admin/matches/invalid",
+      "/admin/matches/invalid?club=herediano",
     );
   });
 
@@ -210,7 +272,14 @@ describe("admin console", () => {
         kickoffAt: "2026-11-29T22:00:00.000Z",
       }),
     ];
-    render(<AdminConsole messages={messages} overview={overview} />);
+    render(
+      <AdminConsole
+        club={initialClub}
+        teamAvailable
+        messages={messages}
+        overview={overview}
+      />,
+    );
 
     const section = screen
       .getByRole("heading", { name: messages.preparationSection })
@@ -226,14 +295,21 @@ describe("admin console", () => {
     expect(cards[2]).toHaveTextContent("Rival posterior");
     expect(
       within(cards[0]).getByRole("link", { name: messages.prepareMatch }),
-    ).toHaveAttribute("href", "/admin/matches/current");
+    ).toHaveAttribute("href", "/admin/matches/current?club=herediano");
   });
 
   it("keeps reconciliation, refresh, and sign out accessible by keyboard", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn().mockResolvedValue({ ok: true });
     vi.stubGlobal("fetch", fetchMock);
-    render(<AdminConsole messages={messages} overview={emptyOverview()} />);
+    render(
+      <AdminConsole
+        club={initialClub}
+        teamAvailable
+        messages={messages}
+        overview={emptyOverview()}
+      />,
+    );
 
     const toolbar = screen.getByRole("navigation", {
       name: messages.adminActions,
@@ -242,8 +318,10 @@ describe("admin console", () => {
       within(toolbar).getByRole("link", {
         name: messages.identityReconciliation,
       }),
-    ).toHaveAttribute("href", "/admin/player-identities");
+    ).toHaveAttribute("href", "/admin/player-identities?club=herediano");
 
+    await user.tab();
+    await user.tab();
     await user.tab();
     expect(
       within(toolbar).getByRole("link", {
@@ -275,7 +353,14 @@ describe("admin console", () => {
   it("renders read-only navigation without issuing a request", () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    render(<AdminConsole messages={messages} overview={dashboardOverview()} />);
+    render(
+      <AdminConsole
+        club={initialClub}
+        teamAvailable
+        messages={messages}
+        overview={dashboardOverview()}
+      />,
+    );
 
     expect(
       screen.getByRole("link", { name: messages.viewVoting }),
