@@ -127,7 +127,13 @@ describe("admin Coach identity reconciliation", () => {
     } else {
       expect(afterFirst[0].data()?.photoUrl).toBe(photoCase.expectedPhotoUrl);
     }
-    expect(afterFirst[1].data()).toEqual(before[1].data());
+    expect(afterFirst[1].data()).toMatchObject(before[1].data() ?? {});
+    expect(afterFirst[1].data()).toMatchObject({
+      searchPrefixes: [],
+      teamBrowseKeys: [],
+      teamSearchKeys: [],
+      unassociatedSearchKeys: [],
+    });
   });
 
   it("previews with zero writes and atomically links a late provider Coach", async () => {

@@ -674,6 +674,23 @@ export const esMessages = {
     },
     coach: "Director técnico",
     existingCoach: "Seleccionar director existente",
+    coachSearch: "Buscar director técnico por nombre",
+    coachSearchHelp:
+      "Primero aparecen directores vinculados a este club. La búsqueda admite nombres sin tildes y comienzos de palabras.",
+    coachScope: "Origen de candidatos",
+    coachScopeTeam: "Vinculados a este club",
+    coachScopeUnassociated: "Sin vínculo registrado",
+    coachUnassociatedHelp:
+      "Escriba al menos dos caracteres. Un director sin vínculo registrado requiere verificación independiente para este partido.",
+    coachSearchButton: "Buscar directores",
+    coachSearching: "Buscando directores…",
+    coachLoadMore: "Cargar más directores",
+    coachNoResults: "No hay directores en esta página de resultados.",
+    coachSelected: "Director seleccionado",
+    coachCandidateProvider: "Identidad de API-Football",
+    coachCandidateManual: "Identidad creada manualmente",
+    assignmentCoachSearchError:
+      "No fue posible consultar el catálogo de directores.",
     passphrase: "Frase de autorización",
     authorize: "Autorizar operación",
     authorizationSuccess:

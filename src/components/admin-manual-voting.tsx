@@ -261,8 +261,7 @@ function VotingSummary({
   const match = detail.match;
   const coachName =
     match.assignment?.coachName ??
-    detail.coaches?.find((coach) => coach.id === match.verification?.coachId)
-      ?.name ??
+    detail.currentCoach?.name ??
     messages.notMeasured;
   return (
     <div className="game-inset grid gap-2 p-4 text-sm">

@@ -412,6 +412,11 @@ export interface Coach {
   externalProvider?: string;
   externalProviderId?: string;
   photoUrl?: string;
+  associatedTeamIds?: EntityId[];
+  searchPrefixes?: string[];
+  teamBrowseKeys?: EntityId[];
+  teamSearchKeys?: string[];
+  unassociatedSearchKeys?: string[];
   createdAt: string;
   updatedAt: string;
 }

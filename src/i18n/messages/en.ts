@@ -660,6 +660,22 @@ export const enMessages = {
     },
     coach: "Head coach",
     existingCoach: "Select an existing coach",
+    coachSearch: "Search head coaches by name",
+    coachSearchHelp:
+      "Coaches linked to this club appear first. Search accepts names without accents and word beginnings.",
+    coachScope: "Candidate source",
+    coachScopeTeam: "Linked to this club",
+    coachScopeUnassociated: "No recorded club link",
+    coachUnassociatedHelp:
+      "Enter at least two characters. A coach without a recorded link needs independent verification for this match.",
+    coachSearchButton: "Search coaches",
+    coachSearching: "Searching coaches…",
+    coachLoadMore: "Load more coaches",
+    coachNoResults: "No coaches on this results page.",
+    coachSelected: "Selected coach",
+    coachCandidateProvider: "API-Football identity",
+    coachCandidateManual: "Manually created identity",
+    assignmentCoachSearchError: "The coach catalog could not be searched.",
     passphrase: "Authorization passphrase",
     authorize: "Authorize operation",
     authorizationSuccess:

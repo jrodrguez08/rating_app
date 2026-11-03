@@ -110,9 +110,7 @@ export default async function AdminMatchPage({
             <p className="text-success" role="status">
               ✓{" "}
               {detail.match.assignment?.coachName ??
-                detail.coaches?.find(
-                  (coach) => coach.id === detail.match.verification?.coachId,
-                )?.name ??
+                detail.currentCoach?.name ??
                 messages.verifiedAssignment}
             </p>
           </section>

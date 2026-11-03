@@ -18,6 +18,7 @@ import {
   buildMatchArchive,
   type MatchArchive,
 } from "@/application/match-archive";
+import { coachWithSearchIndex } from "@/application/coach-search";
 import {
   assertSameTrackedFixture,
   isMatchContextOwnedByTeam,
@@ -1435,7 +1436,21 @@ export class AdminVerifiedCoachService {
 
       if (apply) {
         if (!coachSnapshot.exists) {
-          transaction.create(coachReference, toDocument(proposedCoach));
+          transaction.create(
+            coachReference,
+            toDocument(
+              coachWithSearchIndex(proposedCoach, [input.trackedTeamId]),
+            ),
+          );
+        } else {
+          const existingCoach = fromDocument<Coach>(coachSnapshot);
+          const indexedCoach = coachWithSearchIndex(existingCoach, [
+            ...(existingCoach.associatedTeamIds ?? []),
+            input.trackedTeamId,
+          ]);
+          if (comparable(existingCoach) !== comparable(indexedCoach)) {
+            transaction.set(coachReference, toDocument(indexedCoach));
+          }
         }
         if (!verifiedSnapshot.exists) {
           transaction.create(verifiedReference, toDocument(proposedAssignment));
@@ -2308,10 +2323,54 @@ export class AdminFootballSyncStore
   upsertCoaches(values: Coach[]) {
     return this.upsert("coaches", values);
   }
-  upsertCoachAssignment(matchId: string, value: CoachAssignment) {
-    return this.upsert(`matches/${matchId}/coachAssignments`, [
-      { ...value, id: "head-coach" },
-    ]);
+  async upsertCoachAssignment(
+    matchId: string,
+    value: CoachAssignment,
+  ): Promise<SyncWriteCounts> {
+    return this.database.runTransaction(async (transaction) => {
+      const matchReference = this.database.doc(`matches/${matchId}`);
+      const coachReference = this.database.doc(`coaches/${value.coachId}`);
+      const assignmentReference = this.database.doc(
+        `matches/${matchId}/coachAssignments/head-coach`,
+      );
+      const [matchSnapshot, coachSnapshot, assignmentSnapshot] =
+        await Promise.all([
+          transaction.get(matchReference),
+          transaction.get(coachReference),
+          transaction.get(assignmentReference),
+        ]);
+      if (!matchSnapshot.exists || !coachSnapshot.exists) {
+        throw new Error("Match or Coach was not found.");
+      }
+      const match = fromDocument<Match>(matchSnapshot);
+      if (match.trackedTeamId !== value.teamId || match.id !== matchId) {
+        throw new Error("Coach assignment Team binding is invalid.");
+      }
+      const previous = assignmentSnapshot.exists
+        ? fromDocument<CoachAssignment>(assignmentSnapshot)
+        : undefined;
+      const assignment = previous
+        ? { ...previous, ...value, createdAt: previous.createdAt }
+        : value;
+      const coach = fromDocument<Coach>(coachSnapshot);
+      const indexed = coachWithSearchIndex(coach, [
+        ...(coach.associatedTeamIds ?? []),
+        value.teamId,
+      ]);
+      if (comparable(coach) !== comparable(indexed)) {
+        transaction.set(coachReference, toDocument(indexed));
+      }
+      if (!previous || comparable(previous) !== comparable(assignment)) {
+        transaction.set(assignmentReference, toDocument(assignment));
+      }
+      return {
+        created: previous ? 0 : 1,
+        updated:
+          previous && comparable(previous) !== comparable(assignment) ? 1 : 0,
+        unchanged:
+          previous && comparable(previous) === comparable(assignment) ? 1 : 0,
+      };
+    });
   }
 
   async replaceMatchParticipantContext(
@@ -2532,7 +2591,15 @@ export class AdminFootballSyncStore
                 createdAt: existingCoach.createdAt,
               };
       const coaches = writeCounts([existingCoach], [coachCandidate]);
-      transaction.set(coachReference, toDocument(coachCandidate));
+      transaction.set(
+        coachReference,
+        toDocument(
+          coachWithSearchIndex(coachCandidate, [
+            ...(coachCandidate.associatedTeamIds ?? []),
+            values.assignment.teamId,
+          ]),
+        ),
+      );
 
       const existingAssignment = assignmentSnapshot.exists
         ? fromDocument<CoachAssignment>(assignmentSnapshot)
@@ -2607,7 +2674,13 @@ export class AdminFootballSyncStore
       }
       const snapshot = await reference.get();
       if (!snapshot.exists) {
-        await reference.create(toDocument(incoming));
+        await reference.create(
+          toDocument(
+            collection === "coaches"
+              ? coachWithSearchIndex(incoming as unknown as Coach)
+              : incoming,
+          ),
+        );
         counts.created += 1;
         continue;
       }
@@ -2617,9 +2690,13 @@ export class AdminFootballSyncStore
         ...incoming,
         createdAt: existing.createdAt,
       } as T;
-      if (comparable(existing) === comparable(merged)) counts.unchanged += 1;
+      const candidate =
+        collection === "coaches"
+          ? (coachWithSearchIndex(merged as unknown as Coach) as unknown as T)
+          : merged;
+      if (comparable(existing) === comparable(candidate)) counts.unchanged += 1;
       else {
-        await reference.set(toDocument(merged));
+        await reference.set(toDocument(candidate));
         counts.updated += 1;
       }
     }

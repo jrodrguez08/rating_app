@@ -109,6 +109,14 @@ describe("verified coach assignment persistence", () => {
       role: "head-coach",
       provenance: "operator_verified",
     });
+    expect(
+      (await database.doc(`coaches/${input.coachId}`).get()).data(),
+    ).toMatchObject({
+      associatedTeamIds: ["team-verified"],
+      teamBrowseKeys: ["team-verified"],
+      unassociatedSearchKeys: [],
+      teamSearchKeys: expect.arrayContaining(["team-verified:verified"]),
+    });
     await expect(
       service.assign({ ...input, coachId: "other-coach" }, true),
     ).rejects.toThrow(/conflicts/i);

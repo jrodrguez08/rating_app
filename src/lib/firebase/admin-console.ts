@@ -19,6 +19,13 @@ import {
 } from "@/domain/voting-window";
 import { getServerFirestore } from "@/lib/firebase/server";
 import {
+  searchIndexedCoaches,
+  type CoachIndexReadObserver,
+  type CoachSearchPage,
+  type CoachSearchScope,
+  type IndexedCoachOption,
+} from "@/lib/firebase/coach-search-index";
+import {
   searchIndexedTeamPlayers,
   type TeamPlayerIndexObserver,
 } from "@/lib/firebase/team-player-membership-index";
@@ -70,12 +77,7 @@ export interface AdminMatchOperation {
   >;
 }
 
-export interface AdminCoachOption {
-  id: string;
-  name: string;
-  provenance: Coach["identityProvenance"];
-  externalProviderId?: string;
-}
+export type AdminCoachOption = IndexedCoachOption;
 
 export interface AdminOverview {
   upcomingLiveMatches: AdminMatchOperation[];
@@ -116,7 +118,7 @@ export interface AdminMatchDetail {
   match: AdminMatchOperation;
   participants: AdminParticipantEvidence[];
   players: AdminPlayerOption[];
-  coaches?: AdminCoachOption[];
+  currentCoach?: AdminCoachOption;
   draft?: AdminLineupDraft;
   reconciliation?: VerifiedLineupReconciliation;
   manualVotingAvailability:
@@ -206,6 +208,7 @@ export class AdminConsoleService {
     private readonly database: Firestore = getServerFirestore(),
     private readonly observePlayerIndexRead?: TeamPlayerIndexObserver,
     private readonly now: () => Date = () => new Date(),
+    private readonly observeCoachIndexRead?: CoachIndexReadObserver,
   ) {}
 
   async overview(teamId: string): Promise<AdminOverview> {
@@ -325,7 +328,6 @@ export class AdminConsoleService {
       metadataSnapshot,
       draftSnapshot,
       reconciliationSnapshot,
-      coachesSnapshot,
     ] = await Promise.all([
       this.database.collection(`matches/${matchId}/participants`).get(),
       this.database.doc(`matches/${matchId}/verifiedLineups/current`).get(),
@@ -335,11 +337,6 @@ export class AdminConsoleService {
         : Promise.resolve(undefined),
       this.database
         .doc(`matches/${matchId}/lineupReconciliations/provider`)
-        .get(),
-      this.database
-        .collection("coaches")
-        .orderBy("updatedAt", "desc")
-        .limit(100)
         .get(),
     ]);
     const persistedParticipants = participantSnapshot.docs.map((snapshot) =>
@@ -415,6 +412,15 @@ export class AdminConsoleService {
       }
     }
     const describedMatch = await this.describeMatch(match);
+    const currentCoachId =
+      describedMatch.assignment?.coachId ??
+      describedMatch.verification?.coachId;
+    const currentCoachSnapshot = currentCoachId
+      ? await this.database.doc(`coaches/${currentCoachId}`).get()
+      : undefined;
+    const currentCoach = currentCoachSnapshot?.exists
+      ? fromSnapshot<Coach>(currentCoachSnapshot)
+      : undefined;
     const metadata = metadataSnapshot.data();
     const reconciliation = reconciliationSnapshot.exists
       ? fromSnapshot<VerifiedLineupReconciliation>(reconciliationSnapshot)
@@ -496,17 +502,25 @@ export class AdminConsoleService {
             (player.externalProviderId ? "provider" : "operator_verified"),
         }))
         .sort((left, right) => left.name.localeCompare(right.name, "es")),
-      coaches: coachesSnapshot.docs.map((snapshot) => {
-        const coach = fromSnapshot<Coach>(snapshot);
-        return {
-          id: coach.id,
-          name: coach.displayName,
-          provenance: coach.identityProvenance ?? "provider",
-          ...(coach.externalProviderId
-            ? { externalProviderId: coach.externalProviderId }
-            : {}),
-        };
-      }),
+      ...(currentCoach
+        ? {
+            currentCoach: {
+              id: currentCoach.id,
+              name: currentCoach.displayName,
+              provenance:
+                currentCoach.identityProvenance ??
+                (currentCoach.externalProviderId
+                  ? "provider"
+                  : "operator_verified"),
+              ...(currentCoach.externalProviderId
+                ? { externalProviderId: currentCoach.externalProviderId }
+                : {}),
+              ...(currentCoach.photoUrl
+                ? { photoUrl: currentCoach.photoUrl }
+                : {}),
+            },
+          }
+        : {}),
       ...(draft ? { draft } : {}),
       ...(reconciliation ? { reconciliation } : {}),
       manualVotingAvailability: manualVotingAvailability(
@@ -514,6 +528,33 @@ export class AdminConsoleService {
         reconciliation,
       ),
     };
+  }
+
+  async searchCoaches(
+    matchId: string,
+    teamId: string,
+    externalFixtureId: string,
+    scope: CoachSearchScope,
+    query: string,
+    cursor?: string,
+  ): Promise<CoachSearchPage | null> {
+    const snapshot = await this.database.doc(`matches/${matchId}`).get();
+    if (!snapshot.exists) return null;
+    const match = fromSnapshot<Match>(snapshot);
+    if (
+      match.trackedTeamId !== teamId ||
+      match.externalProviderFixtureId !== externalFixtureId
+    ) {
+      return null;
+    }
+    return searchIndexedCoaches(
+      this.database,
+      teamId,
+      scope,
+      query,
+      cursor,
+      this.observeCoachIndexRead,
+    );
   }
 
   async searchPlayers(

@@ -728,7 +728,11 @@ function CoachReviewCard({
         </div>
         <div>
           <dt className="text-muted">{messages.coachMatches}</dt>
-          <dd>{coach.matchCount}</dd>
+          <dd>
+            {evidence?.matchCount ??
+              coach.matchCount ??
+              messages.metadataUnavailable}
+          </dd>
         </div>
         <div>
           <dt className="text-muted">{messages.coachVerifiedAssignments}</dt>
