@@ -583,6 +583,59 @@ export const enMessages = {
       "Synchronization was requested recently. Wait one minute before repeating it.",
     lifecycleTargetError:
       "This match is no longer the current lifecycle target. Refresh the console.",
+    catalogImport: {
+      link: "Import players and coaches",
+      title: "Recent match catalog",
+      description:
+        "Check the club’s five most recent completed fixtures and add identities to preparation selectors. This does not prepare a match or open voting.",
+      preview: "Check API-Football catalog",
+      loading: "Checking fixtures and lineups…",
+      fixtures: "Fixtures checked",
+      noFixtures: "The provider supplied no completed fixtures.",
+      missing: "Lineup missing",
+      partial: "Lineup partial",
+      available: "Lineup available",
+      coachMissing: "Coach identity unavailable",
+      coachAmbiguous: "Coach identity ambiguous",
+      players: "Unique players",
+      coaches: "Unique coaches",
+      identityNew: "New identity",
+      identityExisting: "Existing identity",
+      sourceFixtures: "Source fixtures",
+      reads: "Preview Firestore reads (approx.)",
+      newPlayers: "New players",
+      existingPlayers: "Existing players",
+      newCoaches: "New coaches",
+      existingCoaches: "Existing coaches",
+      memberships: "Player club associations",
+      coachAssociations: "Coach club associations",
+      metadata: "Metadata changes",
+      excluded: "Players excluded for invalid or duplicate identity",
+      unresolvedCoaches: "Fixtures with unresolved coach",
+      requests: "Provider requests",
+      writes: "Proposed writes including receipt",
+      observedAt: "Checked at",
+      authorization: "Authorize catalog import",
+      passphrase: "Authorization passphrase",
+      confirm:
+        "I confirm these identities will only be available for later match preparation.",
+      apply: "Import identities",
+      applying: "Importing identities…",
+      success:
+        "Imported identities are available in preparation selectors. No match or voting state changed.",
+      empty:
+        "No importable identities. Review missing information and check again later.",
+      error:
+        "Import could not be completed. Review the cause and check the catalog again.",
+      providerError:
+        "API-Football did not respond. The existing catalog is unchanged.",
+      quotaError:
+        "The API-Football request limit was reached. Try again later.",
+      malformedError:
+        "API-Football returned invalid data. The existing catalog is unchanged.",
+      back: "Back to console",
+      audit: "Audit receipt",
+    },
     providerCheck: {
       eyebrow: "Historical check",
       title: "Late API-Football data",

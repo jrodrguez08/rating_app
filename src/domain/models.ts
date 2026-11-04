@@ -230,9 +230,11 @@ export interface TeamPlayerMembership {
   source:
     | "current_squad"
     | "provider_observation"
+    | "fixture_catalog"
     | "match_participant"
     | "operator_verified";
   sourceMatchId?: EntityId;
+  sourceFixtureIds?: string[];
   shirtNumber?: number;
   firstObservedAt: string;
   lastObservedAt: string;
@@ -413,6 +415,8 @@ export interface Coach {
   externalProviderId?: string;
   photoUrl?: string;
   associatedTeamIds?: EntityId[];
+  catalogFixtureIds?: string[];
+  catalogObservedAt?: string;
   searchPrefixes?: string[];
   teamBrowseKeys?: EntityId[];
   teamSearchKeys?: string[];

@@ -64,7 +64,12 @@ export function mergeTeamPlayerMembership(
     };
   }
   const presentation =
-    incoming.lastObservedAt >= existing.lastObservedAt ? incoming : existing;
+    incoming.source === "fixture_catalog" &&
+    existing.source !== "fixture_catalog"
+      ? existing
+      : incoming.lastObservedAt >= existing.lastObservedAt
+        ? incoming
+        : existing;
   const evidence =
     membershipSourceRank(incoming.source) >=
     membershipSourceRank(existing.source)
@@ -78,6 +83,7 @@ export function mergeTeamPlayerMembership(
     .slice(0, 160);
   delete combined.sourceMatchId;
   delete combined.shirtNumber;
+  delete combined.sourceFixtureIds;
   return {
     ...combined,
     displayName: presentation.displayName,
@@ -86,6 +92,18 @@ export function mergeTeamPlayerMembership(
     source: evidence.source,
     ...(evidence.sourceMatchId
       ? { sourceMatchId: evidence.sourceMatchId }
+      : {}),
+    ...(existing.sourceFixtureIds?.length || incoming.sourceFixtureIds?.length
+      ? {
+          sourceFixtureIds: [
+            ...new Set([
+              ...(existing.sourceFixtureIds ?? []),
+              ...(incoming.sourceFixtureIds ?? []),
+            ]),
+          ]
+            .sort()
+            .slice(-5),
+        }
       : {}),
     firstObservedAt:
       existing.firstObservedAt < incoming.firstObservedAt
@@ -116,6 +134,8 @@ function membershipSourceRank(source: TeamPlayerMembership["source"]): number {
       return 2;
     case "provider_observation":
       return 1;
+    case "fixture_catalog":
+      return -1;
     case "current_squad":
       return 0;
   }

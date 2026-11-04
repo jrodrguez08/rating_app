@@ -394,6 +394,26 @@ test("the real emulator owner can switch club dashboards", async ({ page }) => {
     fullPage: true,
   });
   await page.setViewportSize({ width: 1280, height: 900 });
+  const catalogCalls: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().includes("/api/admin/catalog-import/"))
+      catalogCalls.push(request.url());
+  });
+  await page.locator('a[href="/admin/catalog-import?club=saprissa"]').click();
+  await expect(
+    page.getByRole("heading", { name: "Catálogo de partidos recientes" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Consultar catálogo de API-Football" }),
+  ).toBeVisible();
+  expect(catalogCalls).toEqual([]);
+  await page.setViewportSize({ width: 320, height: 740 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto(`/admin/matches/${e2eMatches.saprissa.open}?club=saprissa`);
   await expect(page.locator("main")).toContainText("Deportivo Saprissa");
   expect(

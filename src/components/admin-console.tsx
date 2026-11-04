@@ -198,6 +198,12 @@ export function AdminConsole({
       >
         <Link
           className="button-secondary inline-flex min-h-11 items-center px-4"
+          href={adminPath(club, "/catalog-import")}
+        >
+          {messages.catalogImport.link}
+        </Link>
+        <Link
+          className="button-secondary inline-flex min-h-11 items-center px-4"
           href={adminPath(club, "/player-identities")}
         >
           {messages.identityReconciliation}

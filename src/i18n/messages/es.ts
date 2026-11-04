@@ -597,6 +597,59 @@ export const esMessages = {
       "La sincronización fue solicitada recientemente. Espere un minuto antes de repetirla.",
     lifecycleTargetError:
       "Este partido ya no es el objetivo actual del ciclo. Actualice la consola.",
+    catalogImport: {
+      link: "Importar jugadores y directores técnicos",
+      title: "Catálogo de partidos recientes",
+      description:
+        "Consulte los últimos cinco fixtures terminados del club y agregue identidades a los selectores de preparación. Esta acción no prepara ningún partido ni abre votaciones.",
+      preview: "Consultar catálogo de API-Football",
+      loading: "Consultando fixtures y alineaciones…",
+      fixtures: "Fixtures consultados",
+      noFixtures: "El proveedor no ofreció fixtures terminados.",
+      missing: "Alineación ausente",
+      partial: "Alineación parcial",
+      available: "Alineación disponible",
+      coachMissing: "Director técnico sin identidad utilizable",
+      coachAmbiguous: "Director técnico ambiguo",
+      players: "Jugadores únicos",
+      coaches: "Directores técnicos únicos",
+      identityNew: "Nueva identidad",
+      identityExisting: "Identidad existente",
+      sourceFixtures: "Fixtures de origen",
+      reads: "Lecturas de Firestore en vista previa (aprox.)",
+      newPlayers: "Jugadores nuevos",
+      existingPlayers: "Jugadores existentes",
+      newCoaches: "Directores técnicos nuevos",
+      existingCoaches: "Directores técnicos existentes",
+      memberships: "Asociaciones de jugadores con el club",
+      coachAssociations: "Asociaciones de directores técnicos con el club",
+      metadata: "Cambios de metadatos",
+      excluded: "Jugadores excluidos por identidad inválida o duplicada",
+      unresolvedCoaches: "Fixtures con director técnico no resuelto",
+      requests: "Solicitudes al proveedor",
+      writes: "Escrituras propuestas, incluido el recibo",
+      observedAt: "Consulta realizada",
+      authorization: "Autorizar importación del catálogo",
+      passphrase: "Contraseña de autorización",
+      confirm:
+        "Confirmo que estas identidades solo estarán disponibles para preparar partidos posteriores.",
+      apply: "Importar identidades",
+      applying: "Importando identidades…",
+      success:
+        "Las identidades importadas ya están disponibles en los selectores de preparación. Ningún partido ni votación cambió.",
+      empty:
+        "No hay identidades importables. Revise la información faltante y vuelva a consultar más tarde.",
+      error:
+        "No se pudo completar la importación. Revise la causa y vuelva a consultar el catálogo.",
+      providerError:
+        "API-Football no respondió. El catálogo existente no cambió.",
+      quotaError:
+        "Se alcanzó el límite de solicitudes de API-Football. Intente más tarde.",
+      malformedError:
+        "API-Football devolvió datos inválidos. El catálogo existente no cambió.",
+      back: "Volver a la consola",
+      audit: "Recibo de auditoría",
+    },
     providerCheck: {
       eyebrow: "Consulta histórica",
       title: "Datos tardíos de API-Football",

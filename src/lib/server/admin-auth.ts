@@ -15,6 +15,7 @@ export const ADMIN_PLAYER_IDENTITY_ACTION_COOKIE =
   "rating_admin_player_identity_action";
 export const ADMIN_COACH_IDENTITY_ACTION_COOKIE =
   "rating_admin_coach_identity_action";
+export const ADMIN_CATALOG_ACTION_COOKIE = "rating_admin_catalog_action";
 export const ADMIN_SESSION_MAX_AGE_MS = 60 * 60 * 1000;
 
 type Environment = Readonly<Record<string, string | undefined>>;
