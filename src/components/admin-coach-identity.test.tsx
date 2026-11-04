@@ -116,6 +116,30 @@ describe("admin Coach identity reconciliation", () => {
     expect(screen.getAllByRole("radio")).toHaveLength(2);
   });
 
+  it("does not show a failed evidence comparison as an actionable review", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", apiMock(undefined, 1));
+    renderComponent();
+    await user.click(
+      await screen.findByRole("button", { name: messages.reviewSuggestedPair }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Revise el historial protegido",
+    );
+    expect(screen.queryAllByRole("radio")).toHaveLength(0);
+    expect(
+      screen.queryByText(messages.recommendedIdentity),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: messages.samePerson }),
+    ).not.toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: messages.retryIdentityEvidence }),
+    );
+    expect(await screen.findAllByRole("radio")).toHaveLength(2);
+  });
+
   it("keeps different-person authorization in the unified review", async () => {
     const user = userEvent.setup();
     vi.stubGlobal("fetch", apiMock());

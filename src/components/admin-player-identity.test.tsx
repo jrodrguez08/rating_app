@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -129,6 +129,129 @@ describe("admin Player identity reconciliation", () => {
         name: new RegExp(`D\\. Gonzalez.*${messages.sourceManual}`),
       }),
     ).toBeChecked();
+  });
+
+  it("does not offer an invalid self-pair from suggestions", async () => {
+    const self = player(manualId, "D. Gonzalez", "operator_verified");
+    const fetchMock = apiMock({
+      providerDataAvailable: true,
+      suggestions: [
+        {
+          first: self,
+          second: self,
+          suggestedCanonicalPlayerId: manualId,
+          signals: ["name"],
+        },
+      ],
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderComponent();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      messages.invalidIdentityPair,
+    );
+    expect(
+      screen.queryByRole("button", { name: messages.reviewSuggestedPair }),
+    ).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      expect.stringContaining("/preview?"),
+      expect.anything(),
+    );
+  });
+
+  it("keeps failed initial evidence out of the review and recovers on retry", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", apiMock(undefined, 1));
+    renderComponent();
+    await user.click(
+      await screen.findByRole("button", { name: messages.reviewSuggestedPair }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Revise el historial protegido",
+    );
+    expect(screen.queryAllByRole("radio")).toHaveLength(0);
+    expect(
+      screen.queryByText(messages.recommendedIdentity),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: messages.samePerson }),
+    ).not.toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: messages.retryIdentityEvidence }),
+    );
+    expect(await screen.findAllByRole("radio")).toHaveLength(2);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("ignores late evidence after the owner changes to another pair", async () => {
+    const user = userEvent.setup();
+    const nextManualId = `player-internal-${"b".repeat(32)}`;
+    const nextProviderId = "player-provider-next";
+    const suggestions = {
+      providerDataAvailable: true,
+      suggestions: [
+        {
+          first: player(manualId, "D. Gonzalez", "operator_verified"),
+          second: player(providerId, "Daniel González", "provider"),
+          suggestedCanonicalPlayerId: manualId,
+          signals: ["abbreviation"],
+        },
+        {
+          first: player(nextManualId, "Other Manual", "operator_verified"),
+          second: player(nextProviderId, "Other Provider", "provider"),
+          suggestedCanonicalPlayerId: nextManualId,
+          signals: ["name"],
+        },
+      ],
+    };
+    const baseFetch = apiMock(suggestions);
+    let finishFirst: ((value: Response) => void) | undefined;
+    let firstInput: string | URL | Request | undefined;
+    let firstInit: RequestInit | undefined;
+    const delayed = new Promise<Response>((resolve) => {
+      finishFirst = resolve;
+    });
+    let previewCalls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request, init?: RequestInit) => {
+        if (String(input).includes("/preview?")) {
+          previewCalls += 1;
+          if (previewCalls === 1) {
+            firstInput = input;
+            firstInit = init;
+            return delayed;
+          }
+        }
+        return baseFetch(input, init);
+      }),
+    );
+    renderComponent();
+    const choices = await screen.findAllByRole("button", {
+      name: messages.reviewSuggestedPair,
+    });
+    await user.click(choices[0]);
+    expect(
+      await screen.findByText(messages.checkingProtectedHistory),
+    ).toBeVisible();
+    await user.click(
+      screen.getByRole("button", { name: messages.editIdentitySelection }),
+    );
+    await user.click(
+      screen.getAllByRole("button", { name: messages.reviewSuggestedPair })[1],
+    );
+    expect(
+      await screen.findByRole("radio", { name: /Other Manual/ }),
+    ).toBeVisible();
+
+    await act(async () => {
+      finishFirst?.(await baseFetch(firstInput!, firstInit));
+    });
+    expect(screen.getByRole("radio", { name: /Other Manual/ })).toBeVisible();
+    expect(
+      screen.queryByRole("radio", { name: /D\. Gonzalez/ }),
+    ).not.toBeInTheDocument();
   });
 
   it("keeps different-person authorization in the guided flow", async () => {

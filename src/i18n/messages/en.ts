@@ -889,6 +889,8 @@ export const enMessages = {
     editIdentitySelection: "Change selection",
     selectedIdentities: "Selected identities",
     checkingProtectedHistory: "Checking protected history…",
+    retryIdentityEvidence: "Retry history check",
+    invalidIdentityPair: "Select two different identities.",
     protectedHistoryPending: "History pending review",
     keepCanonicalIdentity: "Keep as canonical identity",
     recommendedIdentity: "Recommended for safety",

@@ -148,9 +148,16 @@ export class AdminPlayerIdentityService {
         player.externalProvider === "api-football" &&
         player.externalProviderId !== undefined,
     );
+    const seenPairs = new Set<string>();
     const candidates = manual
       .flatMap((manualEntry) =>
         provider.flatMap((providerEntry) => {
+          if (manualEntry.player.id === providerEntry.player.id) return [];
+          const reviewId = playerIdentityReviewId(
+            manualEntry.player.id,
+            providerEntry.player.id,
+          );
+          if (seenPairs.has(reviewId)) return [];
           const signals = suggestionSignals(
             manualEntry.player,
             manualEntry.membership,
@@ -160,6 +167,7 @@ export class AdminPlayerIdentityService {
           if (!signals.includes("name") && !signals.includes("abbreviation")) {
             return [];
           }
+          seenPairs.add(reviewId);
           return [
             {
               first: option(manualEntry.player, manualEntry.membership),

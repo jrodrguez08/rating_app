@@ -61,6 +61,7 @@ export function AdminCoachIdentityReconciliation({
   const [outcome, setOutcome] = useState("");
   const reviewHeading = useRef<HTMLHeadingElement>(null);
   const searchInput = useRef<HTMLInputElement>(null);
+  const reviewRequest = useRef(0);
 
   const loadSuggestions = useCallback(async () => {
     try {
@@ -72,11 +73,16 @@ export function AdminCoachIdentityReconciliation({
       );
       const value: unknown = await response.json();
       if (!response.ok || !isSuggestionResult(value)) throw new Error();
+      if (
+        value.suggestions.some(({ first, second }) => first.id === second.id)
+      ) {
+        setError(messages.invalidIdentityPair);
+      }
       setSuggestions(value);
     } catch {
       setError(messages.coachSearchError);
     }
-  }, [club.slug, messages.coachSearchError]);
+  }, [club.slug, messages.coachSearchError, messages.invalidIdentityPair]);
 
   const loadCoaches = useCallback(
     async (cursor?: string, signal?: AbortSignal) => {
@@ -130,7 +136,6 @@ export function AdminCoachIdentityReconciliation({
   }, [reviewing]);
 
   async function post(path: string, body: unknown) {
-    setError("");
     const csrf = document.cookie
       .split("; ")
       .find((item) => item.startsWith("rating_admin_csrf="))
@@ -183,6 +188,12 @@ export function AdminCoachIdentityReconciliation({
     preferredId: string,
     selectionOrigin: SelectionOrigin,
   ) {
+    const request = ++reviewRequest.current;
+    if (pair.length !== 2 || pair[0].id === pair[1].id) {
+      setError(messages.invalidIdentityPair);
+      return;
+    }
+    setError("");
     setSelected(pair);
     setOrigin(selectionOrigin);
     setCanonicalId(preferredId);
@@ -198,6 +209,7 @@ export function AdminCoachIdentityReconciliation({
         "/api/admin/coach-identities/preview",
         buildAction(pair, preferredId, "match"),
       );
+      if (request !== reviewRequest.current) return;
       const nextPlan = result.plan as AdminCoachIdentityPlan;
       rememberEvidence(nextPlan);
       const protectedIdentity = [nextPlan.canonical, nextPlan.duplicate].find(
@@ -208,11 +220,12 @@ export function AdminCoachIdentityReconciliation({
         setRecommendedId(protectedIdentity.id);
       }
     } catch (caught) {
+      if (request !== reviewRequest.current) return;
       setError(
         caught instanceof Error ? caught.message : messages.genericError,
       );
     } finally {
-      setBusy(false);
+      if (request === reviewRequest.current) setBusy(false);
     }
   }
 
@@ -243,26 +256,30 @@ export function AdminCoachIdentityReconciliation({
   }
 
   async function createPreview(decision: "match" | "nonmatch") {
-    if (selected.length !== 2 || !canonicalId) return;
+    if (!evidenceReady || !canonicalId) return;
+    const request = ++reviewRequest.current;
     const nextAction = buildAction(selected, canonicalId, decision);
     setBusy(true);
+    setError("");
     setOutcome("");
     try {
       const result = await post(
         "/api/admin/coach-identities/preview",
         nextAction,
       );
+      if (request !== reviewRequest.current) return;
       const nextPlan = result.plan as AdminCoachIdentityPlan;
       rememberEvidence(nextPlan);
       setAction(nextAction);
       setPlan(nextPlan);
       setPreviewToken(String(result.previewToken));
     } catch (caught) {
+      if (request !== reviewRequest.current) return;
       setError(
         caught instanceof Error ? caught.message : messages.genericError,
       );
     } finally {
-      setBusy(false);
+      if (request === reviewRequest.current) setBusy(false);
     }
   }
 
@@ -271,6 +288,7 @@ export function AdminCoachIdentityReconciliation({
     if (!action || !plan?.canApply) return;
     const form = event.currentTarget;
     setBusy(true);
+    setError("");
     try {
       await post("/api/admin/coach-identities/authorize", {
         action,
@@ -297,6 +315,7 @@ export function AdminCoachIdentityReconciliation({
   }
 
   function resetSelection() {
+    reviewRequest.current += 1;
     setReviewing(false);
     setSelected([]);
     setCanonicalId("");
@@ -308,6 +327,9 @@ export function AdminCoachIdentityReconciliation({
   }
 
   function editSelection() {
+    reviewRequest.current += 1;
+    setBusy(false);
+    setError("");
     setReviewing(false);
     setPlan(null);
     setAction(null);
@@ -332,8 +354,13 @@ export function AdminCoachIdentityReconciliation({
 
   const visibleSuggestions =
     suggestions?.suggestions.filter(
-      ({ first, second }) => !deferred.has(pairKey(first.id, second.id)),
+      ({ first, second }) =>
+        first.id !== second.id && !deferred.has(pairKey(first.id, second.id)),
     ) ?? [];
+  const evidenceReady =
+    selected.length === 2 &&
+    selected[0].id !== selected[1].id &&
+    selected.every(({ id }) => evidence[id] !== undefined);
 
   return (
     <div className="grid gap-6">
@@ -539,7 +566,7 @@ export function AdminCoachIdentityReconciliation({
             <button
               className="button-utility min-h-11 px-4"
               type="button"
-              disabled={busy}
+              disabled={busy && action !== null}
               onClick={editSelection}
             >
               {messages.editIdentitySelection}
@@ -550,34 +577,45 @@ export function AdminCoachIdentityReconciliation({
               {messages.checkingProtectedHistory}
             </p>
           ) : null}
-          <fieldset className="grid gap-4 sm:grid-cols-2">
-            <legend className="mb-3 font-bold">
-              {messages.chooseCanonicalCoach}
-            </legend>
-            {selected.map((coach) => (
-              <CoachReviewCard
-                key={coach.id}
-                coach={coach}
-                evidence={evidence[coach.id]}
-                messages={messages}
-                teamName={teamName}
-                checked={canonicalId === coach.id}
-                recommended={recommendedId === coach.id}
-                disabled={
-                  Object.values(evidence).filter(
-                    ({ hasProtectedHistory }) => hasProtectedHistory,
-                  ).length === 1 && !evidence[coach.id]?.hasProtectedHistory
-                }
-                onChange={() => {
-                  setCanonicalId(coach.id);
-                  setPlan(null);
-                  setAction(null);
-                  setPreviewToken("");
-                }}
-              />
-            ))}
-          </fieldset>
-          {!plan ? (
+          {!busy && !evidenceReady ? (
+            <button
+              className="button-secondary min-h-11 w-fit px-4"
+              type="button"
+              onClick={() => void beginReview(selected, canonicalId, origin)}
+            >
+              {messages.retryIdentityEvidence}
+            </button>
+          ) : null}
+          {evidenceReady ? (
+            <fieldset className="grid gap-4 sm:grid-cols-2">
+              <legend className="mb-3 font-bold">
+                {messages.chooseCanonicalCoach}
+              </legend>
+              {selected.map((coach) => (
+                <CoachReviewCard
+                  key={coach.id}
+                  coach={coach}
+                  evidence={evidence[coach.id]}
+                  messages={messages}
+                  teamName={teamName}
+                  checked={canonicalId === coach.id}
+                  recommended={recommendedId === coach.id}
+                  disabled={
+                    Object.values(evidence).filter(
+                      ({ hasProtectedHistory }) => hasProtectedHistory,
+                    ).length === 1 && !evidence[coach.id]?.hasProtectedHistory
+                  }
+                  onChange={() => {
+                    setCanonicalId(coach.id);
+                    setPlan(null);
+                    setAction(null);
+                    setPreviewToken("");
+                  }}
+                />
+              ))}
+            </fieldset>
+          ) : null}
+          {evidenceReady && !plan ? (
             <div className="flex flex-wrap gap-3">
               <button
                 className="button-primary min-h-11 px-4"
@@ -604,7 +642,7 @@ export function AdminCoachIdentityReconciliation({
                 {messages.reviewLater}
               </button>
             </div>
-          ) : (
+          ) : evidenceReady && plan ? (
             <div className="grid gap-4">
               <p className="game-inset p-4" role="status">
                 <strong>{statusLabel(messages, plan.status)}</strong>
@@ -643,7 +681,7 @@ export function AdminCoachIdentityReconciliation({
                 </form>
               ) : null}
             </div>
-          )}
+          ) : null}
         </section>
       )}
       {error ? (
