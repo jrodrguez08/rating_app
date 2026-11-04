@@ -1,19 +1,22 @@
 import type { Metadata } from "next";
 
+import { defaultLocale, openGraphLocales, type Locale } from "@/i18n/config";
+import { getMessages } from "@/i18n/messages";
+
+import { clubPath, resolveClub } from "./club";
+
 const PRODUCTION_SITE_URL = "https://rating-app-amber.vercel.app";
 
 export const siteIdentity = {
   name: "Rating App",
   description:
     "Calificaciones de la afición para los protagonistas de cada partido.",
-  socialDescription:
-    "La voz de la afición en cada partido. Piloto para seguidores del Herediano.",
-  socialImageAlt:
-    "Rating App, calificaciones de la afición en el contexto del Herediano",
+  socialDescription: "La voz de la afición en cada partido.",
+  socialImageAlt: "Rating App, calificaciones de la afición",
   themeColor: "#101113",
   backgroundColor: "#101113",
-  primaryColor: "#b20d24",
-  accentColor: "#f5c518",
+  primaryColor: "#36475c",
+  accentColor: "#d1e0f0",
 } as const;
 
 export function resolveSiteUrl(
@@ -43,28 +46,47 @@ export const siteUrl = resolveSiteUrl();
 export function buildPageMetadata(
   pathname: string,
   overrides: Pick<Metadata, "title" | "description"> = {},
+  locale: Locale = defaultLocale,
 ): Metadata {
-  const title = overrides.title ?? siteIdentity.name;
+  const club = resolveClub(pathname.split("/")[1] ?? "");
+  const suppliedTitle = overrides.title ?? siteIdentity.name;
+  const title =
+    club &&
+    typeof suppliedTitle === "string" &&
+    !suppliedTitle.includes(club.displayName)
+      ? `${suppliedTitle} | ${club.displayName}`
+      : suppliedTitle;
   const description = overrides.description ?? siteIdentity.socialDescription;
+  const imagePath = club ? clubPath(club, "/social-card") : undefined;
 
   return {
     ...overrides,
+    title,
+    description,
     alternates: { canonical: pathname },
     openGraph: {
       type: "website",
-      locale: "es_CR",
+      locale: openGraphLocales[locale],
       url: pathname,
       siteName: siteIdentity.name,
       title,
       description,
-      images: [
-        {
-          url: "/social-card",
-          width: 1200,
-          height: 630,
-          alt: siteIdentity.socialImageAlt,
-        },
-      ],
+      images: imagePath
+        ? [
+            {
+              url: imagePath,
+              width: 1200,
+              height: 630,
+              alt: getMessages(locale).metadata.socialImageAlt,
+            },
+          ]
+        : [],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description,
+      images: imagePath ? [imagePath] : [],
     },
   };
 }

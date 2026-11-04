@@ -56,7 +56,7 @@ describe("admin Coach identity reconciliation", () => {
     );
     await waitFor(() => expect(screen.getByText(/audit-coach/)).toBeVisible());
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/admin/coach-identities/apply",
+      "/api/admin/coach-identities/apply?club=herediano",
       expect.objectContaining({
         body: expect.stringContaining('"confirmed":true'),
       }),
@@ -141,6 +141,7 @@ function renderComponent() {
     <AdminCoachIdentityReconciliation
       messages={messages}
       teamName="Club Sport Herediano"
+      teamId="club-sport-herediano"
     />,
   );
 }
@@ -166,7 +167,7 @@ function apiMock(
   ]);
   return vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const path = String(input);
-    if (path.endsWith("/suggestions")) return response(suggestionResult);
+    if (path.includes("/suggestions?")) return response(suggestionResult);
     if (path.includes("/api/admin/coach-identities?")) {
       return response({
         coaches: [
@@ -175,7 +176,7 @@ function apiMock(
         ],
       });
     }
-    if (path.endsWith("/preview")) {
+    if (path.includes("/preview?")) {
       previewCount += 1;
       if (previewCount === failPreviewAt) {
         return response({ error: "Revise el historial protegido" }, 409);
@@ -208,8 +209,8 @@ function apiMock(
         },
       });
     }
-    if (path.endsWith("/authorize")) return response({ authorized: true });
-    if (path.endsWith("/apply")) return response({ auditId: "audit-coach" });
+    if (path.includes("/authorize?")) return response({ authorized: true });
+    if (path.includes("/apply?")) return response({ auditId: "audit-coach" });
     throw new Error(`Unexpected request ${path}`);
   });
 }

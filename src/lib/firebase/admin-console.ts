@@ -1,7 +1,6 @@
 import { Timestamp, type Firestore } from "firebase-admin/firestore";
 
 import { CURRENT_MATCH_GRACE_MS } from "@/application/public-match-selection";
-import { initialClub } from "@/config/club";
 import type {
   AdminLineupDraft,
   Coach,
@@ -19,6 +18,13 @@ import {
   getVotingWindowState,
 } from "@/domain/voting-window";
 import { getServerFirestore } from "@/lib/firebase/server";
+import {
+  searchIndexedCoaches,
+  type CoachIndexReadObserver,
+  type CoachSearchPage,
+  type CoachSearchScope,
+  type IndexedCoachOption,
+} from "@/lib/firebase/coach-search-index";
 import {
   searchIndexedTeamPlayers,
   type TeamPlayerIndexObserver,
@@ -71,12 +77,7 @@ export interface AdminMatchOperation {
   >;
 }
 
-export interface AdminCoachOption {
-  id: string;
-  name: string;
-  provenance: Coach["identityProvenance"];
-  externalProviderId?: string;
-}
+export type AdminCoachOption = IndexedCoachOption;
 
 export interface AdminOverview {
   upcomingLiveMatches: AdminMatchOperation[];
@@ -117,7 +118,7 @@ export interface AdminMatchDetail {
   match: AdminMatchOperation;
   participants: AdminParticipantEvidence[];
   players: AdminPlayerOption[];
-  coaches?: AdminCoachOption[];
+  currentCoach?: AdminCoachOption;
   draft?: AdminLineupDraft;
   reconciliation?: VerifiedLineupReconciliation;
   manualVotingAvailability:
@@ -207,9 +208,10 @@ export class AdminConsoleService {
     private readonly database: Firestore = getServerFirestore(),
     private readonly observePlayerIndexRead?: TeamPlayerIndexObserver,
     private readonly now: () => Date = () => new Date(),
+    private readonly observeCoachIndexRead?: CoachIndexReadObserver,
   ) {}
 
-  async overview(): Promise<AdminOverview> {
+  async overview(teamId: string): Promise<AdminOverview> {
     const now = this.now();
     const currentMatchThreshold = Timestamp.fromMillis(
       now.getTime() - CURRENT_MATCH_GRACE_MS,
@@ -223,7 +225,7 @@ export class AdminConsoleService {
       attentionSnapshot,
     ] = await Promise.all([
       matches
-        .where("trackedTeamId", "==", initialClub.teamId)
+        .where("trackedTeamId", "==", teamId)
         .where("status", "==", "live")
         .where("ratingState", "in", ["not_ready", "preparing_rating"])
         .where("kickoffAt", ">=", currentMatchThreshold)
@@ -231,7 +233,7 @@ export class AdminConsoleService {
         .limit(PREPARATION_MATCH_LIMIT)
         .get(),
       matches
-        .where("trackedTeamId", "==", initialClub.teamId)
+        .where("trackedTeamId", "==", teamId)
         .where("status", "==", "scheduled")
         .where("ratingState", "in", ["not_ready", "preparing_rating"])
         .where("kickoffAt", ">=", currentMatchThreshold)
@@ -239,19 +241,19 @@ export class AdminConsoleService {
         .limit(PREPARATION_MATCH_LIMIT)
         .get(),
       matches
-        .where("trackedTeamId", "==", initialClub.teamId)
+        .where("trackedTeamId", "==", teamId)
         .where("ratingState", "==", "rating_ready")
         .orderBy("kickoffAt", "desc")
         .limit(PREPARATION_MATCH_LIMIT)
         .get(),
       matches
-        .where("trackedTeamId", "==", initialClub.teamId)
+        .where("trackedTeamId", "==", teamId)
         .where("ratingState", "==", "rating_closed")
         .orderBy("kickoffAt", "desc")
         .limit(PREPARATION_MATCH_LIMIT)
         .get(),
       matches
-        .where("trackedTeamId", "==", initialClub.teamId)
+        .where("trackedTeamId", "==", teamId)
         .where("status", "==", "finished")
         .where("ratingState", "==", "preparing_rating")
         .orderBy("kickoffAt", "desc")
@@ -313,33 +315,28 @@ export class AdminConsoleService {
 
   async detail(
     matchId: string,
+    teamId: string,
     ownerId?: string,
   ): Promise<AdminMatchDetail | null> {
     const matchSnapshot = await this.database.doc(`matches/${matchId}`).get();
     if (!matchSnapshot.exists) return null;
     const match = fromSnapshot<Match>(matchSnapshot);
-    if (match.trackedTeamId !== initialClub.teamId) return null;
+    if (match.trackedTeamId !== teamId) return null;
     const [
       participantSnapshot,
       verifiedSnapshot,
       metadataSnapshot,
       draftSnapshot,
       reconciliationSnapshot,
-      coachesSnapshot,
     ] = await Promise.all([
       this.database.collection(`matches/${matchId}/participants`).get(),
       this.database.doc(`matches/${matchId}/verifiedLineups/current`).get(),
-      this.database.doc(`footballSyncMetadata/${initialClub.teamId}`).get(),
+      this.database.doc(`footballSyncMetadata/${teamId}`).get(),
       ownerId
         ? this.database.doc(`matches/${matchId}/lineupDrafts/${ownerId}`).get()
         : Promise.resolve(undefined),
       this.database
         .doc(`matches/${matchId}/lineupReconciliations/provider`)
-        .get(),
-      this.database
-        .collection("coaches")
-        .orderBy("updatedAt", "desc")
-        .limit(100)
         .get(),
     ]);
     const persistedParticipants = participantSnapshot.docs.map((snapshot) =>
@@ -415,6 +412,15 @@ export class AdminConsoleService {
       }
     }
     const describedMatch = await this.describeMatch(match);
+    const currentCoachId =
+      describedMatch.assignment?.coachId ??
+      describedMatch.verification?.coachId;
+    const currentCoachSnapshot = currentCoachId
+      ? await this.database.doc(`coaches/${currentCoachId}`).get()
+      : undefined;
+    const currentCoach = currentCoachSnapshot?.exists
+      ? fromSnapshot<Coach>(currentCoachSnapshot)
+      : undefined;
     const metadata = metadataSnapshot.data();
     const reconciliation = reconciliationSnapshot.exists
       ? fromSnapshot<VerifiedLineupReconciliation>(reconciliationSnapshot)
@@ -496,17 +502,25 @@ export class AdminConsoleService {
             (player.externalProviderId ? "provider" : "operator_verified"),
         }))
         .sort((left, right) => left.name.localeCompare(right.name, "es")),
-      coaches: coachesSnapshot.docs.map((snapshot) => {
-        const coach = fromSnapshot<Coach>(snapshot);
-        return {
-          id: coach.id,
-          name: coach.displayName,
-          provenance: coach.identityProvenance ?? "provider",
-          ...(coach.externalProviderId
-            ? { externalProviderId: coach.externalProviderId }
-            : {}),
-        };
-      }),
+      ...(currentCoach
+        ? {
+            currentCoach: {
+              id: currentCoach.id,
+              name: currentCoach.displayName,
+              provenance:
+                currentCoach.identityProvenance ??
+                (currentCoach.externalProviderId
+                  ? "provider"
+                  : "operator_verified"),
+              ...(currentCoach.externalProviderId
+                ? { externalProviderId: currentCoach.externalProviderId }
+                : {}),
+              ...(currentCoach.photoUrl
+                ? { photoUrl: currentCoach.photoUrl }
+                : {}),
+            },
+          }
+        : {}),
       ...(draft ? { draft } : {}),
       ...(reconciliation ? { reconciliation } : {}),
       manualVotingAvailability: manualVotingAvailability(
@@ -516,7 +530,35 @@ export class AdminConsoleService {
     };
   }
 
+  async searchCoaches(
+    matchId: string,
+    teamId: string,
+    externalFixtureId: string,
+    scope: CoachSearchScope,
+    query: string,
+    cursor?: string,
+  ): Promise<CoachSearchPage | null> {
+    const snapshot = await this.database.doc(`matches/${matchId}`).get();
+    if (!snapshot.exists) return null;
+    const match = fromSnapshot<Match>(snapshot);
+    if (
+      match.trackedTeamId !== teamId ||
+      match.externalProviderFixtureId !== externalFixtureId
+    ) {
+      return null;
+    }
+    return searchIndexedCoaches(
+      this.database,
+      teamId,
+      scope,
+      query,
+      cursor,
+      this.observeCoachIndexRead,
+    );
+  }
+
   async searchPlayers(
+    teamId: string,
     query: string,
     cursor?: string,
   ): Promise<AdminPlayerSearchPage> {
@@ -525,7 +567,7 @@ export class AdminConsoleService {
     }
     const page = await searchIndexedTeamPlayers(
       this.database,
-      initialClub.teamId,
+      teamId,
       query,
       cursor,
       this.observePlayerIndexRead,

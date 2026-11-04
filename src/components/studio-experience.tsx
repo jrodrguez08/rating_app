@@ -7,6 +7,7 @@ import type {
   StudioMatchOption,
   StudioMatchPresentation,
 } from "@/application/studio";
+import { clubPath, type Club } from "@/config/club";
 import type { Locale } from "@/i18n/config";
 import { formatDate } from "@/i18n/format";
 import type { Messages } from "@/i18n/messages";
@@ -14,12 +15,14 @@ import type { Messages } from "@/i18n/messages";
 import { StudioBoard, type StudioView } from "./studio-board";
 
 export function StudioExperience({
+  club,
   presentation,
   matches,
   overlayUrl,
   locale,
   messages,
 }: {
+  club: Club;
   presentation: StudioMatchPresentation;
   matches: StudioMatchOption[];
   overlayUrl: string;
@@ -106,7 +109,7 @@ export function StudioExperience({
               value={presentation.match.id}
               onChange={(event) =>
                 router.push(
-                  `/studio?match=${encodeURIComponent(event.target.value)}`,
+                  `${clubPath(club, "/studio")}?match=${encodeURIComponent(event.target.value)}`,
                 )
               }
             >
@@ -175,6 +178,7 @@ export function StudioExperience({
           </button>
         </div>
         <StudioBoard
+          club={club}
           presentation={presentation}
           locale={locale}
           messages={messages}

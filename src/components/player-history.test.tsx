@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { PlayerCatalogEntry } from "@/application/player-history";
+import { initialClub } from "@/config/club";
 import { getMessages } from "@/i18n/messages";
 
 import { PlayerCatalogView, PlayerProfile } from "./player-history";
@@ -12,6 +13,7 @@ describe("player history UI", () => {
   it("renders ranked and unranked catalog entries as stable profile links", () => {
     render(
       <PlayerCatalogView
+        club={initialClub}
         catalog={{
           rankingMinimumMatches: 2,
           rankingPriorMatchWeight: 3,
@@ -36,7 +38,7 @@ describe("player history UI", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Rated Player/ })).toHaveAttribute(
       "href",
-      "/players/player-1",
+      "/herediano/players/player-1",
     );
     expect(screen.getAllByText(/Not ranked yet/)).not.toHaveLength(0);
     expect(screen.getByText("Ranking score")).toBeInTheDocument();
@@ -47,6 +49,7 @@ describe("player history UI", () => {
   it("keeps official order visible when displayed ranking scores round equally", () => {
     render(
       <PlayerCatalogView
+        club={initialClub}
         catalog={{
           rankingMinimumMatches: 2,
           rankingPriorMatchWeight: 3,
@@ -69,6 +72,7 @@ describe("player history UI", () => {
   it("renders persisted position and photo, then falls back deterministically on failure", () => {
     render(
       <PlayerCatalogView
+        club={initialClub}
         catalog={{
           rankingMinimumMatches: 2,
           rankingPriorMatchWeight: 3,
@@ -98,6 +102,7 @@ describe("player history UI", () => {
     const longName = "A Very Long Canonical Player Name That Must Wrap";
     render(
       <PlayerCatalogView
+        club={initialClub}
         catalog={{
           rankingMinimumMatches: 2,
           rankingPriorMatchWeight: 3,
@@ -118,6 +123,7 @@ describe("player history UI", () => {
   it("uses initials when a photo is missing and localizes profile position", () => {
     render(
       <PlayerProfile
+        club={initialClub}
         player={player({ playerName: "Orlando", position: "attacker" })}
         locale="en"
         messages={messages}
@@ -130,6 +136,7 @@ describe("player history UI", () => {
   it("renders one-match history without a misleading trend and links to results", () => {
     render(
       <PlayerProfile
+        club={initialClub}
         player={player({ rank: null, ratedMatchCount: 1 })}
         locale="en"
         messages={messages}
@@ -141,7 +148,7 @@ describe("player history UI", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /View results/ })).toHaveAttribute(
       "href",
-      "/matches/match-1/results",
+      "/herediano/matches/match-1/results",
     );
     expect(screen.getByText("vs Opponent")).toBeInTheDocument();
     expect(
@@ -157,6 +164,7 @@ describe("player history UI", () => {
     const spanish = getMessages("es").players;
     render(
       <PlayerProfile
+        club={initialClub}
         player={player({
           ratedMatchCount: 6,
           trend: {
@@ -184,6 +192,7 @@ describe("player history UI", () => {
   it("renders a known-player empty state", () => {
     render(
       <PlayerProfile
+        club={initialClub}
         player={player({
           overallAverage: null,
           recentRating: null,
@@ -204,6 +213,7 @@ describe("player history UI", () => {
   it("renders the fixed rating scale, guides, and accessible match points", () => {
     render(
       <PlayerProfile
+        club={initialClub}
         player={player({
           ratedMatchCount: 2,
           history: [
@@ -252,6 +262,7 @@ describe("player history UI", () => {
     ).reverse();
     render(
       <PlayerProfile
+        club={initialClub}
         player={player({ ratedMatchCount: 8, history: denseHistory })}
         locale="en"
         messages={messages}

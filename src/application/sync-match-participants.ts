@@ -128,7 +128,8 @@ export async function syncMatchParticipants(
     } catch (error) {
       if (
         !(error instanceof ProviderError) ||
-        error.code !== "lineup-unavailable" ||
+        (error.code !== "lineup-unavailable" &&
+          error.code !== "lineup-incomplete") ||
         verifiedLineup === null
       ) {
         throw error;
@@ -214,7 +215,8 @@ export async function syncMatchParticipants(
           };
   }
   if (context === null) {
-    throw new Error(
+    throw new ProviderError(
+      "lineup-unavailable",
       `No usable lineup has been observed for fixture ${match.externalProviderFixtureId}; retry after provider cache propagation.`,
     );
   }
@@ -234,7 +236,7 @@ export async function syncMatchParticipants(
     const substituteCount = trackedParticipants.length - starterCount;
     if (starterCount !== 11 || substituteCount === 0) {
       throw new ProviderError(
-        "lineup-unavailable",
+        "lineup-incomplete",
         `Tracked Team lineup for fixture ${match.externalProviderFixtureId} is incomplete (${starterCount} starters, ${substituteCount} substitutes).`,
       );
     }

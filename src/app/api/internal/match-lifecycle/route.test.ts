@@ -19,6 +19,49 @@ beforeEach(() => {
 });
 
 describe("POST /api/internal/match-lifecycle", () => {
+  it("keeps Saprissa disabled before provider configuration and runs only when enabled", async () => {
+    vi.stubEnv("CRON_SECRET", "correct-secret");
+    const request = () =>
+      new Request("http://local.test?club=saprissa", {
+        method: "POST",
+        headers: { authorization: "Bearer correct-secret" },
+      });
+    const disabled = await POST(request());
+    await expect(disabled.json()).resolves.toEqual({
+      action: "disabled",
+      club: "saprissa",
+      providerRequests: 0,
+    });
+    expect(mocks.run).not.toHaveBeenCalled();
+    vi.stubEnv("SAPRISSA_SCHEDULED_ENABLED", "true");
+    vi.stubEnv("API_FOOTBALL_KEY", "provider-secret");
+    await POST(request());
+    expect(mocks.run).toHaveBeenCalledWith(
+      "deportivo-saprissa",
+      expect.anything(),
+      "provider-secret",
+      undefined,
+      expect.anything(),
+    );
+  });
+
+  it("rejects malformed or unknown targets before any provider work", async () => {
+    vi.stubEnv("CRON_SECRET", "correct-secret");
+    for (const query of [
+      "club=unknown",
+      "club=saprissa&club=herediano",
+      "team=816",
+    ]) {
+      const response = await POST(
+        new Request(`http://local.test?${query}`, {
+          method: "POST",
+          headers: { authorization: "Bearer correct-secret" },
+        }),
+      );
+      expect(response.status).toBe(400);
+    }
+    expect(mocks.run).not.toHaveBeenCalled();
+  });
   it("rejects missing and incorrect secrets", async () => {
     vi.stubEnv("CRON_SECRET", "correct-secret");
     expect(
@@ -80,6 +123,7 @@ describe("POST /api/internal/match-lifecycle", () => {
 
     await expect(response.json()).resolves.toEqual({
       action: "preparing_rating",
+      club: "herediano",
       matchId: "match-1",
       providerRequests: 2,
       reason:

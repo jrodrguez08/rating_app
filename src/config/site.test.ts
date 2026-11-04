@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveSiteUrl } from "./site";
+import { buildPageMetadata, resolveSiteUrl, siteIdentity } from "./site";
 
 describe("canonical site URL", () => {
   it("uses the explicit production origin without following a preview host", () => {
@@ -24,5 +24,22 @@ describe("canonical site URL", () => {
     expect(() => resolveSiteUrl({ NEXT_PUBLIC_SITE_URL: value })).toThrow(
       /HTTPS origin/,
     );
+  });
+});
+
+describe("club-scoped metadata", () => {
+  it("keeps root branding neutral and distinguishes the same subroute by club", () => {
+    expect(buildPageMetadata("/").title).toBe(siteIdentity.name);
+    const herediano = buildPageMetadata("/herediano/players", {
+      title: "Jugadores",
+    });
+    const saprissa = buildPageMetadata("/saprissa/players", {
+      title: "Jugadores",
+    });
+    expect(herediano.title).toBe("Jugadores | Club Sport Herediano");
+    expect(saprissa.title).toBe("Jugadores | Deportivo Saprissa");
+    expect(herediano.openGraph?.url).toBe("/herediano/players");
+    expect(saprissa.openGraph?.url).toBe("/saprissa/players");
+    expect(herediano.openGraph?.images).not.toEqual(saprissa.openGraph?.images);
   });
 });

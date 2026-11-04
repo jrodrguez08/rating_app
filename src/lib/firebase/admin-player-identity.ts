@@ -713,6 +713,7 @@ export class AdminPlayerIdentityService {
       transaction.create(auditReference, {
         operatorUid: input.operatorId,
         action: "player_identity_apply",
+        trackedTeamId: input.trackedTeamId,
         resourceId: adminPlayerIdentityResourceId(input),
         firstPlayerId: input.firstPlayerId,
         secondPlayerId: input.secondPlayerId,

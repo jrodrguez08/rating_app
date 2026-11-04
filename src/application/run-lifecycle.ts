@@ -83,10 +83,14 @@ export async function runConfiguredLifecycle(
     await store.completeLifecycleExecution?.(teamId, attemptId, {
       action: "retryable_error",
       providerRequests: provider.requestCount,
+      failed: true,
     });
     throw error;
   }
-  await store.completeLifecycleExecution?.(teamId, attemptId, result);
+  await store.completeLifecycleExecution?.(teamId, attemptId, {
+    ...result,
+    failed: result.failed === true || result.action === "retryable_error",
+  });
   const notificationOutcome =
     result.matchId === undefined || notification === undefined
       ? undefined
@@ -101,7 +105,7 @@ export async function runConfiguredLifecycle(
   return {
     ...result,
     executionStatus:
-      result.action === "retryable_error"
+      result.failed === true || result.action === "retryable_error"
         ? ("failed" as const)
         : ("completed" as const),
     executionAttemptId: attemptId,

@@ -1,8 +1,20 @@
 export const esMessages = {
+  clubs: {
+    choose: "Elige el club que quieres seguir.",
+    comingSoon: "La cobertura de este club estará disponible próximamente.",
+    unavailable: {
+      status: "Próximamente",
+      title: "Cobertura en preparación",
+      description:
+        "Todavía no hay partidos ni votaciones disponibles para este club.",
+      privacy: "Los resultados aparecerán cuando la cobertura esté disponible.",
+    },
+  },
   metadata: {
     title: "Rating App",
     description:
       "Calificaciones de aficionados para los jugadores y entrenadores que marcaron el partido.",
+    socialImageAlt: "Rating App, calificaciones de la afición",
   },
   common: {
     language: "Idioma",
@@ -307,6 +319,22 @@ export const esMessages = {
     },
   },
   results: {
+    metadata: {
+      title:
+        "{club} | {home} {score} {away} | La afición eligió sus mejores jugadores",
+      description:
+        "Resultados publicados de {club} en {home} vs {away}: marcador {score} y los jugadores mejor calificados por la afición.",
+      imageAlt: "Podio de {club} en {home} vs {away}, {score}",
+    },
+    image: {
+      podiumHeading: "LOS MEJORES DEL PARTIDO",
+      openGraphHeading: "LA AFICIÓN ELIGIÓ",
+      viewResults: "VER RESULTADOS COMPLETOS",
+      tableHeading: "Calificaciones del partido",
+      player: "JUGADOR",
+      rating: "NOTA",
+      tableFooter: "Calificaciones de la afición",
+    },
     eyebrow: "Resultados de la comunidad",
     title: "Resultados del partido",
     versus: "VS",
@@ -483,6 +511,10 @@ export const esMessages = {
     signingOut: "Cerrando sesión…",
     unavailable: "La consola administrativa no está configurada.",
     adminActions: "Acciones de la consola",
+    clubSelection: "Seleccionar club para administrar",
+    selectedClub: "Club seleccionado",
+    clubNotPrepared:
+      "Este club todavía no está preparado. La consola no crea datos ni inicia la sincronización al abrirse.",
     openVotingSection: "Votaciones abiertas",
     preparationSection: "Próximos partidos y en preparación",
     reviewSection: "Partidos por revisar",
@@ -659,6 +691,23 @@ export const esMessages = {
     },
     coach: "Director técnico",
     existingCoach: "Seleccionar director existente",
+    coachSearch: "Buscar director técnico por nombre",
+    coachSearchHelp:
+      "Primero aparecen directores vinculados a este club. La búsqueda admite nombres sin tildes y comienzos de palabras.",
+    coachScope: "Origen de candidatos",
+    coachScopeTeam: "Vinculados a este club",
+    coachScopeUnassociated: "Sin vínculo registrado",
+    coachUnassociatedHelp:
+      "Escriba al menos dos caracteres. Un director sin vínculo registrado requiere verificación independiente para este partido.",
+    coachSearchButton: "Buscar directores",
+    coachSearching: "Buscando directores…",
+    coachLoadMore: "Cargar más directores",
+    coachNoResults: "No hay directores en esta página de resultados.",
+    coachSelected: "Director seleccionado",
+    coachCandidateProvider: "Identidad de API-Football",
+    coachCandidateManual: "Identidad creada manualmente",
+    assignmentCoachSearchError:
+      "No fue posible consultar el catálogo de directores.",
     passphrase: "Frase de autorización",
     authorize: "Autorizar operación",
     authorizationSuccess:
@@ -932,8 +981,9 @@ export const esMessages = {
     supporting: "Creado para aficionados. Listo para crecer club por club.",
   },
   operatorNotification: {
-    subject: "Votaci\u00f3n abierta: {home} vs. {away}",
-    intro: "La votaci\u00f3n ya est\u00e1 abierta para {home} vs. {away}.",
+    subject: "{club}: votaci\u00f3n abierta para {home} vs. {away}",
+    intro:
+      "La votaci\u00f3n de {club} ya est\u00e1 abierta para {home} vs. {away}.",
     score: "Marcador: {score}",
     scoreUnavailable: "No disponible",
     matchId: "ID del partido: {matchId}",

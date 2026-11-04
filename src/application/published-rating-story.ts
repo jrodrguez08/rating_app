@@ -2,6 +2,7 @@ import type {
   PublishedPodiumPlayer,
   PublishedResultPodium,
 } from "@/application/published-result-podium";
+import type { Locale } from "@/i18n/config";
 
 export const RATING_STORY_PLAYERS_PER_PAGE = 16;
 
@@ -31,10 +32,13 @@ export function buildPublishedRatingStoryPages(
 }
 
 export function publishedRatingStoryFilename(
+  clubSlug: string,
   matchId: string,
   page: number,
   pageCount: number,
+  locale: Locale = "es",
 ): string {
+  const safeClubSlug = clubSlug.replace(/[^a-zA-Z0-9_-]/g, "-");
   const safeMatchId = matchId.replace(/[^a-zA-Z0-9_-]/g, "-");
-  return `rating-app-${safeMatchId}-calificaciones-${page}-de-${pageCount}.png`;
+  return `rating-app-${safeClubSlug}-${safeMatchId}-${locale}-calificaciones-${page}-de-${pageCount}.png`;
 }

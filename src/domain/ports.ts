@@ -223,6 +223,7 @@ export interface MatchLifecycleStore extends FootballSyncStore {
       action: string;
       matchId?: string;
       providerRequests: number;
+      failed?: boolean;
     },
   ): Promise<void>;
 }
@@ -240,6 +241,7 @@ export type LifecycleExecutionClaim =
 
 export interface VotingWindowNotificationContext {
   matchId: string;
+  trackedTeamId: string;
   windowSequence: number;
   homeTeamName: string;
   awayTeamName: string;

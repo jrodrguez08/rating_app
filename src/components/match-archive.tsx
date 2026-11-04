@@ -7,6 +7,7 @@ import type {
   MatchArchive,
   MatchArchiveItem,
 } from "@/application/match-archive";
+import { matchPath, type Club } from "@/config/club";
 import { getTeamBadgePresentation } from "@/config/team-badges";
 import type { Match } from "@/domain/models";
 import type { Locale } from "@/i18n/config";
@@ -22,12 +23,14 @@ type MatchMessages = Messages["matches"];
 type BallotMessages = Messages["home"]["matchLifecycle"]["ready"];
 
 export function MatchArchiveView({
+  club,
   archive,
   locale,
   messages,
   ballotMessages,
   now = new Date(),
 }: {
+  club: Club;
   archive: MatchArchive;
   locale: Locale;
   messages: MatchMessages;
@@ -78,6 +81,7 @@ export function MatchArchiveView({
             {messages.featured}
           </h2>
           <MatchCard
+            club={club}
             item={archive.relevant}
             locale={locale}
             messages={messages}
@@ -145,6 +149,7 @@ export function MatchArchiveView({
           className="mt-4 focus-visible:outline-none"
         >
           <ArchiveItems
+            club={club}
             empty={selected.empty}
             items={selected.items}
             locale={locale}
@@ -163,6 +168,7 @@ function ArchiveItems({
   items,
   ...props
 }: {
+  club: Club;
   empty: string;
   items: MatchArchiveItem[];
   locale: Locale;
@@ -186,6 +192,7 @@ function ArchiveItems({
 }
 
 export function MatchCard({
+  club,
   item,
   locale,
   messages,
@@ -193,6 +200,7 @@ export function MatchCard({
   now,
   featured = false,
 }: {
+  club: Club;
   item: MatchArchiveItem;
   locale: Locale;
   messages: MatchMessages;
@@ -201,7 +209,7 @@ export function MatchCard({
   featured?: boolean;
 }) {
   const { match } = item;
-  const presentation = matchPresentation(item, messages, now);
+  const presentation = matchPresentation(club, item, messages, now);
   return (
     <article
       className={`card overflow-hidden ${featured ? "border-accent" : ""}`}
@@ -236,6 +244,7 @@ export function MatchCard({
           ) : null}
         </div>
         <MatchAction
+          club={club}
           item={item}
           presentation={presentation}
           messages={messages}
@@ -247,12 +256,14 @@ export function MatchCard({
 }
 
 function CompactMatchCard({
+  club,
   item,
   locale,
   messages,
   ballotMessages,
   now,
 }: {
+  club: Club;
   item: MatchArchiveItem;
   locale: Locale;
   messages: MatchMessages;
@@ -260,7 +271,7 @@ function CompactMatchCard({
   now: Date;
 }) {
   const { match } = item;
-  const presentation = matchPresentation(item, messages, now);
+  const presentation = matchPresentation(club, item, messages, now);
   const showScore =
     match.status === "finished" &&
     match.score.home !== null &&
@@ -303,6 +314,7 @@ function CompactMatchCard({
         />
       ) : null}
       <MatchAction
+        club={club}
         item={item}
         presentation={presentation}
         messages={messages}
@@ -314,12 +326,14 @@ function CompactMatchCard({
 }
 
 function MatchAction({
+  club,
   item,
   presentation,
   messages,
   ballotMessages,
   compact = false,
 }: {
+  club: Club;
   item: MatchArchiveItem;
   presentation: ReturnType<typeof matchPresentation>;
   messages: MatchMessages;
@@ -329,6 +343,7 @@ function MatchAction({
   if ("ballotAware" in presentation && presentation.ballotAware) {
     return (
       <BallotEntry
+        club={club}
         matchId={item.match.id}
         messages={ballotMessages}
         compact={compact}
@@ -337,7 +352,7 @@ function MatchAction({
   }
   return (
     <Link
-      href={presentation.href ?? `/matches/${item.match.id}`}
+      href={presentation.href ?? matchPath(club, item.match.id)}
       className={
         compact
           ? "mt-2 inline-flex min-h-11 items-center font-bold text-accent underline decoration-2 underline-offset-4"

@@ -1,10 +1,10 @@
 import {
-  FieldPath,
   Timestamp,
   type DocumentData,
   type Firestore,
 } from "firebase-admin/firestore";
 
+import { coachWithSearchIndex } from "@/application/coach-search";
 import {
   proposedCoachProviderAlias,
   resolvePersistedCoachProviderAlias,
@@ -20,6 +20,7 @@ import type {
 } from "@/domain/models";
 import { normalizePlayerSearch } from "@/domain/player-search";
 import { getServerFirestore } from "@/lib/firebase/server";
+import { searchIndexedCoaches } from "@/lib/firebase/coach-search-index";
 import { adminChallengeDocumentId } from "@/lib/server/admin-coach-action";
 import {
   adminCoachIdentityAuditId,
@@ -29,8 +30,6 @@ import {
   type AdminCoachIdentityAction,
 } from "@/lib/server/admin-coach-identity-action";
 
-const PAGE_SIZE = 20;
-const MAX_CATALOG_SCAN = 200;
 const MAX_PROVENANCE_COACHES = 100;
 const MAX_PAIR_ASSIGNMENTS = 200;
 const MAX_SUGGESTIONS = 12;
@@ -42,7 +41,7 @@ export interface CoachIdentityOption {
   identityProvenance: "provider" | "operator_verified";
   photoUrl?: string;
   teamCount: number;
-  matchCount: number;
+  matchCount?: number;
 }
 
 export interface CoachIdentitySuggestion {
@@ -117,46 +116,31 @@ export class AdminCoachIdentityCommitError extends Error {
 export class AdminCoachIdentityService {
   constructor(private readonly database: Firestore = getServerFirestore()) {}
 
-  async search(query: string, cursor?: string): Promise<CoachSearchResult> {
-    const normalizedQuery = normalizePlayerSearch(query);
-    let scanned = 0;
-    let after = cursor;
-    const coaches: Coach[] = [];
-    let exhausted = false;
-    while (coaches.length < PAGE_SIZE && scanned < MAX_CATALOG_SCAN) {
-      let request = this.database
-        .collection("coaches")
-        .orderBy(FieldPath.documentId())
-        .limit(PAGE_SIZE + 1);
-      if (after) request = request.startAfter(after);
-      const snapshot = await request.get();
-      const page = snapshot.docs.slice(0, PAGE_SIZE);
-      scanned += page.length;
-      for (const document of page) {
-        const coach = fromSnapshot<Coach>(document);
-        if (
-          !normalizedQuery ||
-          normalizePlayerSearch(coach.displayName).includes(normalizedQuery)
-        ) {
-          coaches.push(coach);
-        }
-      }
-      after = page.at(-1)?.id;
-      exhausted = snapshot.size <= PAGE_SIZE;
-      if (exhausted || page.length === 0) break;
-    }
-    const associations = await this.loadAssociations(
-      coaches.map(({ id }) => id),
+  async search(
+    teamId: string,
+    query: string,
+    cursor?: string,
+  ): Promise<CoachSearchResult> {
+    const page = await searchIndexedCoaches(
+      this.database,
+      teamId,
+      "identity",
+      query,
+      cursor,
     );
     return {
-      coaches: coaches
-        .slice(0, PAGE_SIZE)
-        .map((coach) => option(coach, associations.get(coach.id) ?? [])),
-      ...(!exhausted && after ? { nextCursor: after } : {}),
+      coaches: page.coaches.map((coach) => ({
+        id: coach.id,
+        name: coach.name,
+        identityProvenance: coach.provenance,
+        ...(coach.photoUrl ? { photoUrl: coach.photoUrl } : {}),
+        teamCount: coach.teamCount ?? 0,
+      })),
+      ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
     };
   }
 
-  async suggestions(): Promise<CoachIdentitySuggestionResult> {
+  async suggestions(teamId: string): Promise<CoachIdentitySuggestionResult> {
     const [manualSnapshot, providerSnapshot] = await Promise.all([
       this.database
         .collection("coaches")
@@ -186,19 +170,29 @@ export class AdminCoachIdentityService {
     const all = [...manual, ...provider];
     const associations = await this.loadAssociations(all.map(({ id }) => id));
     const candidates = manual
+      .filter((coach) =>
+        relevantToTeam(associations.get(coach.id) ?? [], teamId),
+      )
       .flatMap((manualCoach) =>
-        provider.flatMap((providerCoach) => {
-          const signals = suggestionSignals(
-            manualCoach,
-            associations.get(manualCoach.id) ?? [],
-            providerCoach,
-            associations.get(providerCoach.id) ?? [],
-          );
-          if (!signals.includes("name") && !signals.includes("abbreviation")) {
-            return [];
-          }
-          return [{ manualCoach, providerCoach, signals }];
-        }),
+        provider
+          .filter((coach) =>
+            relevantToTeam(associations.get(coach.id) ?? [], teamId),
+          )
+          .flatMap((providerCoach) => {
+            const signals = suggestionSignals(
+              manualCoach,
+              associations.get(manualCoach.id) ?? [],
+              providerCoach,
+              associations.get(providerCoach.id) ?? [],
+            );
+            if (
+              !signals.includes("name") &&
+              !signals.includes("abbreviation")
+            ) {
+              return [];
+            }
+            return [{ manualCoach, providerCoach, signals }];
+          }),
       )
       .sort(
         (left, right) =>
@@ -413,6 +407,21 @@ export class AdminCoachIdentityService {
           };
         }),
       ];
+      if (
+        coaches.some(
+          (coach) =>
+            !relevantToTeam(
+              associations.filter(
+                (association) => association.coachId === coach.id,
+              ),
+              input.trackedTeamId,
+            ),
+        )
+      ) {
+        throw new AdminCoachIdentityRejectedError(
+          "La identidad no corresponde al club seleccionado.",
+        );
+      }
       const matchIds = [...new Set(associations.map(({ matchId }) => matchId))];
       const [matchSnapshots, resultSnapshots, ballotSnapshots] =
         matchIds.length === 0
@@ -531,12 +540,31 @@ export class AdminCoachIdentityService {
               }
             : {}),
         };
-        if (Object.keys(canonicalUpdate).length > 0) {
-          transaction.update(coachReferences[canonicalIndex], {
-            ...canonicalUpdate,
-            updatedAt: Timestamp.fromDate(new Date(timestamp)),
-          });
-        }
+        const indexedCanonical = coachWithSearchIndex(
+          { ...canonical, ...canonicalUpdate },
+          [
+            ...(canonical.associatedTeamIds ?? []),
+            ...associations.map(({ teamId }) => teamId),
+          ],
+          false,
+        );
+        transaction.update(coachReferences[canonicalIndex], {
+          ...canonicalUpdate,
+          associatedTeamIds: indexedCanonical.associatedTeamIds,
+          searchHiddenByAlias: false,
+          searchPrefixes: indexedCanonical.searchPrefixes,
+          teamBrowseKeys: indexedCanonical.teamBrowseKeys,
+          teamSearchKeys: indexedCanonical.teamSearchKeys,
+          unassociatedSearchKeys: indexedCanonical.unassociatedSearchKeys,
+          updatedAt: Timestamp.fromDate(new Date(timestamp)),
+        });
+        transaction.update(coachReferences[duplicateIndex], {
+          searchHiddenByAlias: true,
+          searchPrefixes: [],
+          teamBrowseKeys: [],
+          teamSearchKeys: [],
+          unassociatedSearchKeys: [],
+        });
       }
       const ordered = [...coachIds].sort();
       const review: CoachIdentityReview = {
@@ -558,6 +586,7 @@ export class AdminCoachIdentityService {
       });
       transaction.create(auditReference, {
         operatorUid: input.operatorId,
+        trackedTeamId: input.trackedTeamId,
         action: "coach_identity_apply",
         resourceId: adminCoachIdentityResourceId(input),
         firstCoachId: input.firstCoachId,
@@ -764,6 +793,16 @@ function option(
   };
 }
 
+function relevantToTeam(
+  associations: CoachAssociation[],
+  teamId: string,
+): boolean {
+  return (
+    associations.length === 0 ||
+    associations.some((association) => association.teamId === teamId)
+  );
+}
+
 function evidence(
   coach: Coach,
   associations: CoachAssociation[],
@@ -825,6 +864,7 @@ function append(
 
 function validateInput(input: AdminCoachIdentityInput): void {
   if (
+    !validEntityId(input.trackedTeamId) ||
     !validEntityId(input.firstCoachId) ||
     !validEntityId(input.secondCoachId) ||
     !validEntityId(input.canonicalCoachId) ||

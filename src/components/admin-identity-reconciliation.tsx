@@ -37,6 +37,9 @@ export function AdminIdentityReconciliation({
 
   return (
     <div className="grid gap-5">
+      <p className="text-muted">
+        {messages.selectedClub}: <strong>{teamName}</strong>
+      </p>
       <div
         className="card flex flex-wrap gap-2 p-2"
         role="tablist"
@@ -101,6 +104,7 @@ export function AdminIdentityReconciliation({
         {selected === "coaches" ? (
           <AdminCoachIdentityReconciliation
             messages={messages}
+            teamId={teamId}
             teamName={teamName}
           />
         ) : null}

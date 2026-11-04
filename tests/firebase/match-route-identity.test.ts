@@ -94,12 +94,43 @@ describe("production-shaped match route identity", () => {
       archiveService.get("rated", initialClub.teamId),
     ).resolves.toMatchObject({ match: { id: "rated" }, hasResults: true });
     await expect(
-      resultService.getPageState("rated", now),
+      resultService.getPageState("rated", initialClub.teamId, now),
     ).resolves.toMatchObject({
       state: "ready",
       match: { id: "rated" },
       result: { matchId: "rated" },
     });
+  });
+
+  it("does not advertise a result assigned to a different Team", async () => {
+    const matchId = "match-route-foreign-summary";
+    await seedMatch(
+      matchId,
+      "2026-08-21T18:00:00.000Z",
+      "finished",
+      "rating_closed",
+    );
+    await database.doc(`matches/${matchId}/results/summary`).set({
+      matchId,
+      teamId: "another-team",
+      status: "final",
+    });
+    expect(await archiveService.get(matchId, initialClub.teamId)).toMatchObject(
+      {
+        hasResults: false,
+      },
+    );
+    const archive = await archiveService.list(initialClub.teamId, now);
+    const item = [
+      archive.relevant,
+      ...archive.recent,
+      ...archive.upcoming,
+    ].find((entry) => entry?.match.id === matchId);
+    expect(item).toMatchObject({ hasResults: false });
+    expect(
+      (await resultService.getPageState(matchId, initialClub.teamId, now))
+        .state,
+    ).toBe("preparing");
   });
 
   it("keeps unknown and cross-Team detail lookups closed", async () => {

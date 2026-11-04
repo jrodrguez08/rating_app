@@ -1,5 +1,6 @@
 import { Timestamp, type Firestore } from "firebase-admin/firestore";
 
+import { coachWithSearchIndex } from "@/application/coach-search";
 import {
   manualVotingClosesAt,
   manualVotingStatusEligibility,
@@ -402,6 +403,15 @@ export class AdminManualVotingService {
           updatedAt: trustedAt.toISOString(),
         };
         transaction.create(coachReference, toDocument(repairedAssignment));
+        transaction.set(
+          canonicalCoachSnapshot.ref,
+          toDocument(
+            coachWithSearchIndex(canonicalCoach, [
+              ...(canonicalCoach.associatedTeamIds ?? []),
+              input.trackedTeamId,
+            ]),
+          ),
+        );
       }
 
       const attestation: ManualFinalWhistleAttestation = {

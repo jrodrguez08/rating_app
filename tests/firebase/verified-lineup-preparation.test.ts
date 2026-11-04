@@ -35,7 +35,7 @@ import {
 import { adminChallengeDocumentId } from "@/lib/server/admin-coach-action";
 import { issueInternalPlayerAllocationToken } from "@/lib/server/admin-player-identity-allocation";
 
-const projectId = process.env.GCLOUD_PROJECT ?? "demo-rating-app-local";
+const projectId = "demo-rating-app-verified-lineup-tests";
 const app = initializeApp({ projectId }, `verified-lineup-${Date.now()}`);
 const database = getFirestore(app);
 const service = new AdminVerifiedLineupService(database);

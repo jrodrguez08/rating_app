@@ -170,6 +170,7 @@ export interface FootballSyncMetadata {
   lastLifecycleCompletedAt?: string;
   lastLifecycleAttemptId?: string;
   lastLifecycleAction?: string;
+  lastLifecycleFailed?: boolean;
   lastLifecycleMatchId?: string;
   lastLifecycleProviderRequests?: number;
   updatedAt: string;
@@ -411,6 +412,12 @@ export interface Coach {
   externalProvider?: string;
   externalProviderId?: string;
   photoUrl?: string;
+  associatedTeamIds?: EntityId[];
+  searchPrefixes?: string[];
+  teamBrowseKeys?: EntityId[];
+  teamSearchKeys?: string[];
+  unassociatedSearchKeys?: string[];
+  searchHiddenByAlias?: boolean;
   createdAt: string;
   updatedAt: string;
 }

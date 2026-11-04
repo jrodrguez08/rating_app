@@ -36,7 +36,7 @@ vi.mock("@/lib/server/admin-request", async (importOriginal) => {
 
 const action = {
   matchId: "match-atomic-route",
-  trackedTeamId: "team-route",
+  trackedTeamId: "club-sport-herediano",
   externalFixtureId: "fixture-route",
   coachId: "coach-route",
   coachName: "Coach Route",
@@ -123,7 +123,7 @@ describe("admin coach assignment apply route", () => {
 function applyRequest() {
   const csrf = "a".repeat(43);
   return new NextRequest(
-    "http://localhost:3000/api/admin/coach-assignment/apply",
+    "http://localhost:3000/api/admin/coach-assignment/apply?club=herediano",
     {
       method: "POST",
       headers: {

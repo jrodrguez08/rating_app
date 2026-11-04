@@ -5,6 +5,7 @@ export type ProviderErrorCode =
   | "malformed-response"
   | "fixture-not-found"
   | "lineup-unavailable"
+  | "lineup-incomplete"
   | "tracked-team-missing"
   | "coach-missing"
   | "ambiguous-coach"

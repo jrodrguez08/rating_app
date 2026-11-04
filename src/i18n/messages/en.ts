@@ -1,10 +1,21 @@
 import type { Messages } from "../messages";
 
 export const enMessages = {
+  clubs: {
+    choose: "Choose the club you want to follow.",
+    comingSoon: "Coverage for this club is coming soon.",
+    unavailable: {
+      status: "Coming soon",
+      title: "Coverage in preparation",
+      description: "Matches and voting are not available for this club yet.",
+      privacy: "Results will appear when coverage becomes available.",
+    },
+  },
   metadata: {
     title: "Rating App",
     description:
       "Supporter ratings for the players and coaches who shape the match.",
+    socialImageAlt: "Rating App, ratings from the fans",
   },
   common: {
     language: "Language",
@@ -299,6 +310,21 @@ export const enMessages = {
     },
   },
   results: {
+    metadata: {
+      title: "{club} | {home} {score} {away} | Fans' top players",
+      description:
+        "Published {club} results for {home} vs {away}: {score} and the players rated highest by fans.",
+      imageAlt: "{club} podium for {home} vs {away}, {score}",
+    },
+    image: {
+      podiumHeading: "MATCH DAY'S BEST",
+      openGraphHeading: "THE FANS CHOSE",
+      viewResults: "VIEW FULL RESULTS",
+      tableHeading: "Match ratings",
+      player: "PLAYER",
+      rating: "RATING",
+      tableFooter: "Ratings from the fans",
+    },
     eyebrow: "Community results",
     title: "Match results",
     versus: "VS",
@@ -472,6 +498,10 @@ export const enMessages = {
     signingOut: "Signing out…",
     unavailable: "The admin console is not configured.",
     adminActions: "Console actions",
+    clubSelection: "Select club to administer",
+    selectedClub: "Selected club",
+    clubNotPrepared:
+      "This club has not been prepared yet. Opening the console does not create data or start synchronization.",
     openVotingSection: "Open voting windows",
     preparationSection: "Upcoming matches and preparation",
     reviewSection: "Matches to review",
@@ -646,6 +676,22 @@ export const enMessages = {
     },
     coach: "Head coach",
     existingCoach: "Select an existing coach",
+    coachSearch: "Search head coaches by name",
+    coachSearchHelp:
+      "Coaches linked to this club appear first. Search accepts names without accents and word beginnings.",
+    coachScope: "Candidate source",
+    coachScopeTeam: "Linked to this club",
+    coachScopeUnassociated: "No recorded club link",
+    coachUnassociatedHelp:
+      "Enter at least two characters. A coach without a recorded link needs independent verification for this match.",
+    coachSearchButton: "Search coaches",
+    coachSearching: "Searching coaches…",
+    coachLoadMore: "Load more coaches",
+    coachNoResults: "No coaches on this results page.",
+    coachSelected: "Selected coach",
+    coachCandidateProvider: "API-Football identity",
+    coachCandidateManual: "Manually created identity",
+    assignmentCoachSearchError: "The coach catalog could not be searched.",
     passphrase: "Authorization passphrase",
     authorize: "Authorize operation",
     authorizationSuccess:
@@ -914,8 +960,8 @@ export const enMessages = {
     supporting: "Built for supporters. Ready to grow club by club.",
   },
   operatorNotification: {
-    subject: "Voting is open: {home} vs {away}",
-    intro: "Voting is now open for {home} vs {away}.",
+    subject: "{club}: voting is open for {home} vs {away}",
+    intro: "Voting for {club} is now open for {home} vs {away}.",
     score: "Score: {score}",
     scoreUnavailable: "Unavailable",
     matchId: "Match ID: {matchId}",

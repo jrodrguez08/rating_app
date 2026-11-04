@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
 
-import type { TeamPresentation } from "@/domain/models";
+import { clubPath, type Club } from "@/config/club";
 import type { Locale } from "@/i18n/config";
 import type { Messages } from "@/i18n/messages";
 
@@ -11,31 +11,32 @@ interface AppShellProps {
   children: ReactNode;
   locale: Locale;
   messages: Messages;
-  theme: TeamPresentation["theme"];
-  currentHref?: "/" | "/matches" | "/players" | "/standings" | "/studio" | null;
+  club: Club;
+  currentHref?: string | null;
 }
 
 export function AppShell({
   children,
   locale,
   messages,
-  theme,
-  currentHref = "/",
+  club,
+  currentHref = clubPath(club),
 }: AppShellProps) {
   const navigation = [
-    { href: "/", label: messages.navigation.home, planned: false },
-    { href: "/matches", label: messages.navigation.matches, planned: false },
-    { href: "/players", label: messages.navigation.players, planned: false },
+    { href: clubPath(club), label: messages.navigation.home },
+    { href: clubPath(club, "/matches"), label: messages.navigation.matches },
+    { href: clubPath(club, "/players"), label: messages.navigation.players },
     {
-      href: "/standings",
+      href: clubPath(club, "/standings"),
       label: messages.navigation.standings,
-      planned: false,
     },
-    { href: "/studio", label: messages.navigation.studio, planned: false },
-  ] as const;
+    { href: clubPath(club, "/studio"), label: messages.navigation.studio },
+  ];
   const clubTheme = {
-    "--club-primary": theme.primary,
-    "--club-secondary": theme.accent,
+    "--club-primary": club.theme.primary,
+    "--club-secondary": club.theme.accent,
+    "--game-focus": club.theme.accent,
+    "--game-warning": club.theme.accent,
   } as CSSProperties;
 
   return (
@@ -53,7 +54,7 @@ export function AppShell({
         <div className="page-shell">
           <div className="flex min-h-14 items-center justify-between gap-3">
             <Link
-              href="/"
+              href={clubPath(club)}
               aria-label={messages.accessibility.appHome}
               className="flex min-h-11 items-center gap-2"
             >
@@ -77,31 +78,22 @@ export function AppShell({
             />
           </div>
           <nav aria-label={messages.navigation.label}>
-            <ul className="flex min-h-10 items-end gap-3 sm:gap-5">
+            <ul className="flex min-h-10 flex-wrap items-end gap-x-3 sm:gap-x-5">
               {navigation.map((item) => (
                 <li key={item.href}>
-                  {item.planned ? (
-                    <span
-                      aria-disabled="true"
-                      className="flex min-h-10 items-center border-b-2 border-transparent text-xs font-semibold text-muted opacity-65 sm:text-sm"
-                    >
-                      {item.label}
-                    </span>
-                  ) : (
-                    <Link
-                      href={item.href}
-                      aria-current={
-                        item.href === currentHref ? "page" : undefined
-                      }
-                      className={`flex min-h-10 items-center border-b-2 text-xs font-extrabold text-foreground sm:text-sm ${
-                        item.href === currentHref
-                          ? "border-accent"
-                          : "border-transparent"
-                      }`}
-                    >
-                      {item.label}
-                    </Link>
-                  )}
+                  <Link
+                    href={item.href}
+                    aria-current={
+                      item.href === currentHref ? "page" : undefined
+                    }
+                    className={`flex min-h-10 items-center border-b-2 text-xs font-extrabold text-foreground sm:text-sm ${
+                      item.href === currentHref
+                        ? "border-accent"
+                        : "border-transparent"
+                    }`}
+                  >
+                    {item.label}
+                  </Link>
                 </li>
               ))}
             </ul>

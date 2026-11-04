@@ -15,6 +15,34 @@ beforeEach(() => {
 });
 
 describe("POST /api/internal/standings-sync", () => {
+  it("isolates Saprissa enablement and target Team", async () => {
+    vi.stubEnv("CRON_SECRET", "correct-secret");
+    const request = () =>
+      new Request("http://local.test?club=saprissa", {
+        method: "POST",
+        headers: { authorization: "Bearer correct-secret" },
+      });
+    await expect((await POST(request())).json()).resolves.toEqual({
+      action: "disabled",
+      club: "saprissa",
+      providerRequests: 0,
+    });
+    expect(mocks.run).not.toHaveBeenCalled();
+    vi.stubEnv("SAPRISSA_SCHEDULED_ENABLED", "true");
+    vi.stubEnv("API_FOOTBALL_KEY", "provider-secret");
+    mocks.run.mockResolvedValue({
+      action: "idle",
+      rows: 0,
+      providerRequests: 0,
+      logs: [],
+    });
+    await POST(request());
+    expect(mocks.run).toHaveBeenCalledWith(
+      "deportivo-saprissa",
+      expect.anything(),
+      "provider-secret",
+    );
+  });
   it("rejects an unauthenticated request", async () => {
     vi.stubEnv("CRON_SECRET", "correct-secret");
     expect(

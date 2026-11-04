@@ -52,15 +52,18 @@ afterEach(() => {
 describe("admin lifecycle authorization route", () => {
   it("verifies plaintext server-side without echoing or auditing it", async () => {
     const response = await POST(
-      new NextRequest("http://localhost:3000/api/admin/lifecycle/authorize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action,
-          previewToken: "preview-token",
-          passphrase,
-        }),
-      }),
+      new NextRequest(
+        "http://localhost:3000/api/admin/lifecycle/authorize?club=herediano",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action,
+            previewToken: "preview-token",
+            passphrase,
+          }),
+        },
+      ),
     );
     const bodyText = await response.text();
 

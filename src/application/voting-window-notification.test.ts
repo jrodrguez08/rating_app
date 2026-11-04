@@ -12,6 +12,7 @@ import {
 
 const context = {
   matchId: "match-1",
+  trackedTeamId: "club-sport-herediano",
   windowSequence: 0,
   homeTeamName: "Home",
   awayTeamName: "Away",
@@ -21,6 +22,7 @@ const context = {
 };
 
 class MemoryNotificationStore implements VotingWindowNotificationStore {
+  constructor(private readonly windowContext = context) {}
   status: "pending" | "sending" | "sent" = "pending";
   attemptId?: string;
   firstAttemptSet = false;
@@ -38,7 +40,7 @@ class MemoryNotificationStore implements VotingWindowNotificationStore {
     this.status = "sending";
     this.attemptId = attemptId;
     this.firstAttemptSet = true;
-    return { status: "claimed", context };
+    return { status: "claimed", context: this.windowContext };
   }
 
   async markVotingWindowNotificationSent(
@@ -66,6 +68,51 @@ class MemoryNotificationStore implements VotingWindowNotificationStore {
 }
 
 describe("voting-window operator notification", () => {
+  it("keeps shared-fixture club messages and idempotency independent", async () => {
+    const heredianoId = "match-herediano-fixture-1";
+    const saprissaId = "match-saprissa-fixture-1";
+    const send = vi.fn().mockResolvedValue({ providerMessageId: "email" });
+    const herediano = new MemoryNotificationStore({
+      ...context,
+      matchId: heredianoId,
+    });
+    const saprissa = new MemoryNotificationStore({
+      ...context,
+      matchId: saprissaId,
+      trackedTeamId: "deportivo-saprissa",
+    });
+    for (const [matchId, store] of [
+      [heredianoId, herediano],
+      [saprissaId, saprissa],
+    ] as const) {
+      expect(
+        await notifyVotingWindowOpenedIfPending({
+          matchId,
+          store,
+          notifier: { send },
+          siteUrl: new URL("https://ratings.example"),
+        }),
+      ).toBe("sent");
+    }
+    expect(
+      send.mock.calls.map(([message]) => ({
+        club: message.clubName,
+        key: message.idempotencyKey,
+        url: message.ratingUrl,
+      })),
+    ).toEqual([
+      {
+        club: "Club Sport Herediano",
+        key: `voting-open/${heredianoId}/0`,
+        url: `https://ratings.example/herediano/matches/${heredianoId}/rate`,
+      },
+      {
+        club: "Deportivo Saprissa",
+        key: `voting-open/${saprissaId}/0`,
+        url: `https://ratings.example/saprissa/matches/${saprissaId}/rate`,
+      },
+    ]);
+  });
   it("sends once per window with a stable idempotency key and safe context", async () => {
     const store = new MemoryNotificationStore();
     const send = vi.fn().mockResolvedValue({ providerMessageId: "email-1" });
@@ -89,8 +136,9 @@ describe("voting-window operator notification", () => {
     expect(send).toHaveBeenCalledTimes(1);
     expect(send).toHaveBeenCalledWith({
       ...context,
+      clubName: "Club Sport Herediano",
       idempotencyKey: "voting-open/match-1/0",
-      ratingUrl: "https://ratings.example/matches/match-1/rate",
+      ratingUrl: "https://ratings.example/herediano/matches/match-1/rate",
     });
   });
 

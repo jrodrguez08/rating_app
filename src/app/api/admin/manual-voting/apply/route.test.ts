@@ -82,7 +82,7 @@ describe("manual voting apply route", () => {
 function request(confirmation = `open-voting:${action.matchId}`) {
   const csrf = "a".repeat(43);
   return new NextRequest(
-    "http://localhost:3000/api/admin/manual-voting/apply",
+    "http://localhost:3000/api/admin/manual-voting/apply?club=herediano",
     {
       method: "POST",
       headers: {

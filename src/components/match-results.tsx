@@ -5,6 +5,7 @@ import {
   buildPublishedRatingStoryPages,
   publishedRatingStoryFilename,
 } from "@/application/published-rating-story";
+import { clubPath, matchPath, playerPath, type Club } from "@/config/club";
 import { siteUrl } from "@/config/site";
 import type { Match, MatchResult, PlayerResult } from "@/domain/models";
 import type { Locale } from "@/i18n/config";
@@ -16,12 +17,14 @@ import { ResultSharing } from "./result-sharing";
 import { VoteComparisonSection } from "./vote-comparison";
 
 export function MatchResults({
+  club,
   match,
   result,
   podium,
   locale,
   messages,
 }: {
+  club: Club;
   match: Match;
   result: MatchResult;
   podium?: PublishedResultPodium | null;
@@ -53,13 +56,15 @@ export function MatchResults({
         page: storyPage.page,
         pageCount: storyPage.pageCount,
         url: new URL(
-          `/matches/${encodeURIComponent(match.id)}/results/story/table?page=${storyPage.page}`,
+          `${matchPath(club, match.id, "/results/story/table")}?page=${storyPage.page}&lang=${locale}`,
           siteUrl,
         ).href,
         filename: publishedRatingStoryFilename(
+          club.slug,
           match.id,
           storyPage.page,
           storyPage.pageCount,
+          locale,
         ),
       }))
     : [];
@@ -98,7 +103,7 @@ export function MatchResults({
                   className="mt-2 break-words text-lg font-extrabold"
                 >
                   <Link
-                    href={`/players/${encodeURIComponent(player.playerId)}`}
+                    href={playerPath(club, player.playerId)}
                     className="underline decoration-2 underline-offset-4"
                   >
                     {player.displayName}
@@ -112,18 +117,15 @@ export function MatchResults({
             {podium ? (
               <ResultSharing
                 canonicalUrl={
-                  new URL(
-                    `/matches/${encodeURIComponent(match.id)}/results`,
-                    siteUrl,
-                  ).href
+                  new URL(matchPath(club, match.id, "/results"), siteUrl).href
                 }
                 storyUrl={
                   new URL(
-                    `/matches/${encodeURIComponent(match.id)}/results/story`,
+                    `${matchPath(club, match.id, "/results/story")}?lang=${locale}`,
                     siteUrl,
                   ).href
                 }
-                storyFilename={`rating-app-${match.id}-historia.png`}
+                storyFilename={`rating-app-${club.slug}-${match.id}-${locale}-historia.png`}
                 ratingStoryPages={ratingStoryPages}
                 shareTitle={`${match.homeTeam.name} ${podium.score.home} - ${podium.score.away} ${match.awayTeam.name}`}
                 shareText={messages.sharing.shareText}
@@ -140,7 +142,7 @@ export function MatchResults({
                   <span className="score-font text-muted">{index + 1}</span>
                   <span className="min-w-0 break-words font-bold">
                     <Link
-                      href={`/players/${encodeURIComponent(player.playerId)}`}
+                      href={playerPath(club, player.playerId)}
                       className="inline-flex min-h-11 items-center underline decoration-2 underline-offset-4"
                     >
                       {player.playerName}
@@ -177,6 +179,7 @@ export function MatchResults({
               </div>
             </div>
             <VoteComparisonSection
+              club={club}
               matchId={match.id}
               locale={locale}
               messages={messages.comparison}
@@ -185,7 +188,7 @@ export function MatchResults({
         )}
         <p className="mt-5 text-center text-sm text-muted">{ballotLabel}</p>
         <Link
-          href="/"
+          href={clubPath(club)}
           className="button-secondary mt-5 inline-flex min-h-11 w-full items-center justify-center px-4 py-3 font-bold"
         >
           {messages.backHome}
@@ -196,9 +199,11 @@ export function MatchResults({
 }
 
 export function ResultRouteState({
+  club,
   state,
   messages,
 }: {
+  club: Club;
   state: "locked" | "preparing" | "unavailable";
   messages: Messages["results"];
 }) {
@@ -218,7 +223,7 @@ export function ResultRouteState({
       </h1>
       <p className="mt-3 leading-6 text-muted">{content[1]}</p>
       <Link
-        href="/"
+        href={clubPath(club)}
         className="button-secondary mt-5 inline-flex min-h-11 items-center px-4 py-3 font-bold"
       >
         {messages.backHome}

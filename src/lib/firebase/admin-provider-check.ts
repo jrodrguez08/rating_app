@@ -1,5 +1,6 @@
 import { Timestamp, type Firestore } from "firebase-admin/firestore";
 
+import { coachWithSearchIndex } from "@/application/coach-search";
 import { mergeTeamPlayerMembership } from "@/application/team-player-membership";
 import { coachProviderAliasId } from "@/domain/coach-identity";
 import type {
@@ -605,9 +606,14 @@ export class AdminProviderCheckService {
         const existingCoach = coachSnapshot?.exists
           ? fromSnapshot<Coach>(coachSnapshot)
           : undefined;
+        const observedCoach = mergeObservedCoach(existingCoach, incomingCoach);
         transaction.set(
           coachReference,
-          toDocument(mergeObservedCoach(existingCoach, incomingCoach)),
+          toDocument(
+            !existingCoach || existingCoach.searchPrefixes !== undefined
+              ? coachWithSearchIndex(observedCoach)
+              : observedCoach,
+          ),
         );
       }
 

@@ -30,8 +30,13 @@ describe("trusted result finalization", () => {
   it("reveals nothing before close, then atomically stores one stable summary", async () => {
     await seed("two-votes");
     expect(
-      (await reader.getPageState("two-votes", new Date(close.getTime() - 1)))
-        .state,
+      (
+        await reader.getPageState(
+          "two-votes",
+          "team-1",
+          new Date(close.getTime() - 1),
+        )
+      ).state,
     ).toBe("locked");
     await Promise.all([
       writeBallot("two-votes", "voter-a", 8, 6),
@@ -58,9 +63,11 @@ describe("trusted result finalization", () => {
       .doc("matches/two-votes/results/summary")
       .get();
     expect(second.data()?.generatedAt).toEqual(first.data()?.generatedAt);
-    expect((await reader.getPageState("two-votes", close)).state).toBe("ready");
     expect(
-      await reader.getVoteComparison("two-votes", "voter-a", close),
+      (await reader.getPageState("two-votes", "team-1", close)).state,
+    ).toBe("ready");
+    expect(
+      await reader.getVoteComparison("two-votes", "team-1", "voter-a", close),
     ).toMatchObject({
       status: "ready",
       comparison: {
@@ -81,7 +88,7 @@ describe("trusted result finalization", () => {
       },
     });
     expect(
-      await reader.getVoteComparison("two-votes", "nonvoter", close),
+      await reader.getVoteComparison("two-votes", "team-1", "nonvoter", close),
     ).toEqual({ status: "no_ballot" });
   });
 
@@ -91,16 +98,22 @@ describe("trusted result finalization", () => {
     expect(
       await reader.getVoteComparison(
         "comparison-gated",
+        "team-1",
         "voter-a",
         new Date(close.getTime() - 1),
       ),
     ).toEqual({ status: "locked" });
     expect(
-      await reader.getVoteComparison("comparison-gated", "voter-a", close),
+      await reader.getVoteComparison(
+        "comparison-gated",
+        "team-1",
+        "voter-a",
+        close,
+      ),
     ).toEqual({ status: "locked" });
-    expect((await reader.getPageState("comparison-gated", close)).state).toBe(
-      "preparing",
-    );
+    expect(
+      (await reader.getPageState("comparison-gated", "team-1", close)).state,
+    ).toBe("preparing");
     await store.finalizeMatchResult("comparison-gated", close);
   });
 
@@ -127,12 +140,18 @@ describe("trusted result finalization", () => {
     });
 
     expect(
-      (await reader.getPageState(matchId, new Date(close.getTime() - 60_000)))
-        .state,
+      (
+        await reader.getPageState(
+          matchId,
+          "team-1",
+          new Date(close.getTime() - 60_000),
+        )
+      ).state,
     ).toBe("preparing");
     expect(
       await reader.getVoteComparison(
         matchId,
+        "team-1",
         "voter-a",
         new Date(close.getTime() - 60_000),
       ),
@@ -210,7 +229,7 @@ describe("trusted result finalization", () => {
       await database.doc(`matches/${matchId}/results/summary`).get()
     ).data();
 
-    const page = await reader.getPublishedPageState(matchId, close);
+    const page = await reader.getPublishedPageState(matchId, "team-1", close);
 
     expect(page).toMatchObject({
       state: "ready",
@@ -245,9 +264,9 @@ describe("trusted result finalization", () => {
       votingReopenedAt: timestamp,
       votingReopenCount: 1,
     });
-    expect((await reader.getPublishedPageState(matchId, close)).state).toBe(
-      "locked",
-    );
+    expect(
+      (await reader.getPublishedPageState(matchId, "team-1", close)).state,
+    ).toBe("locked");
   });
 
   it("leaves malformed ballots retryable without closing or publishing", async () => {

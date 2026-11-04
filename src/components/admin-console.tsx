@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState, useTransition, type FormEvent } from "react";
 
+import { adminPath, matchPath, clubs, type Club } from "@/config/club";
 import { formatDate } from "@/i18n/format";
 import type { Messages } from "@/i18n/messages";
 import { getAdminBrowserAuth } from "@/lib/firebase/admin-browser";
@@ -106,9 +107,13 @@ export function AdminLogin({ messages }: { messages: AdminMessages }) {
 export function AdminConsole({
   overview,
   messages,
+  club,
+  teamAvailable,
 }: {
   overview: AdminOverview;
   messages: AdminMessages;
+  club: Club;
+  teamAvailable: boolean;
 }) {
   const router = useRouter();
   const [refreshing, startRefresh] = useTransition();
@@ -128,7 +133,10 @@ export function AdminConsole({
     ...overview.attentionMatches.filter(
       (match) => match.votingPresentation === "preparation",
     ),
-  ];
+  ].filter(
+    (match, index, matches) =>
+      matches.findIndex((candidate) => candidate.id === match.id) === index,
+  );
 
   function refresh() {
     startRefresh(() => router.refresh());
@@ -158,12 +166,39 @@ export function AdminConsole({
   return (
     <div className="grid gap-6">
       <nav
+        className="card flex flex-wrap gap-3 p-3"
+        aria-label={messages.clubSelection}
+      >
+        {Object.values(clubs).map((option) => (
+          <Link
+            key={option.slug}
+            href={adminPath(option)}
+            aria-current={club.slug === option.slug ? "page" : undefined}
+            className={
+              club.slug === option.slug
+                ? "button-primary px-4"
+                : "button-utility px-4"
+            }
+          >
+            {option.displayName}
+          </Link>
+        ))}
+      </nav>
+      <p className="text-muted">
+        {messages.selectedClub}: <strong>{club.displayName}</strong>
+      </p>
+      {!teamAvailable ? (
+        <p className="card p-5" role="status">
+          {messages.clubNotPrepared}
+        </p>
+      ) : null}
+      <nav
         className="flex flex-wrap items-center justify-end gap-3"
         aria-label={messages.adminActions}
       >
         <Link
           className="button-secondary inline-flex min-h-11 items-center px-4"
-          href="/admin/player-identities"
+          href={adminPath(club, "/player-identities")}
         >
           {messages.identityReconciliation}
         </Link>
@@ -193,23 +228,27 @@ export function AdminConsole({
         title={messages.openVotingSection}
         matches={openMatches}
         messages={messages}
+        club={club}
       />
       <AdminMatchSection
         title={messages.preparationSection}
         matches={preparationMatches}
         messages={messages}
+        club={club}
       />
       {reviewMatches.length > 0 ? (
         <AdminMatchSection
           title={messages.reviewSection}
           matches={reviewMatches}
           messages={messages}
+          club={club}
         />
       ) : null}
       <AdminMatchSection
         title={messages.closedVotingSection}
         matches={closedMatches}
         messages={messages}
+        club={club}
       />
     </div>
   );
@@ -219,10 +258,12 @@ function AdminMatchSection({
   title,
   matches,
   messages,
+  club,
 }: {
   title: string;
   matches: AdminMatchOperation[];
   messages: AdminMessages;
+  club: Club;
 }) {
   const headingId = `admin-section-${title
     .normalize("NFD")
@@ -239,7 +280,12 @@ function AdminMatchSection({
       ) : (
         <ul className="grid gap-3">
           {matches.map((match) => (
-            <AdminMatchCard key={match.id} match={match} messages={messages} />
+            <AdminMatchCard
+              key={match.id}
+              match={match}
+              messages={messages}
+              club={club}
+            />
           ))}
         </ul>
       )}
@@ -250,11 +296,13 @@ function AdminMatchSection({
 function AdminMatchCard({
   match,
   messages,
+  club,
 }: {
   match: AdminMatchOperation;
   messages: AdminMessages;
+  club: Club;
 }) {
-  const action = matchAction(match, messages);
+  const action = matchAction(match, messages, club);
   const showParticipants =
     match.lineupProvenance !== "unavailable" ||
     match.confirmedStarterCount > 0 ||
@@ -305,7 +353,7 @@ function AdminMatchCard({
       {match.votingPresentation === "published" ? (
         <Link
           className="button-utility inline-flex min-h-11 w-full items-center justify-center px-4 sm:w-fit"
-          href={`/admin/matches/${encodeURIComponent(match.id)}`}
+          href={adminPath(club, `/matches/${encodeURIComponent(match.id)}`)}
         >
           {messages.administerMatch}
         </Link>
@@ -314,27 +362,31 @@ function AdminMatchCard({
   );
 }
 
-function matchAction(match: AdminMatchOperation, messages: AdminMessages) {
+function matchAction(
+  match: AdminMatchOperation,
+  messages: AdminMessages,
+  club: Club,
+) {
   switch (match.votingPresentation) {
     case "open":
       return {
-        href: `/matches/${encodeURIComponent(match.id)}/rate`,
+        href: matchPath(club, match.id, "/rate"),
         label: messages.viewVoting,
       };
     case "published":
       return {
-        href: `/matches/${encodeURIComponent(match.id)}/results`,
+        href: matchPath(club, match.id, "/results"),
         label: messages.viewResults,
       };
     case "expired":
     case "invalid":
       return {
-        href: `/admin/matches/${encodeURIComponent(match.id)}`,
+        href: adminPath(club, `/matches/${encodeURIComponent(match.id)}`),
         label: messages.inspect,
       };
     case "preparation":
       return {
-        href: `/admin/matches/${encodeURIComponent(match.id)}`,
+        href: adminPath(club, `/matches/${encodeURIComponent(match.id)}`),
         label: messages.prepareMatch,
       };
   }

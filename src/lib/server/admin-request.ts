@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
+import { resolveClub, type Club } from "@/config/club";
 import { getMessages } from "@/i18n/messages";
 import { emitOperationalLog } from "@/lib/operational-log";
 import type { AdminCoachAction } from "@/lib/server/admin-coach-action";
@@ -43,6 +44,22 @@ export async function requireAdminRequest(
     );
   }
   return verifyAdminSession(request.cookies.get(ADMIN_SESSION_COOKIE)?.value);
+}
+
+export function requireAdminClub(request: NextRequest): Club {
+  const values = request.nextUrl.searchParams.getAll("club");
+  const club = values.length === 1 ? resolveClub(values[0]) : null;
+  if (!club) throw new AdminAuthorizationError(403);
+  return club;
+}
+
+export function requireAdminActionClub(
+  request: NextRequest,
+  trackedTeamId: string,
+): Club {
+  const club = requireAdminClub(request);
+  if (club.teamId !== trackedTeamId) throw new AdminAuthorizationError(403);
+  return club;
 }
 
 export function parseAdminCoachAction(value: unknown): AdminCoachAction {
@@ -209,6 +226,7 @@ export function parseAdminCoachIdentityAction(
 ): AdminCoachIdentityAction {
   if (!isRecord(value)) throw new AdminAuthorizationError(403);
   for (const key of [
+    "trackedTeamId",
     "firstCoachId",
     "secondCoachId",
     "canonicalCoachId",

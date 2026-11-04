@@ -2,7 +2,7 @@ import { deleteApp, initializeApp } from "firebase-admin/app";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { initialClub } from "@/config/club";
+import { clubs, initialClub } from "@/config/club";
 import type { Match } from "@/domain/models";
 import { playerProviderAliasId } from "@/domain/player-identity";
 import {
@@ -35,6 +35,67 @@ beforeAll(async () => {
 afterAll(() => deleteApp(app));
 
 describe("admin console lineup reads", () => {
+  it("keeps both tracked Matches and owner drafts separate for one provider fixture", async () => {
+    const fixtureId = `shared-1551706-${Date.now()}`;
+    const ownerId = "shared-fixture-owner";
+    const kickoffAt = Timestamp.fromDate(new Date("2040-01-01T20:00:00.000Z"));
+    const matches = [
+      { club: clubs.herediano, id: `admin-shared-herediano-${Date.now()}` },
+      { club: clubs.saprissa, id: `admin-shared-saprissa-${Date.now()}` },
+    ];
+    for (const { club, id } of matches) {
+      await database.doc(`matches/${id}`).set({
+        trackedTeamId: club.teamId,
+        trackedTeamExternalProviderId:
+          club.slug === "herediano" ? "815" : "133",
+        externalProvider: "api-football",
+        externalProviderFixtureId: fixtureId,
+        kickoffAt,
+        homeTeam: {
+          id: clubs.herediano.teamId,
+          name: clubs.herediano.displayName,
+        },
+        awayTeam: {
+          id: clubs.saprissa.teamId,
+          name: clubs.saprissa.displayName,
+        },
+        status: "scheduled",
+        ratingState: "not_ready",
+        createdAt: kickoffAt,
+        updatedAt: kickoffAt,
+      });
+      await database.doc(`matches/${id}/lineupDrafts/${ownerId}`).set({
+        ownerId,
+        matchId: id,
+        trackedTeamId: club.teamId,
+        externalFixtureId: fixtureId,
+        participants: [],
+        version: 1,
+        updatedAt: kickoffAt,
+      });
+    }
+    const service = new AdminConsoleService(
+      database,
+      undefined,
+      () => new Date("2040-01-01T19:00:00.000Z"),
+    );
+    for (const { club, id } of matches) {
+      const other = matches.find((match) => match.id !== id)!;
+      const overview = await service.overview(club.teamId);
+      const detail = await service.detail(id, club.teamId, ownerId);
+      expect(
+        overview.upcomingLiveMatches.some((match) => match.id === id),
+      ).toBe(true);
+      expect(
+        overview.upcomingLiveMatches.some((match) => match.id === other.id),
+      ).toBe(false);
+      expect(detail?.draft).toMatchObject({
+        matchId: id,
+        trackedTeamId: club.teamId,
+      });
+      expect(await service.detail(other.id, club.teamId, ownerId)).toBeNull();
+    }
+  });
   it("keeps the current fixture first with more than ten later fixtures and preserves historical sections", async () => {
     const now = new Date("2040-01-01T06:05:00.000Z");
     const suffix = Date.now();
@@ -183,7 +244,7 @@ describe("admin console lineup reads", () => {
       database,
       undefined,
       () => now,
-    ).overview();
+    ).overview(initialClub.teamId);
 
     expect(overview.upcomingLiveMatches).toHaveLength(10);
     expect(overview.upcomingLiveMatches[0]).toMatchObject({
@@ -253,8 +314,8 @@ describe("admin console lineup reads", () => {
       await database.doc(`matches/${matchId}`).get()
     ).data();
 
-    const detail = await readService.detail(matchId);
-    const overview = await readService.overview();
+    const detail = await readService.detail(matchId, initialClub.teamId);
+    const overview = await readService.overview(initialClub.teamId);
 
     expect(detail?.match).toMatchObject({
       externalFixtureId: `${matchId}-fixture`,
@@ -311,9 +372,9 @@ describe("admin console lineup reads", () => {
     const readService = new AdminConsoleService(database, undefined, () => now);
 
     const [expired, published, blocked] = await Promise.all([
-      readService.detail(expiredId),
-      readService.detail(publishedId),
-      readService.detail(blockedId),
+      readService.detail(expiredId, initialClub.teamId),
+      readService.detail(publishedId, initialClub.teamId),
+      readService.detail(blockedId, initialClub.teamId),
     ]);
 
     expect(expired?.match).toMatchObject({ votingPresentation: "expired" });
@@ -343,7 +404,7 @@ describe("admin console lineup reads", () => {
       ),
     );
 
-    const detail = await service.detail(matchId);
+    const detail = await service.detail(matchId, initialClub.teamId);
 
     expect(detail?.participants).toHaveLength(12);
     expect(
@@ -402,7 +463,7 @@ describe("admin console lineup reads", () => {
       updatedAt: now,
     });
 
-    const detail = await service.detail(matchId);
+    const detail = await service.detail(matchId, initialClub.teamId);
 
     expect(detail?.participants.at(-1)).toMatchObject({
       participationStatus: "confirmed_substitute",
@@ -438,7 +499,10 @@ describe("admin console lineup reads", () => {
         .set(membership(`search-team-${suffix}`, "Álvaro Canónico")),
     ]);
 
-    const { players: results } = await service.searchPlayers("alvaro");
+    const { players: results } = await service.searchPlayers(
+      initialClub.teamId,
+      "alvaro",
+    );
 
     expect(results).toContainEqual(
       expect.objectContaining({
@@ -494,7 +558,10 @@ describe("admin console lineup reads", () => {
         }),
     ]);
 
-    const { players: results } = await service.searchPlayers("Histórico");
+    const { players: results } = await service.searchPlayers(
+      initialClub.teamId,
+      "Histórico",
+    );
 
     expect(results).toContainEqual(
       expect.objectContaining({ id: canonicalId, name: "Nombre Canónico" }),
@@ -537,7 +604,10 @@ describe("admin console lineup reads", () => {
     );
     await batch.commit();
 
-    const { players: results } = await service.searchPlayers("oscar transf");
+    const { players: results } = await service.searchPlayers(
+      initialClub.teamId,
+      "oscar transf",
+    );
 
     expect(results).toEqual([
       expect.objectContaining({
@@ -573,7 +643,11 @@ describe("admin console lineup reads", () => {
     const players = [];
     let cursor: string | undefined;
     do {
-      const page = await service.searchPlayers("paginado unico", cursor);
+      const page = await service.searchPlayers(
+        initialClub.teamId,
+        "paginado unico",
+        cursor,
+      );
       players.push(...page.players);
       cursor = page.nextCursor;
     } while (cursor);

@@ -25,6 +25,7 @@ describe("admin lineup draft persistence", () => {
     const result = await service.save(input);
     const detail = await new AdminConsoleService(database).detail(
       input.matchId,
+      input.trackedTeamId,
       input.ownerId,
     );
 

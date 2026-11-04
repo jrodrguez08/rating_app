@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import type { MatchArchiveItem } from "@/application/match-archive";
+import { clubPath, type Club } from "@/config/club";
 import type { Locale } from "@/i18n/config";
 import { formatDate } from "@/i18n/format";
 import type { Messages } from "@/i18n/messages";
@@ -12,19 +13,21 @@ import { matchPresentation } from "./match-presentation";
 import { VotingDeadline } from "./voting-deadline";
 
 export function MatchDetail({
+  club,
   item,
   locale,
   messages,
   ballotMessages,
   now = new Date(),
 }: {
+  club: Club;
   item: MatchArchiveItem;
   locale: Locale;
   messages: Messages["matches"];
   ballotMessages: Messages["home"]["matchLifecycle"]["ready"];
   now?: Date;
 }) {
-  const presentation = matchPresentation(item, messages, now);
+  const presentation = matchPresentation(club, item, messages, now);
   return (
     <>
       <article className="card overflow-hidden">
@@ -65,7 +68,11 @@ export function MatchDetail({
             ) : null}
           </div>
           {"ballotAware" in presentation && presentation.ballotAware ? (
-            <BallotEntry matchId={item.match.id} messages={ballotMessages} />
+            <BallotEntry
+              club={club}
+              matchId={item.match.id}
+              messages={ballotMessages}
+            />
           ) : presentation.href ? (
             <Link
               href={presentation.href}
@@ -80,7 +87,7 @@ export function MatchDetail({
         <GoalSummary match={item.match} messages={messages} />
       ) : null}
       <Link
-        href="/matches"
+        href={clubPath(club, "/matches")}
         className="button-secondary mt-6 inline-flex min-h-11 items-center px-4 py-3 font-bold"
       >
         {messages.back}

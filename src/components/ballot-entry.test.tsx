@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { initialClub } from "@/config/club";
 import { getMessages } from "@/i18n/messages";
 import { getBallotStatus } from "@/lib/firebase/ballot-client";
 
@@ -25,6 +26,7 @@ describe("BallotEntry submitted state", () => {
     async (locale, submittedLabel, shareLabel) => {
       render(
         <BallotEntry
+          club={initialClub}
           matchId="match-1"
           messages={getMessages(locale).home.matchLifecycle.ready}
           shareHref={shareHref}
@@ -62,6 +64,7 @@ describe("BallotEntry submitted state", () => {
     vi.mocked(getBallotStatus).mockResolvedValue("available");
     render(
       <BallotEntry
+        club={initialClub}
         matchId="match-1"
         messages={getMessages("es").home.matchLifecycle.ready}
         shareHref={shareHref}
@@ -70,7 +73,7 @@ describe("BallotEntry submitted state", () => {
 
     expect(
       await screen.findByRole("link", { name: "Calificar partido" }),
-    ).toHaveAttribute("href", "/matches/match-1/rate");
+    ).toHaveAttribute("href", "/herediano/matches/match-1/rate");
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 });

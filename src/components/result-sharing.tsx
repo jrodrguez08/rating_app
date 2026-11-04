@@ -100,7 +100,7 @@ export function ResultSharing({
         </a>
       </div>
       <a
-        href={`${storyUrl}?view=1`}
+        href={viewUrl(storyUrl)}
         target="_blank"
         rel="noopener noreferrer"
         className="mt-3 inline-flex min-h-11 items-center font-bold text-accent underline decoration-2 underline-offset-4"
@@ -131,7 +131,7 @@ export function ResultSharing({
                     : messages.downloadTableStory}
                 </a>
                 <a
-                  href={`${storyPage.url}&view=1`}
+                  href={viewUrl(storyPage.url)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex min-h-11 items-center justify-center text-center font-bold text-accent underline decoration-2 underline-offset-4"
@@ -175,6 +175,12 @@ function pageLabel(template: string, page: number, pageCount: number): string {
   return template
     .replace("{page}", String(page))
     .replace("{total}", String(pageCount));
+}
+
+function viewUrl(imageUrl: string): string {
+  const url = new URL(imageUrl);
+  url.searchParams.set("view", "1");
+  return url.href;
 }
 
 async function copyText(value: string): Promise<boolean> {

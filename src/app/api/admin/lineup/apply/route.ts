@@ -13,6 +13,7 @@ import {
   adminJson,
   parseAdminLineupAction,
   requireAdminRequest,
+  requireAdminActionClub,
 } from "@/lib/server/admin-request";
 
 export async function POST(request: NextRequest) {
@@ -38,6 +39,7 @@ export async function POST(request: NextRequest) {
     const action = parseAdminLineupAction(
       "action" in body ? body.action : undefined,
     );
+    requireAdminActionClub(request, action.trackedTeamId);
     matchId = action.matchId;
     audit = {
       uid: identity.uid,

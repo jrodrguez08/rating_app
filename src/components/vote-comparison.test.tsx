@@ -1,6 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { initialClub } from "@/config/club";
 import { getMessages } from "@/i18n/messages";
 
 import { VoteComparisonSection } from "./vote-comparison";
@@ -56,6 +57,7 @@ describe("vote comparison UI", () => {
     );
     render(
       <VoteComparisonSection
+        club={initialClub}
         matchId="match-1"
         locale="en"
         messages={getMessages("en").results.comparison}
@@ -132,6 +134,7 @@ describe("vote comparison UI", () => {
     );
     render(
       <VoteComparisonSection
+        club={initialClub}
         matchId="match-1"
         locale="es"
         messages={getMessages("es").results.comparison}
@@ -153,6 +156,7 @@ describe("vote comparison UI", () => {
     );
     render(
       <VoteComparisonSection
+        club={initialClub}
         matchId="match-1"
         locale="es"
         messages={getMessages("es").results.comparison}
@@ -199,6 +203,7 @@ describe("vote comparison UI", () => {
     );
     render(
       <VoteComparisonSection
+        club={initialClub}
         matchId="match-1"
         locale="es"
         messages={getMessages("es").results.comparison}

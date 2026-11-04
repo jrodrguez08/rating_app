@@ -14,7 +14,7 @@ describe("admin lifecycle readiness", () => {
   it("shows readiness evidence, measured delay, and the bounded owner action", () => {
     render(
       <AdminLifecycleActionPanel
-        teamId="tracked-team"
+        teamId="club-sport-herediano"
         messages={messages}
         match={{
           id: "match-ready-check",
@@ -61,7 +61,7 @@ describe("admin lifecycle readiness", () => {
     (status, ratingState, explanation) => {
       render(
         <AdminLifecycleActionPanel
-          teamId="tracked-team"
+          teamId="club-sport-herediano"
           messages={messages}
           match={{
             id: `match-${status}-${ratingState}`,
@@ -100,7 +100,7 @@ describe("admin lifecycle readiness", () => {
     (status) => {
       render(
         <AdminLifecycleActionPanel
-          teamId="tracked-team"
+          teamId="club-sport-herediano"
           messages={messages}
           match={{
             id: `match-${status}`,
@@ -135,7 +135,7 @@ describe("admin lifecycle readiness", () => {
       | undefined;
     const fetchMock = vi.fn((input: string | URL | Request) => {
       const path = String(input);
-      if (path.endsWith("/preview")) {
+      if (path.includes("/preview?")) {
         return Promise.resolve(
           response({
             plan: { matchId: "match-live" },
@@ -143,7 +143,7 @@ describe("admin lifecycle readiness", () => {
           }),
         );
       }
-      if (path.endsWith("/authorize")) {
+      if (path.includes("/authorize?")) {
         return new Promise((resolve) => {
           resolveAuthorization = resolve;
         });
@@ -165,7 +165,7 @@ describe("admin lifecycle readiness", () => {
     expect(authorize).toBeDisabled();
     expect(
       fetchMock.mock.calls.filter(([input]) =>
-        String(input).endsWith("/authorize"),
+        String(input).includes("/authorize?"),
       ),
     ).toHaveLength(1);
     resolveAuthorization?.(response({ authorized: true }));
@@ -182,7 +182,7 @@ describe("admin lifecycle readiness", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((input: string | URL | Request) =>
-        String(input).endsWith("/preview")
+        String(input).includes("/preview?")
           ? Promise.resolve(response({ plan: {}, previewToken: "preview" }))
           : Promise.resolve({
               ok: false,
@@ -215,7 +215,7 @@ describe("admin lifecycle readiness", () => {
 function renderEligiblePanel() {
   return render(
     <AdminLifecycleActionPanel
-      teamId="tracked-team"
+      teamId="club-sport-herediano"
       messages={messages}
       match={{
         id: "match-live",

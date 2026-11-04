@@ -323,7 +323,8 @@ describe("match lifecycle synchronization", () => {
         kickoffAt: "2026-08-29T18:30:00.000Z",
       }),
       async () => {
-        throw new Error(
+        throw new ProviderError(
+          "lineup-unavailable",
           "No usable lineup has been observed; retry after provider cache propagation.",
         );
       },
@@ -334,12 +335,33 @@ describe("match lifecycle synchronization", () => {
       reason: expect.stringContaining("cache propagation"),
     });
     expect(store.matches[0].lineupSnapshotAt).toBeUndefined();
+    expect(result.failed).toBeUndefined();
     expect(store.matches[0]).toMatchObject({
       lineupCaptureAttempts: 1,
       liveLineupCaptureAttempts: 0,
       lineupCaptureLastAttemptAt: NOW.toISOString(),
       lineupCaptureLastOutcome: "unavailable",
     });
+  });
+
+  it("keeps an incomplete pre-match lineup as an evidence wait", async () => {
+    const store = new MemoryStore([
+      match({ kickoffAt: "2026-08-29T18:30:00.000Z" }),
+    ]);
+    const result = await run(
+      store,
+      new FixtureProvider({
+        ...fixture("scheduled"),
+        kickoffAt: "2026-08-29T18:30:00.000Z",
+      }),
+      async () => {
+        throw new ProviderError("lineup-incomplete", "Ten starters observed.");
+      },
+    );
+    expect(result).toMatchObject({ action: "refreshed" });
+    expect(result.failed).toBeUndefined();
+    expect(store.matches[0].lineupCaptureLastOutcome).toBe("incomplete");
+    expect(store.matches[0].lineupSnapshotAt).toBeUndefined();
   });
 
   it("retries fixture 1551706 while live, persists cooldown metadata, and captures late evidence", async () => {
@@ -377,6 +399,7 @@ describe("match lifecycle synchronization", () => {
       matchId: "match-1551706",
       providerRequests: 2,
     });
+    expect(unavailable.failed).toBeUndefined();
     expect(store.matches[0]).toMatchObject({
       status: "live",
       elapsedMinute: 13,
@@ -443,9 +466,43 @@ describe("match lifecycle synchronization", () => {
     });
 
     expect(result.action).toBe("refreshed");
+    expect(result.failed).toBeUndefined();
     expect(store.matches[0].lineupSnapshotAt).toBeUndefined();
     expect(store.matches[0].lineupCaptureLastOutcome).toBe("incomplete");
   });
+
+  it.each([
+    ["lineup-incomplete", "incomplete"],
+    ["coach-missing", "incomplete"],
+  ] as const)(
+    "keeps a typed %s live capture on the evidence-wait path",
+    async (code, outcome) => {
+      const now = new Date("2026-10-18T22:13:59.000Z");
+      const store = new MemoryStore([fixture1551706Match()]);
+      const provider = fixture1551706Provider();
+      const first = await runAt(store, provider, now, async () => {
+        provider.requestCount += 1;
+        throw new ProviderError(code, "Evidence is pending.");
+      });
+      expect(first).toMatchObject({ action: "refreshed" });
+      expect(first.failed).toBeUndefined();
+      expect(store.matches[0]).toMatchObject({
+        lineupCaptureAttempts: 1,
+        liveLineupCaptureAttempts: 1,
+        lineupCaptureLastOutcome: outcome,
+      });
+      expect(store.matches[0].lineupSnapshotAt).toBeUndefined();
+      const cooldown = await runAt(
+        store,
+        fixture1551706Provider(),
+        new Date(now.getTime() + 5 * 60_000),
+        async () => {
+          throw new Error("Cooldown must not fetch lineup evidence.");
+        },
+      );
+      expect(cooldown.failed).toBeUndefined();
+    },
+  );
 
   it("enforces the live retry ceiling and provider request budget", async () => {
     const now = new Date("2026-10-18T22:13:59.000Z");
@@ -527,12 +584,22 @@ describe("match lifecycle synchronization", () => {
     });
 
     expect(result.action).toBe("refreshed");
+    expect(result.failed).toBe(true);
     expect(store.matches[0]).toMatchObject({
       status: "live",
       elapsedMinute: 13,
       lineupCaptureLastOutcome: "provider_failure",
     });
     expect(store.matches[0].lineupSnapshotAt).toBeUndefined();
+    const cooldown = await runAt(
+      store,
+      fixture1551706Provider(),
+      new Date(now.getTime() + 5 * 60_000),
+      async () => {
+        throw new Error("Cooldown must avoid a provider lineup request.");
+      },
+    );
+    expect(cooldown).toMatchObject({ action: "refreshed", failed: true });
   });
 
   it("runs final reconciliation after the live retry ceiling", async () => {
@@ -854,6 +921,7 @@ describe("match lifecycle synchronization", () => {
     store.participantCount = 10;
     const result = await run(store, new FixtureProvider(fixture("finished")));
     expect(result.action).toBe("preparing_rating");
+    expect(result.failed).toBeUndefined();
     expect(store.matches[0]).toMatchObject({
       ratingState: "preparing_rating",
       participantSyncedAt: NOW.toISOString(),
@@ -872,7 +940,10 @@ describe("match lifecycle synchronization", () => {
       async () => {
         syncAttempts += 1;
         if (syncAttempts === 1) {
-          throw new Error("No usable lineup has been observed yet.");
+          throw new ProviderError(
+            "lineup-unavailable",
+            "No usable lineup has been observed yet.",
+          );
         }
         store.participantCount = 11;
         store.hasCoach = true;
@@ -889,6 +960,7 @@ describe("match lifecycle synchronization", () => {
       action: "preparing_rating",
       reason: expect.stringContaining("No usable lineup"),
     });
+    expect(unavailable.failed).toBeUndefined();
     expect(store.matches[0]).toMatchObject({
       ratingState: "preparing_rating",
     });
@@ -1144,11 +1216,85 @@ describe("match lifecycle synchronization", () => {
       },
     );
     expect(result.action).toBe("preparing_rating");
+    expect(result.failed).toBe(true);
     expect(secondStore.matches[0].votingOpensAt).toBeUndefined();
     expect(secondStore.matches[0]).toMatchObject({
-      ratingBlockReason: "missing_participant_evidence",
+      ratingBlockReason: "unknown",
       ratingBlockObservedAt: NOW.toISOString(),
     });
+  });
+
+  it.each([
+    ["lineup-unavailable", "missing_participant_evidence"],
+    ["lineup-incomplete", "missing_participant_evidence"],
+    ["coach-missing", "missing_coach_evidence"],
+  ] as const)(
+    "keeps a typed %s final synchronization error as an evidence wait",
+    async (code, blocker) => {
+      const store = new MemoryStore([match({ status: "live" })]);
+      const result = await run(
+        store,
+        new FixtureProvider(fixture("finished")),
+        async () => {
+          throw new ProviderError(code, "Evidence has not arrived.");
+        },
+      );
+      expect(result).toMatchObject({ action: "preparing_rating" });
+      expect(result.failed).toBeUndefined();
+      expect(store.matches[0]).toMatchObject({
+        ratingState: "preparing_rating",
+        ratingBlockReason: blocker,
+      });
+      expect(store.matches[0].votingOpensAt).toBeUndefined();
+    },
+  );
+
+  it.each([
+    ["request-failed", "provider_failure"],
+    ["rate-limited", "provider_failure"],
+    ["missing-api-key", "provider_failure"],
+    ["malformed-response", "unknown"],
+    ["tracked-team-missing", "unknown"],
+    ["ambiguous-coach", "ambiguous_coach"],
+  ] as const)(
+    "keeps a typed %s final synchronization error operationally failed",
+    async (code, blocker) => {
+      const store = new MemoryStore([match({ status: "live" })]);
+      const result = await run(
+        store,
+        new FixtureProvider(fixture("finished")),
+        async () => {
+          throw new ProviderError(code, "Synchronization failed.");
+        },
+      );
+      expect(result).toMatchObject({
+        action: "preparing_rating",
+        failed: true,
+      });
+      expect(store.matches[0].ratingBlockReason).toBe(blocker);
+      expect(store.matches[0].votingOpensAt).toBeUndefined();
+    },
+  );
+
+  it("treats a failed readiness diagnostic write as an operational failure", async () => {
+    const store = new MemoryStore([match({ status: "live" })]);
+    const update = store.updateMatchLifecycle.bind(store);
+    store.updateMatchLifecycle = async (value) => {
+      if (value.ratingBlockReason !== undefined) {
+        throw new Error("Firestore write failed.");
+      }
+      await update(value);
+    };
+    const result = await run(
+      store,
+      new FixtureProvider(fixture("finished")),
+      async () => {
+        throw new ProviderError("lineup-unavailable", "Evidence pending.");
+      },
+    );
+    expect(result).toMatchObject({ action: "preparing_rating", failed: true });
+    expect(store.matches[0].ratingState).toBe("preparing_rating");
+    expect(store.matches[0].votingOpensAt).toBeUndefined();
   });
 
   it("works with the tracked Team home or away and rejects unrelated fixtures", async () => {

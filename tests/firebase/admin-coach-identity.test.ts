@@ -121,13 +121,21 @@ describe("admin Coach identity reconciliation", () => {
     expect(afterFirst[0].data()).toMatchObject({
       displayName: "Jafet Soto",
       identityProvenance: "operator_verified",
+      searchHiddenByAlias: false,
     });
     if (photoCase.expectedPhotoUrl === undefined) {
       expect(afterFirst[0].data()).not.toHaveProperty("photoUrl");
     } else {
       expect(afterFirst[0].data()?.photoUrl).toBe(photoCase.expectedPhotoUrl);
     }
-    expect(afterFirst[1].data()).toEqual(before[1].data());
+    expect(afterFirst[1].data()).toMatchObject(before[1].data() ?? {});
+    expect(afterFirst[1].data()).toMatchObject({
+      searchHiddenByAlias: true,
+      searchPrefixes: [],
+      teamBrowseKeys: [],
+      teamSearchKeys: [],
+      unassociatedSearchKeys: [],
+    });
   });
 
   it("previews with zero writes and atomically links a late provider Coach", async () => {
@@ -373,7 +381,9 @@ describe("admin Coach identity reconciliation", () => {
       token,
     );
 
-    expect((await service.suggestions()).suggestions).not.toEqual(
+    expect(
+      (await service.suggestions("club-sport-herediano")).suggestions,
+    ).not.toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           first: expect.objectContaining({ id: action.firstCoachId }),
@@ -472,6 +482,7 @@ async function seedPair(
   await seedAssociation(`manual-${seed}`, manualId, true);
   await seedAssociation(`provider-${seed}`, providerId, false);
   return {
+    trackedTeamId: "club-sport-herediano",
     firstCoachId: manualId,
     secondCoachId: providerId,
     canonicalCoachId: manualId,

@@ -6,8 +6,9 @@ export default defineConfig({
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
   test: {
     environment: "jsdom",
+    maxWorkers: 4,
     setupFiles: ["./vitest.setup.ts"],
     globals: true,
-    exclude: [...configDefaults.exclude, "tests/firebase/**"],
+    exclude: [...configDefaults.exclude, "tests/firebase/**", "tests/e2e/**"],
   },
 });

@@ -7,6 +7,7 @@ import {
   type PlayerCatalogEntry,
   type PlayerRatingTrend,
 } from "@/application/player-history";
+import { clubPath, matchPath, playerPath, type Club } from "@/config/club";
 import type { Locale } from "@/i18n/config";
 import { formatDate, formatRating } from "@/i18n/format";
 import type { Messages } from "@/i18n/messages";
@@ -16,10 +17,12 @@ import { PlayerAvatar } from "./player-avatar";
 type PlayerMessages = Messages["players"];
 
 export function PlayerCatalogView({
+  club,
   catalog,
   locale,
   messages,
 }: {
+  club: Club;
   catalog: PlayerCatalog;
   locale: Locale;
   messages: PlayerMessages;
@@ -48,7 +51,7 @@ export function PlayerCatalogView({
           {catalog.players.map((player) => (
             <li key={player.playerId}>
               <Link
-                href={`/players/${encodeURIComponent(player.playerId)}`}
+                href={playerPath(club, player.playerId)}
                 className="card block min-h-20 p-4"
               >
                 <span className="flex min-w-0 items-center gap-3">
@@ -112,10 +115,12 @@ export function PlayerCatalogView({
 }
 
 export function PlayerProfile({
+  club,
   player,
   locale,
   messages,
 }: {
+  club: Club;
   player: PlayerCatalogEntry;
   locale: Locale;
   messages: PlayerMessages;
@@ -257,7 +262,7 @@ export function PlayerProfile({
                     </span>
                   </div>
                   <Link
-                    href={`/matches/${encodeURIComponent(entry.matchId)}/results`}
+                    href={matchPath(club, entry.matchId, "/results")}
                     className="mt-2 inline-flex min-h-11 items-center font-bold text-accent underline decoration-2 underline-offset-4"
                   >
                     {messages.viewResults}&nbsp;→
@@ -269,7 +274,7 @@ export function PlayerProfile({
         </>
       )}
       <Link
-        href="/players"
+        href={clubPath(club, "/players")}
         className="button-secondary mt-7 inline-flex min-h-11 items-center px-4 py-3 font-bold"
       >
         {messages.back}

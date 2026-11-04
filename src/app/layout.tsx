@@ -40,7 +40,7 @@ export function generateMetadata(): Metadata {
       card: "summary_large_image",
       title: siteIdentity.name,
       description: siteIdentity.socialDescription,
-      images: ["/social-card"],
+      images: [],
     },
   };
 }

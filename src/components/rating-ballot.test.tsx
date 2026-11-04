@@ -2,6 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { initialClub } from "@/config/club";
 import type { BallotContext } from "@/domain/models";
 import { enMessages } from "@/i18n/messages/en";
 import { esMessages } from "@/i18n/messages/es";
@@ -43,6 +44,7 @@ describe("RatingBallot", () => {
   it("renders only supplied eligible participants and localized substitute context", async () => {
     render(
       <RatingBallot
+        club={initialClub}
         context={context}
         locale="es"
         messages={esMessages.ballot}
@@ -60,6 +62,7 @@ describe("RatingBallot", () => {
     const user = userEvent.setup();
     render(
       <RatingBallot
+        club={initialClub}
         context={context}
         locale="en"
         messages={enMessages.ballot}
@@ -94,7 +97,7 @@ describe("RatingBallot", () => {
     expect(
       await screen.findByText("Your votes were recorded."),
     ).toBeInTheDocument();
-    expect(submitBallot).toHaveBeenCalledWith("match-1", {
+    expect(submitBallot).toHaveBeenCalledWith(initialClub, "match-1", {
       playerRatings: { starter: 8, "used-sub": 7 },
       coachRating: { coachId: "coach-1", rating: 9 },
     });
@@ -104,6 +107,7 @@ describe("RatingBallot", () => {
     vi.mocked(getBallotStatus).mockResolvedValue("submitted");
     render(
       <RatingBallot
+        club={initialClub}
         context={context}
         locale="en"
         messages={enMessages.ballot}
@@ -120,6 +124,7 @@ describe("RatingBallot", () => {
     const user = userEvent.setup();
     render(
       <RatingBallot
+        club={initialClub}
         context={context}
         locale="en"
         messages={enMessages.ballot}
@@ -152,6 +157,7 @@ describe("RatingBallot", () => {
     const user = userEvent.setup();
     render(
       <RatingBallot
+        club={initialClub}
         context={context}
         locale="en"
         messages={enMessages.ballot}
@@ -189,6 +195,7 @@ describe("BallotRouteState", () => {
   it("shows closed state or submitted state without exposing results", async () => {
     const { rerender } = render(
       <BallotRouteState
+        club={initialClub}
         matchId="match-1"
         state="closed"
         messages={enMessages.ballot}
@@ -202,6 +209,7 @@ describe("BallotRouteState", () => {
     vi.mocked(getBallotStatus).mockResolvedValue("submitted");
     rerender(
       <BallotRouteState
+        club={initialClub}
         matchId="match-2"
         state="closed"
         messages={enMessages.ballot}

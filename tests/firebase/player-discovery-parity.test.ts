@@ -235,12 +235,15 @@ describe("public and administrative Player discovery parity", () => {
       adminReads.push(read),
     );
     const adminPage = await adminService.searchPlayers(
+      initialClub.teamId,
       `nombre historico ${suffix}`,
     );
     const verifiedPage = await adminService.searchPlayers(
+      initialClub.teamId,
       `interno verificado ${suffix}`,
     );
     const opponentPage = await adminService.searchPlayers(
+      initialClub.teamId,
       `rival exclusivo ${suffix}`,
     );
 

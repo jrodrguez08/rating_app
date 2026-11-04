@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { StudioMatchPresentation } from "@/application/studio";
+import { initialClub } from "@/config/club";
 import { getMessages } from "@/i18n/messages";
 
 import { StudioExperience } from "./studio-experience";
@@ -67,7 +68,9 @@ describe("StudioExperience", () => {
       screen.getByLabelText("Partido publicado"),
       "match-2",
     );
-    expect(navigation.push).toHaveBeenCalledWith("/studio?match=match-2");
+    expect(navigation.push).toHaveBeenCalledWith(
+      "/herediano/studio?match=match-2",
+    );
 
     await user.click(
       screen.getByRole("button", { name: "Presentar en pantalla completa" }),
@@ -164,7 +167,9 @@ describe("StudioExperience", () => {
     });
     renderStudio();
     const input = screen.getByLabelText("URL de la fuente para OBS");
-    expect(input).toHaveValue("https://rating-app.test/studio/overlay/match-1");
+    expect(input).toHaveValue(
+      "https://rating-app.test/herediano/studio/overlay/match-1",
+    );
     await user.click(screen.getByRole("button", { name: "Copiar URL de OBS" }));
     expect(screen.getByRole("status")).toHaveTextContent(
       "No pudimos copiar la URL",
@@ -232,12 +237,13 @@ function setFullscreenElement(element: Element | null) {
 function renderStudio() {
   return render(
     <StudioExperience
+      club={initialClub}
       presentation={presentation}
       matches={[
         option("match-1", "2026-10-20T02:00:00.000Z"),
         option("match-2", "2026-10-10T02:00:00.000Z"),
       ]}
-      overlayUrl="https://rating-app.test/studio/overlay/match-1"
+      overlayUrl="https://rating-app.test/herediano/studio/overlay/match-1"
       locale="es"
       messages={getMessages("es").studio}
     />,

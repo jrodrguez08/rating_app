@@ -43,12 +43,16 @@ describe("admin player search route", () => {
 
   it("requires the owner session and returns bounded canonical results", async () => {
     const request = new NextRequest(
-      "https://rating.test/api/admin/players?query=Jugador",
+      "https://rating.test/api/admin/players?query=Jugador&club=herediano",
     );
     const response = await GET(request);
 
     expect(mocks.requireAdminRequest).toHaveBeenCalledWith(request);
-    expect(mocks.searchPlayers).toHaveBeenCalledWith("Jugador", undefined);
+    expect(mocks.searchPlayers).toHaveBeenCalledWith(
+      "club-sport-herediano",
+      "Jugador",
+      undefined,
+    );
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       players: [{ id: "player-1", name: "Jugador Uno" }],
@@ -58,16 +62,20 @@ describe("admin player search route", () => {
 
   it("passes a validated pagination cursor to the catalog", async () => {
     const request = new NextRequest(
-      "https://rating.test/api/admin/players?query=Jugador&cursor=player-20",
+      "https://rating.test/api/admin/players?query=Jugador&cursor=player-20&club=herediano",
     );
 
     expect((await GET(request)).status).toBe(200);
-    expect(mocks.searchPlayers).toHaveBeenCalledWith("Jugador", "player-20");
+    expect(mocks.searchPlayers).toHaveBeenCalledWith(
+      "club-sport-herediano",
+      "Jugador",
+      "player-20",
+    );
   });
 
   it("rejects an oversized search before reading the catalog", async () => {
     const request = new NextRequest(
-      `https://rating.test/api/admin/players?query=${"a".repeat(81)}`,
+      `https://rating.test/api/admin/players?query=${"a".repeat(81)}&club=herediano`,
     );
     const response = await GET(request);
 
@@ -77,7 +85,7 @@ describe("admin player search route", () => {
 
   it("rejects an invalid cursor before reading the catalog", async () => {
     const request = new NextRequest(
-      "https://rating.test/api/admin/players?cursor=players%2Fone",
+      "https://rating.test/api/admin/players?cursor=players%2Fone&club=herediano",
     );
 
     expect((await GET(request)).status).toBe(400);

@@ -1,4 +1,5 @@
 import type { MatchArchiveItem } from "@/application/match-archive";
+import { matchPath, type Club } from "@/config/club";
 import {
   getEffectiveVotingWindow,
   getVotingWindowState,
@@ -6,6 +7,7 @@ import {
 import type { Messages } from "@/i18n/messages";
 
 export function matchPresentation(
+  club: Club,
   item: MatchArchiveItem,
   messages: Messages["matches"],
   now: Date,
@@ -25,7 +27,7 @@ export function matchPresentation(
       label: messages.resultsAvailable,
       description: messages.resultsDescription,
       action: messages.results,
-      href: `/matches/${match.id}/results`,
+      href: matchPath(club, match.id, "/results"),
       primary: true,
     };
   if (match.ratingState === "rating_closed")

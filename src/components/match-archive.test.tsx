@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { MatchArchiveItem } from "@/application/match-archive";
+import { initialClub } from "@/config/club";
 import type { Match } from "@/domain/models";
 import { getMessages } from "@/i18n/messages";
 import { getBallotStatus } from "@/lib/firebase/ballot-client";
@@ -72,7 +73,7 @@ describe("Partidos presentation", () => {
 
     expect(
       await screen.findByRole("link", { name: "Rate match" }),
-    ).toHaveAttribute("href", "/matches/ready/rate");
+    ).toHaveAttribute("href", "/herediano/matches/ready/rate");
     expect(
       screen.getByText(/Aug 31, 2026, 7:00 AM/).closest("p"),
     ).toHaveTextContent("Voting closes: Aug 31, 2026, 7:00 AM (Costa Rica)");
@@ -192,6 +193,7 @@ describe("Partidos presentation", () => {
     unmount();
     render(
       <MatchDetail
+        club={initialClub}
         item={item}
         locale="en"
         messages={messages}
@@ -240,6 +242,7 @@ describe("Partidos presentation", () => {
 
     render(
       <MatchArchiveView
+        club={initialClub}
         archive={{
           relevant: null,
           upcoming: [ready],
@@ -273,7 +276,7 @@ describe("Partidos presentation", () => {
     renderCard({ match: ready, hasResults: true });
     expect(screen.getByRole("link", { name: "View results" })).toHaveAttribute(
       "href",
-      "/matches/closed/results",
+      "/herediano/matches/closed/results",
     );
     expect(screen.queryByText(/Voting closes:/)).not.toBeInTheDocument();
     expect(
@@ -325,6 +328,7 @@ describe("Partidos presentation", () => {
 
     render(
       <MatchArchiveView
+        club={initialClub}
         archive={{
           relevant: featured,
           upcoming: [upcoming],
@@ -386,6 +390,7 @@ describe("Partidos presentation", () => {
     const user = userEvent.setup();
     render(
       <MatchArchiveView
+        club={initialClub}
         archive={{
           relevant: null,
           upcoming: [],
@@ -417,6 +422,7 @@ describe("Partidos presentation", () => {
     const user = userEvent.setup();
     render(
       <MatchArchiveView
+        club={initialClub}
         archive={{
           relevant: null,
           upcoming: [],
@@ -442,6 +448,7 @@ describe("Partidos presentation", () => {
 
     render(
       <MatchArchiveView
+        club={initialClub}
         archive={{
           relevant: featured,
           upcoming: [],
@@ -592,6 +599,7 @@ describe("Partidos presentation", () => {
 
     render(
       <MatchDetail
+        club={initialClub}
         item={item(value)}
         locale="en"
         messages={messages}
@@ -619,6 +627,7 @@ describe("Partidos presentation", () => {
     (_name, state) => {
       render(
         <MatchDetail
+          club={initialClub}
           item={item(match(state))}
           locale="en"
           messages={messages}
@@ -636,6 +645,7 @@ describe("Partidos presentation", () => {
   it("keeps the finished score, results action, and standalone goal card", () => {
     render(
       <MatchDetail
+        club={initialClub}
         item={item(
           match({
             status: "finished",
@@ -666,7 +676,7 @@ describe("Partidos presentation", () => {
     expect(screen.getByText("2 - 1")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "View results" })).toHaveAttribute(
       "href",
-      "/matches/match/results",
+      "/herediano/matches/match/results",
     );
     expect(screen.getByRole("listitem")).toHaveTextContent(
       "CS Herediano · Finished scorer70'",
@@ -739,6 +749,7 @@ function renderCard(item: MatchArchiveItem) {
 function card(item: MatchArchiveItem) {
   return (
     <MatchCard
+      club={initialClub}
       item={item}
       locale="en"
       messages={messages}

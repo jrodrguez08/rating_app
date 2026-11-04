@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
 
 import type { StudioMatchPresentation } from "@/application/studio";
-import { initialClub } from "@/config/club";
+import type { Club } from "@/config/club";
 import { getTeamBadgePresentation } from "@/config/team-badges";
 import type { Locale } from "@/i18n/config";
 import { formatDate, formatRating } from "@/i18n/format";
@@ -13,12 +13,14 @@ import { TeamBadge } from "./team-badge";
 export type StudioView = "podium" | "ranking" | "radiography";
 
 export function StudioBoard({
+  club,
   presentation,
   locale,
   messages,
   view,
   overlay = false,
 }: {
+  club: Club;
   presentation: StudioMatchPresentation;
   locale: Locale;
   messages: Messages["studio"];
@@ -27,8 +29,9 @@ export function StudioBoard({
 }) {
   const { match, result, podium } = presentation;
   const style = {
-    "--club-primary": initialClub.theme.primary,
-    "--club-secondary": initialClub.theme.accent,
+    "--club-primary": club.theme.primary,
+    "--club-secondary": club.theme.accent,
+    "--game-focus": club.theme.accent,
   } as CSSProperties;
   return (
     <article

@@ -7,7 +7,7 @@ import { AdminLineupEditor } from "@/components/admin-lineup-editor";
 import { AdminMatchCoachPanel } from "@/components/admin-match-coach";
 import { AdminManualVotingPanel } from "@/components/admin-manual-voting";
 import { AdminProviderCheck } from "@/components/admin-provider-check";
-import { initialClub } from "@/config/club";
+import { adminPath, initialClub, resolveClub } from "@/config/club";
 import { getMessages } from "@/i18n/messages";
 import { AdminConsoleService } from "@/lib/firebase/admin-console";
 import { AdminProviderCheckService } from "@/lib/firebase/admin-provider-check";
@@ -25,9 +25,19 @@ export const metadata: Metadata = {
 
 export default async function AdminMatchPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ matchId: string }>;
+  searchParams: Promise<{ club?: string | string[] }>;
 }) {
+  const requestedClub = (await searchParams).club;
+  const club =
+    requestedClub === undefined
+      ? initialClub
+      : typeof requestedClub === "string"
+        ? resolveClub(requestedClub)
+        : null;
+  if (!club) notFound();
   const cookieStore = await cookies();
   let ownerId: string;
   try {
@@ -35,17 +45,21 @@ export default async function AdminMatchPage({
       await verifyAdminSession(cookieStore.get(ADMIN_SESSION_COOKIE)?.value)
     ).uid;
   } catch {
-    redirect("/admin");
+    redirect(adminPath(club));
   }
   const { matchId } = await params;
-  const detail = await new AdminConsoleService().detail(matchId, ownerId);
+  const detail = await new AdminConsoleService().detail(
+    matchId,
+    club.teamId,
+    ownerId,
+  );
   if (!detail) notFound();
   const messages = getMessages("es").admin;
   const persistedProviderReport =
     detail.match.ratingState === "rating_closed"
       ? await new AdminProviderCheckService().readPersisted({
           matchId: detail.match.id,
-          trackedTeamId: initialClub.teamId,
+          trackedTeamId: club.teamId,
           externalFixtureId: detail.match.externalFixtureId,
         })
       : null;
@@ -54,15 +68,16 @@ export default async function AdminMatchPage({
       className="page-shell py-8"
       style={
         {
-          "--club-primary": initialClub.theme.primary,
-          "--club-secondary": initialClub.theme.accent,
+          "--club-primary": club.theme.primary,
+          "--club-secondary": club.theme.accent,
         } as React.CSSProperties
       }
     >
-      <AdminDashboardLink label={messages.backToDashboard} />
+      <AdminDashboardLink label={messages.backToDashboard} club={club} />
       <header className="mb-8">
         <p className="eyebrow">{messages.eyebrow}</p>
         <h1 className="score-font mt-2 text-3xl">{messages.lineupTitle}</h1>
+        <p className="text-muted mt-2">{club.displayName}</p>
         <p className="text-muted mt-3 max-w-2xl">
           {messages.lineupDescription}
         </p>
@@ -82,9 +97,10 @@ export default async function AdminMatchPage({
           </section>
         ) : (
           <AdminLineupEditor
+            key={`${club.slug}:${detail.match.id}:lineup`}
             detail={detail}
             messages={messages}
-            teamId={initialClub.teamId}
+            teamId={club.teamId}
           />
         )}
         {detail.match.verification ? (
@@ -94,28 +110,29 @@ export default async function AdminMatchPage({
             <p className="text-success" role="status">
               ✓{" "}
               {detail.match.assignment?.coachName ??
-                detail.coaches?.find(
-                  (coach) => coach.id === detail.match.verification?.coachId,
-                )?.name ??
+                detail.currentCoach?.name ??
                 messages.verifiedAssignment}
             </p>
           </section>
         ) : (
           <AdminMatchCoachPanel
+            key={`${club.slug}:${detail.match.id}:coach`}
             detail={detail}
             messages={messages}
-            teamId={initialClub.teamId}
+            teamId={club.teamId}
           />
         )}
         <AdminManualVotingPanel
+          key={`${club.slug}:${detail.match.id}:voting`}
           detail={detail}
           messages={messages}
-          teamId={initialClub.teamId}
+          teamId={club.teamId}
         />
         <AdminProviderCheck
+          key={`${club.slug}:${detail.match.id}:provider`}
           match={detail.match}
           messages={messages}
-          teamId={initialClub.teamId}
+          teamId={club.teamId}
           initialReport={persistedProviderReport}
         />
       </div>

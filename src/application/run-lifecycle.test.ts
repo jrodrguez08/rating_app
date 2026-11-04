@@ -40,6 +40,7 @@ describe("configured match lifecycle notifications", () => {
               status: "claimed",
               context: {
                 matchId: "match-1",
+                trackedTeamId: "club-sport-herediano",
                 windowSequence: 0,
                 homeTeamName: "Home",
                 awayTeamName: "Away",
@@ -153,7 +154,46 @@ describe("configured match lifecycle notifications", () => {
         action: "refreshed",
         matchId: "match-1",
         providerRequests: 1,
+        failed: false,
       },
+    );
+  });
+
+  it("persists a failed preparing action and clears it on a later successful attempt", async () => {
+    mocks.runMatchLifecycle
+      .mockResolvedValueOnce({
+        action: "preparing_rating",
+        matchId: "match-1",
+        providerRequests: 4,
+        failed: true,
+      })
+      .mockResolvedValueOnce({
+        action: "preparing_rating",
+        matchId: "match-1",
+        providerRequests: 4,
+      });
+    const store = {
+      completeLifecycleExecution: vi.fn().mockResolvedValue(undefined),
+    } as unknown as MatchLifecycleStore;
+    const failed = await runConfiguredLifecycle("tracked-team", store, "key");
+    const recovered = await runConfiguredLifecycle(
+      "tracked-team",
+      store,
+      "key",
+    );
+    expect(failed.executionStatus).toBe("failed");
+    expect(recovered.executionStatus).toBe("completed");
+    expect(store.completeLifecycleExecution).toHaveBeenNthCalledWith(
+      1,
+      "tracked-team",
+      expect.any(String),
+      expect.objectContaining({ failed: true }),
+    );
+    expect(store.completeLifecycleExecution).toHaveBeenNthCalledWith(
+      2,
+      "tracked-team",
+      expect.any(String),
+      expect.objectContaining({ failed: false }),
     );
   });
 });

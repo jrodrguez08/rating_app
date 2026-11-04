@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { trackedMatchId } from "@/application/match-identity";
 import type { Competition, Match, Season, Team } from "@/domain/models";
 import type {
   FixtureWindow,
@@ -26,7 +27,7 @@ export interface FootballSyncOptions {
 }
 
 function stableId(
-  kind: "competition" | "season" | "match",
+  kind: "competition" | "season",
   provider: string,
   externalIdentity: string,
 ): string {
@@ -164,7 +165,7 @@ export async function syncFootballData(
       );
     }
     return {
-      id: stableId("match", provider.name, fixture.externalFixtureId),
+      id: trackedMatchId(provider.name, fixture.externalFixtureId, team.id),
       trackedTeamId: team.id,
       trackedTeamExternalProviderId: externalTeamId,
       competitionId: competition.id,

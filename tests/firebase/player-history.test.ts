@@ -96,6 +96,40 @@ beforeAll(async () => {
 afterAll(() => deleteApp(app));
 
 describe("trusted player history reads", () => {
+  it("excludes a published result whose parent Match belongs to another club", async () => {
+    const foreignMatchId = "player-history-foreign-club";
+    const source = (await database.doc("matches/closed").get()).data();
+    await database.doc(`matches/${foreignMatchId}`).set({
+      ...source,
+      trackedTeamId: "another-club",
+      externalProviderFixtureId: "shared-provider-fixture",
+    });
+    const foreignResult = (
+      await database.doc("matches/closed/results/summary").get()
+    ).data();
+    await database.doc(`matches/${foreignMatchId}/results/summary`).set({
+      ...foreignResult,
+      matchId: foreignMatchId,
+      teamId,
+      playerResults: {
+        "stable-player": {
+          playerId: "stable-player",
+          playerName: "Foreign Club Rating",
+          average: 1,
+          voteCount: 2,
+          order: 0,
+        },
+      },
+    });
+
+    const catalog = await new AdminPlayerHistoryService(database).list(teamId);
+    const rated = catalog.players.find(
+      (player) => player.playerId === "stable-player",
+    );
+    expect(rated?.history.map((entry) => entry.matchId)).toEqual(["closed"]);
+    expect(rated?.overallAverage).toBe(8);
+  });
+
   it("derives public history from closed summaries without reading ballots", async () => {
     await database.doc("matches/closed/ballots/private-voter").set({
       voterId: "private-voter",
@@ -181,6 +215,84 @@ describe("trusted player history reads", () => {
       });
     },
   );
+
+  it("keeps one canonical Player's published history and ranking scoped to each club", async () => {
+    const otherTeamId = "player-history-other-club";
+    const otherMatchId = "player-history-other-side";
+    const timestamp = Timestamp.fromDate(new Date("2026-08-01T00:00:00.000Z"));
+    const sourceMatch =
+      (await database.doc("matches/closed").get()).data() ?? {};
+    delete sourceMatch.id;
+    await database.doc(`teams/${otherTeamId}`).set({
+      displayName: "Other Club",
+      shortName: "Other",
+      countryName: "Costa Rica",
+      countryCode: "CR",
+      brandingKey: "other",
+      externalProviderId: "2",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    await database.doc(`matches/${otherMatchId}`).set({
+      ...sourceMatch,
+      trackedTeamId: otherTeamId,
+      trackedTeamExternalProviderId: "2",
+    });
+    await database
+      .doc(`matches/${otherMatchId}/participants/stable-player`)
+      .set({
+        matchId: otherMatchId,
+        playerId: "stable-player",
+        playerName: "Current Name",
+        teamId: otherTeamId,
+        externalProvider: "api-football",
+        externalProviderTeamId: "2",
+        externalProviderPlayerId: "10",
+        squadRole: "starter",
+        starter: true,
+        participated: true,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      });
+    const sourceResult = (
+      await database.doc("matches/closed/results/summary").get()
+    ).data();
+    await database.doc(`matches/${otherMatchId}/results/summary`).set({
+      ...sourceResult,
+      matchId: otherMatchId,
+      teamId: otherTeamId,
+      playerResults: {
+        "stable-player": {
+          playerId: "stable-player",
+          playerName: "Current Name",
+          average: 2,
+          voteCount: 2,
+          order: 0,
+        },
+      },
+    });
+    await runMembershipBackfill(database, otherTeamId, true);
+
+    const service = new AdminPlayerHistoryService(database);
+    const herediano = await service.list(teamId);
+    const other = await service.list(otherTeamId);
+    const heredianoPlayer = herediano.players.find(
+      (player) => player.playerId === "stable-player",
+    );
+    const otherPlayer = other.players.find(
+      (player) => player.playerId === "stable-player",
+    );
+    expect(heredianoPlayer?.history.map(({ matchId }) => matchId)).toEqual([
+      "closed",
+    ]);
+    expect(heredianoPlayer?.overallAverage).toBe(8);
+    expect(heredianoPlayer?.rank).toBeNull();
+    expect(otherPlayer?.history.map(({ matchId }) => matchId)).toEqual([
+      otherMatchId,
+    ]);
+    expect(otherPlayer?.overallAverage).toBe(2);
+    expect(otherPlayer?.rank).toBeNull();
+  });
 });
 
 async function seedMatch(

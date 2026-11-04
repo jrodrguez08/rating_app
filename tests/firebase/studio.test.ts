@@ -52,10 +52,66 @@ beforeAll(async () => {
 afterAll(() => deleteApp(app));
 
 describe("public Studio persistence path", () => {
+  it("selects published context only for the requested club on a shared fixture", async () => {
+    const saprissaMatchId = "studio-shared-saprissa";
+    const saprissaTeamId = "deportivo-saprissa";
+    const sourceMatch = (
+      await database.doc("matches/studio-published").get()
+    ).data();
+    const sourceResult = (
+      await database.doc("matches/studio-published/results/summary").get()
+    ).data();
+    await database.doc(`matches/${saprissaMatchId}`).set({
+      ...sourceMatch,
+      trackedTeamId: saprissaTeamId,
+      awayTeam: { externalProviderId: "3000", name: "Saprissa" },
+    });
+    await database.doc(`matches/${saprissaMatchId}/results/summary`).set({
+      ...sourceResult,
+      matchId: saprissaMatchId,
+      teamId: saprissaTeamId,
+      playerResults: {
+        "saprissa-player": {
+          playerId: "saprissa-player",
+          playerName: "Saprissa Player",
+          average: 9,
+          voteCount: 2,
+          order: 0,
+        },
+      },
+      coachResult: {
+        coachId: "saprissa-coach",
+        coachName: "Saprissa Coach",
+        average: 8,
+        voteCount: 2,
+      },
+      mvpPlayerIds: ["saprissa-player"],
+    });
+
+    const herediano = await catalog.listPublishedMatches(initialClub.teamId);
+    const saprissa = await catalog.listPublishedMatches(saprissaTeamId);
+    expect(herediano.map(({ matchId }) => matchId)).toContain(
+      "studio-published",
+    );
+    expect(herediano.map(({ matchId }) => matchId)).not.toContain(
+      saprissaMatchId,
+    );
+    expect(saprissa.map(({ matchId }) => matchId)).toContain(saprissaMatchId);
+    expect(saprissa.map(({ matchId }) => matchId)).not.toContain(
+      "studio-published",
+    );
+    expect(
+      await results.getPageState(saprissaMatchId, initialClub.teamId),
+    ).toEqual({ state: "unavailable" });
+  });
+
   it("lists only current published results newest-first and performs no writes", async () => {
     const before = await database.doc("matches/studio-published").get();
     const matches = await catalog.listPublishedMatches(initialClub.teamId);
-    const page = await results.getPublishedPageState("studio-published");
+    const page = await results.getPublishedPageState(
+      "studio-published",
+      initialClub.teamId,
+    );
     const after = await database.doc("matches/studio-published").get();
 
     expect(matches.map(({ matchId }) => matchId)).toContain("studio-published");

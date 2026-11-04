@@ -151,6 +151,7 @@ export async function readPublishedTeamHistory(
       snapshot.size === PUBLIC_PAGE_SIZE ? snapshot.docs.at(-1) : undefined;
   } while (cursor);
   const matches: Match[] = [];
+  const ownedResults: MatchResult[] = [];
   for (
     let offset = 0;
     offset < matchReferences.length;
@@ -160,11 +161,21 @@ export async function readPublishedTeamHistory(
       ...matchReferences.slice(offset, offset + LOOKUP_BATCH_SIZE),
     );
     observe?.({ kind: "match_lookup", documents: snapshots.length });
-    for (const snapshot of snapshots) {
-      if (snapshot.exists) matches.push(fromDocument<Match>(snapshot));
-    }
+    snapshots.forEach((snapshot, index) => {
+      if (!snapshot.exists) return;
+      const match = fromDocument<Match>(snapshot);
+      const result = results[offset + index];
+      if (
+        match.trackedTeamId === teamId &&
+        match.id === result.matchId &&
+        result.teamId === teamId
+      ) {
+        matches.push(match);
+        ownedResults.push(result);
+      }
+    });
   }
-  return { matches, results };
+  return { matches, results: ownedResults };
 }
 
 export async function resolveIndexedCanonicalPlayerIds(
