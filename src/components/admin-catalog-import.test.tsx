@@ -31,12 +31,17 @@ const plan = {
       name: "Historical Player",
       status: "existing",
       sourceFixtureIds: ["1551714"],
+      proposedPosition: "attacker",
+      positionSource: "squad",
     },
   ],
   coaches: [],
   membershipChanges: 12,
   coachAssociationChanges: 0,
   metadataChanges: 0,
+  positionFills: 1,
+  positionGaps: 0,
+  squadPlayers: 35,
   excludedPlayers: 1,
   unresolvedCoaches: 1,
   proposedWrites: 26,
@@ -68,7 +73,13 @@ describe("owner catalog import", () => {
       .mockResolvedValueOnce(json({ auditId: "catalog-audit" }));
     vi.stubGlobal("fetch", fetcher);
     document.cookie = `rating_admin_csrf=${"c".repeat(43)}`;
-    render(<AdminCatalogImport club={clubs.saprissa} messages={messages} />);
+    render(
+      <AdminCatalogImport
+        club={clubs.saprissa}
+        messages={messages}
+        positionNames={getMessages("es").players.positions}
+      />,
+    );
     expect(fetcher).not.toHaveBeenCalled();
     await userEvent.click(
       screen.getByRole("button", { name: messages.preview }),
@@ -81,6 +92,9 @@ describe("owner catalog import", () => {
     ).toBeVisible();
     expect(screen.getByText(messages.excluded)).toBeVisible();
     expect(screen.getByText("Historical Player")).toBeVisible();
+    expect(
+      screen.getByText("Completar posición: Delantero (plantel)"),
+    ).toBeVisible();
     await userEvent.type(
       screen.getByLabelText(messages.passphrase),
       "test-passphrase",
@@ -110,7 +124,13 @@ describe("owner catalog import", () => {
         .fn()
         .mockResolvedValue(json({ error: "API-Football no respondió." }, 503)),
     );
-    render(<AdminCatalogImport club={clubs.herediano} messages={messages} />);
+    render(
+      <AdminCatalogImport
+        club={clubs.herediano}
+        messages={messages}
+        positionNames={getMessages("es").players.positions}
+      />,
+    );
     await userEvent.click(
       screen.getByRole("button", { name: messages.preview }),
     );

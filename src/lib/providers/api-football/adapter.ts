@@ -361,7 +361,7 @@ export class ApiFootballAdapter
         status: "FT-AET-PEN",
         timezone: "UTC",
       },
-      8_000,
+      6_000,
       500_000,
     );
     if (response.length > 5)
@@ -398,7 +398,7 @@ export class ApiFootballAdapter
         {
           fixture: source.fixture.externalFixtureId,
         },
-        8_000,
+        6_000,
         500_000,
       );
       if (lineups.length > 4)
@@ -477,7 +477,7 @@ export class ApiFootballAdapter
             coachResponse = await this.request(
               "/coachs",
               { team: externalTeamId },
-              8_000,
+              6_000,
               500_000,
             );
             if (coachResponse.length > 100)
@@ -832,10 +832,17 @@ export class ApiFootballAdapter
     });
   }
 
-  async getSquad(externalTeamId: string): Promise<ProviderSquadPlayer[]> {
-    const response = await this.request("/players/squads", {
-      team: externalTeamId,
-    });
+  async getSquad(
+    externalTeamId: string,
+    mode?: "catalog",
+  ): Promise<ProviderSquadPlayer[]> {
+    const response = await this.request(
+      "/players/squads",
+      { team: externalTeamId },
+      mode === "catalog" ? 6_000 : undefined,
+      mode === "catalog" ? 500_000 : undefined,
+    );
+    if (response.length === 0 && mode === "catalog") return [];
     if (response.length !== 1) {
       return malformed(
         `squad Team ${externalTeamId} returned ${response.length} records.`,
@@ -847,11 +854,27 @@ export class ApiFootballAdapter
       return malformed(`squad response does not match Team ${externalTeamId}.`);
     }
     const players = new Map<string, ProviderSquadPlayer>();
-    for (const value of array(item.players, "squad response item.players")) {
+    const entries = array(item.players, "squad response item.players");
+    if (mode === "catalog" && entries.length > 100)
+      return malformed("Squad response exceeds 100 Players.");
+    for (const value of entries) {
       const player = parseSquadPlayer(value);
-      if (player !== null && !players.has(player.externalPlayerId)) {
+      if (player === null) continue;
+      const previous = players.get(player.externalPlayerId);
+      if (
+        mode === "catalog" &&
+        previous?.position &&
+        player.position &&
+        previous.position !== player.position
+      )
+        return malformed(
+          "Squad response contains conflicting Player positions.",
+        );
+      if (
+        !previous ||
+        (mode === "catalog" && !previous.position && player.position)
+      )
         players.set(player.externalPlayerId, player);
-      }
     }
     return [...players.values()];
   }

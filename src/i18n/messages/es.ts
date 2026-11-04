@@ -216,7 +216,7 @@ export const esMessages = {
     backHome: "Volver al inicio",
   },
   matches: {
-    eyebrow: "Temporada de Herediano",
+    eyebrow: "Temporada de {club}",
     title: "Partidos",
     introduction: "Próximos partidos, marcadores y resultados recientes.",
     featured: "Partido destacado",
@@ -258,7 +258,6 @@ export const esMessages = {
     goals: "Goles confirmados",
     goal: "Gol",
     goalByTeam: "Gol de {team}",
-    trackedTeamGoal: "Gol de Herediano",
     opponentGoal: "Gol del rival",
     liveDescription:
       "Las calificaciones estarán disponibles después del final y la confirmación de participantes.",
@@ -268,7 +267,7 @@ export const esMessages = {
       "Este partido forma parte del archivo, aunque no haya tenido votación en Rating App.",
   },
   players: {
-    eyebrow: "Historial de Herediano",
+    eyebrow: "Historial de {club}",
     title: "Jugadores",
     introduction:
       "La calificación de la afición a lo largo de los partidos publicados.",
@@ -297,7 +296,6 @@ export const esMessages = {
     unavailableDescription:
       "El historial de jugadores no está disponible temporalmente.",
     profileUnavailable: "No pudimos cargar este jugador.",
-    teamContext: "Club Sport Herediano",
     evolution: "Evolución",
     recentMatches: "Partidos recientes",
     oneMatchTrend:
@@ -601,9 +599,9 @@ export const esMessages = {
       link: "Importar jugadores y directores técnicos",
       title: "Catálogo de partidos recientes",
       description:
-        "Consulte los últimos cinco fixtures terminados del club y agregue identidades a los selectores de preparación. Esta acción no prepara ningún partido ni abre votaciones.",
+        "Consulte los últimos cinco fixtures terminados y las posiciones del plantel antes de agregar identidades o completar posiciones faltantes. Esta acción no prepara ningún partido ni abre votaciones.",
       preview: "Consultar catálogo de API-Football",
-      loading: "Consultando fixtures y alineaciones…",
+      loading: "Consultando fixtures, alineaciones y plantel…",
       fixtures: "Fixtures consultados",
       noFixtures: "El proveedor no ofreció fixtures terminados.",
       missing: "Alineación ausente",
@@ -624,6 +622,14 @@ export const esMessages = {
       memberships: "Asociaciones de jugadores con el club",
       coachAssociations: "Asociaciones de directores técnicos con el club",
       metadata: "Cambios de metadatos",
+      squadPlayers: "Jugadores consultados en el plantel",
+      positionFills: "Posiciones faltantes por completar",
+      positionGaps: "Candidatos aún sin posición",
+      existingPosition: "Posición existente: {position}",
+      proposedPosition: "Completar posición: {position} ({source})",
+      positionMissing: "Posición no disponible en alineaciones ni plantel",
+      positionConflict: "Posiciones contradictorias; no se propone ninguna",
+      positionSources: { lineup: "alineación", squad: "plantel" },
       excluded: "Jugadores excluidos por identidad inválida o duplicada",
       unresolvedCoaches: "Fixtures con director técnico no resuelto",
       requests: "Solicitudes al proveedor",

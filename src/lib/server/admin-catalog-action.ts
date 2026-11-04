@@ -7,6 +7,7 @@ export interface AdminCatalogImportAction {
   externalTeamId: string;
   observedAt: string;
   providerRequests: number;
+  squadPlayers: number;
   fixtures: Array<{
     id: string;
     kickoffAt: string;
@@ -19,8 +20,11 @@ export interface AdminCatalogImportAction {
     id: string;
     canonicalExternalId: string;
     observedExternalIds: string[];
+    squadExternalIds: string[];
     name: string;
     position?: PlayerPosition;
+    positionSource?: "lineup" | "squad";
+    positionConflict: boolean;
     sourceFixtureIds: string[];
   }>;
   coaches: Array<{
@@ -54,7 +58,10 @@ export function parseAdminCatalogAction(
     !validDate(value.observedAt) ||
     !Number.isInteger(value.providerRequests) ||
     Number(value.providerRequests) < 1 ||
-    Number(value.providerRequests) > 7 ||
+    Number(value.providerRequests) > 8 ||
+    !Number.isInteger(value.squadPlayers) ||
+    Number(value.squadPlayers) < 0 ||
+    Number(value.squadPlayers) > 100 ||
     !/^[a-f0-9]{64}$/.test(String(value.stateHash)) ||
     !Array.isArray(value.fixtures) ||
     value.fixtures.length > 5 ||
@@ -100,6 +107,12 @@ export function parseAdminCatalogAction(
         item.observedExternalIds.some((id: unknown) => !numericId(id)) ||
         new Set(item.observedExternalIds).size !==
           item.observedExternalIds.length ||
+        (kind === "players" &&
+          (!Array.isArray(item.squadExternalIds) ||
+            item.squadExternalIds.length > 100 ||
+            item.squadExternalIds.some((id: unknown) => !numericId(id)) ||
+            new Set(item.squadExternalIds).size !==
+              item.squadExternalIds.length)) ||
         !validName(item.name) ||
         !Array.isArray(item.sourceFixtureIds) ||
         item.sourceFixtureIds.length < 1 ||
@@ -114,10 +127,16 @@ export function parseAdminCatalogAction(
     });
   const players = people("players").map((item) => {
     if (
-      item.position !== undefined &&
-      !["goalkeeper", "defender", "midfielder", "attacker"].includes(
-        String(item.position),
-      )
+      (item.position !== undefined &&
+        !["goalkeeper", "defender", "midfielder", "attacker"].includes(
+          String(item.position),
+        )) ||
+      (item.positionSource !== undefined &&
+        !["lineup", "squad"].includes(String(item.positionSource))) ||
+      typeof item.positionConflict !== "boolean" ||
+      (item.positionConflict &&
+        (item.position !== undefined || item.positionSource !== undefined)) ||
+      (item.position !== undefined) !== (item.positionSource !== undefined)
     ) {
       throw new Error("La posición del jugador no es válida.");
     }
@@ -144,6 +163,7 @@ export function parseAdminCatalogAction(
     externalTeamId: value.externalTeamId as string,
     observedAt: value.observedAt as string,
     providerRequests: value.providerRequests as number,
+    squadPlayers: value.squadPlayers as number,
     fixtures,
     players,
     coaches,

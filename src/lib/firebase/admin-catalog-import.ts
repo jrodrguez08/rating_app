@@ -35,6 +35,7 @@ import {
 import type {
   FootballDataProvider,
   ProviderFixtureCatalog,
+  ProviderSquadPlayer,
 } from "@/domain/ports";
 import {
   adminCatalogAuditId,
@@ -81,6 +82,11 @@ export interface AdminCatalogImportPlan {
     name: string;
     status: "new" | "existing";
     sourceFixtureIds: string[];
+    currentPosition?: Player["position"];
+    proposedPosition?: Player["position"];
+    positionSource?: "lineup" | "squad";
+    positionGap?: "missing" | "conflict";
+    positionConflict: boolean;
   }>;
   coaches: Array<{
     name: string;
@@ -90,6 +96,9 @@ export interface AdminCatalogImportPlan {
   membershipChanges: number;
   coachAssociationChanges: number;
   metadataChanges: number;
+  positionFills: number;
+  positionGaps: number;
+  squadPlayers: number;
   excludedPlayers: number;
   unresolvedCoaches: number;
   proposedWrites: number;
@@ -136,13 +145,26 @@ export class AdminCatalogImportService {
       team.externalProviderId!,
       observedAt,
     );
-    if (provider.requestCount > 7) {
+    if (provider.requestCount > 7)
+      throw new AdminCatalogImportRejectedError(
+        "provider_unavailable",
+        "La consulta superó el límite de solicitudes al proveedor.",
+      );
+    const squad = fixtures.some((fixture) => fixture.players.length)
+      ? await provider.getSquad(team.externalProviderId!, "catalog")
+      : [];
+    if (squad.length > 100)
+      throw new AdminCatalogImportRejectedError(
+        "provider_unavailable",
+        "El plantel supera el límite seguro de consulta.",
+      );
+    if (provider.requestCount > 8) {
       throw new AdminCatalogImportRejectedError(
         "provider_unavailable",
         "La consulta superó el límite de solicitudes al proveedor.",
       );
     }
-    const candidates = await this.canonicalize(fixtures);
+    const candidates = await this.canonicalize(fixtures, squad);
     const actionWithoutHash = {
       trackedTeamId: teamId,
       externalTeamId: team.externalProviderId!,
@@ -167,6 +189,7 @@ export class AdminCatalogImportService {
       ),
       players: candidates.players,
       coaches: candidates.coaches,
+      squadPlayers: squad.length,
     };
     if (
       actionWithoutHash.players.length > 100 ||
@@ -372,10 +395,15 @@ export class AdminCatalogImportService {
 
   private async canonicalize(
     fixtures: ProviderFixtureCatalog[],
+    squad: ProviderSquadPlayer[],
   ): Promise<Pick<AdminCatalogImportAction, "players" | "coaches">> {
     const playerObservations = new Map<
       string,
-      { name: string; position?: Player["position"]; fixtures: Set<string> }
+      {
+        name: string;
+        positions: Set<NonNullable<Player["position"]>>;
+        fixtures: Set<string>;
+      }
     >();
     const coachObservations = new Map<
       string,
@@ -388,15 +416,11 @@ export class AdminCatalogImportService {
           entry.fixtures.add(source.fixture.externalFixtureId);
           if (player.name.localeCompare(entry.name) < 0)
             entry.name = player.name;
-          if (
-            player.position &&
-            (!entry.position || player.position < entry.position)
-          )
-            entry.position = player.position;
+          if (player.position) entry.positions.add(player.position);
         } else
           playerObservations.set(player.externalPlayerId, {
             name: player.name,
-            position: player.position,
+            positions: new Set(player.position ? [player.position] : []),
             fixtures: new Set([source.fixture.externalFixtureId]),
           });
       }
@@ -413,9 +437,17 @@ export class AdminCatalogImportService {
       }
     }
     const playerIds = [...playerObservations.keys()];
+    const squadIds = [
+      ...new Set(squad.map((player) => player.externalPlayerId)),
+    ].sort();
     const coachIds = [...coachObservations.keys()];
     const aliasReferences = [
       ...playerIds.map((id) =>
+        this.database.doc(
+          `playerProviderAliases/${playerProviderAliasId("api-football", id)}`,
+        ),
+      ),
+      ...squadIds.map((id) =>
         this.database.doc(
           `playerProviderAliases/${playerProviderAliasId("api-football", id)}`,
         ),
@@ -432,6 +464,14 @@ export class AdminCatalogImportService {
     const players = new Map<
       string,
       AdminCatalogImportAction["players"][number]
+    >();
+    const lineupPositions = new Map<
+      string,
+      Set<NonNullable<Player["position"]>>
+    >();
+    const squadPositions = new Map<
+      string,
+      Set<NonNullable<Player["position"]>>
     >();
     playerIds.forEach((externalId, index) => {
       const alias = aliases[index].exists
@@ -456,6 +496,9 @@ export class AdminCatalogImportService {
         alias?.canonicalExternalProviderPlayerId ?? externalId;
       const observed = playerObservations.get(externalId)!;
       const previous = players.get(id);
+      const lineup = lineupPositions.get(id) ?? new Set();
+      for (const position of observed.positions) lineup.add(position);
+      lineupPositions.set(id, lineup);
       if (previous && previous.canonicalExternalId !== canonicalExternalId) {
         throw new AdminCatalogImportRejectedError(
           "conflict",
@@ -473,9 +516,8 @@ export class AdminCatalogImportService {
           ...new Set([...(previous?.observedExternalIds ?? []), externalId]),
         ].sort(),
         name: preferredObservation.name,
-        ...(preferredObservation.position
-          ? { position: preferredObservation.position }
-          : {}),
+        squadExternalIds: previous?.squadExternalIds ?? [],
+        positionConflict: false,
         sourceFixtureIds: [
           ...new Set([
             ...(previous?.sourceFixtureIds ?? []),
@@ -484,13 +526,73 @@ export class AdminCatalogImportService {
         ].sort(),
       });
     });
+    squad.forEach((source) => {
+      const aliasSnapshot =
+        aliases[playerIds.length + squadIds.indexOf(source.externalPlayerId)];
+      const alias = aliasSnapshot.exists
+        ? fromSnapshot<PlayerProviderAlias>(aliasSnapshot)
+        : undefined;
+      const id =
+        alias?.canonicalPlayerId ??
+        providerEntityId("player", "api-football", source.externalPlayerId);
+      const candidate = players.get(id);
+      if (!candidate) return;
+      if (
+        alias &&
+        (alias.externalProvider !== "api-football" ||
+          alias.externalProviderPlayerId !== source.externalPlayerId ||
+          !validCatalogId(alias.canonicalPlayerId) ||
+          !validProviderPlayerId(alias.canonicalExternalProviderPlayerId))
+      )
+        throw new AdminCatalogImportRejectedError(
+          "conflict",
+          "Una identidad del plantel tiene una asociación incompatible.",
+        );
+      if (
+        alias?.canonicalExternalProviderPlayerId &&
+        alias.canonicalExternalProviderPlayerId !==
+          candidate.canonicalExternalId
+      )
+        throw new AdminCatalogImportRejectedError(
+          "conflict",
+          "El plantel discrepa sobre la identidad canónica del jugador.",
+        );
+      candidate.squadExternalIds.push(source.externalPlayerId);
+      if (source.position) {
+        const positions = squadPositions.get(id) ?? new Set();
+        positions.add(source.position);
+        squadPositions.set(id, positions);
+      }
+    });
+    for (const [id, candidate] of players) {
+      candidate.squadExternalIds.sort();
+      const lineup = lineupPositions.get(id) ?? new Set();
+      const squadValue = squadPositions.get(id) ?? new Set();
+      if (
+        lineup.size > 1 ||
+        squadValue.size > 1 ||
+        (lineup.size === 1 &&
+          squadValue.size === 1 &&
+          [...lineup][0] !== [...squadValue][0])
+      ) {
+        candidate.positionConflict = true;
+      } else if (lineup.size === 1) {
+        candidate.position = [...lineup][0];
+        candidate.positionSource = "lineup";
+      } else if (squadValue.size === 1) {
+        candidate.position = [...squadValue][0];
+        candidate.positionSource = "squad";
+      }
+    }
     const coaches = new Map<
       string,
       AdminCatalogImportAction["coaches"][number]
     >();
     coachIds.forEach((externalId, index) => {
-      const alias = aliases[playerIds.length + index].exists
-        ? fromSnapshot<CoachProviderAlias>(aliases[playerIds.length + index])
+      const alias = aliases[playerIds.length + squadIds.length + index].exists
+        ? fromSnapshot<CoachProviderAlias>(
+            aliases[playerIds.length + squadIds.length + index],
+          )
         : undefined;
       if (
         alias &&
@@ -542,17 +644,20 @@ export class AdminCatalogImportService {
         `teams/${action.trackedTeamId}/playerMembershipIndex/state`,
       ),
       this.database.doc("coachSearchIndex/state"),
-      ...action.players.flatMap(({ id, observedExternalIds }) => [
-        ...observedExternalIds.map((externalId) =>
-          this.database.doc(
-            `playerProviderAliases/${playerProviderAliasId("api-football", externalId)}`,
+      ...action.players.flatMap(
+        ({ id, observedExternalIds, squadExternalIds }) => [
+          ...[...new Set([...observedExternalIds, ...squadExternalIds])].map(
+            (externalId) =>
+              this.database.doc(
+                `playerProviderAliases/${playerProviderAliasId("api-football", externalId)}`,
+              ),
           ),
-        ),
-        this.database.doc(`players/${id}`),
-        this.database.doc(
-          `teams/${action.trackedTeamId}/playerMemberships/${id}`,
-        ),
-      ]),
+          this.database.doc(`players/${id}`),
+          this.database.doc(
+            `teams/${action.trackedTeamId}/playerMemberships/${id}`,
+          ),
+        ],
+      ),
       ...action.coaches.flatMap(({ id, observedExternalIds }) => [
         ...observedExternalIds.map((externalId) =>
           this.database.doc(
@@ -657,7 +762,9 @@ export class AdminCatalogImportService {
       newCoaches = 0,
       membershipChanges = 0,
       coachAssociationChanges = 0,
-      metadataChanges = 0;
+      metadataChanges = 0,
+      positionFills = 0,
+      positionGaps = 0;
     const players: AdminCatalogImportPlan["players"] = [];
     const coaches: AdminCatalogImportPlan["coaches"] = [];
     for (const candidate of action.players) {
@@ -689,6 +796,26 @@ export class AdminCatalogImportService {
           "Una identidad de jugador cambió de asociación.",
         );
       }
+      for (const externalId of candidate.squadExternalIds) {
+        const snapshot = state.byPath.get(
+          `playerProviderAliases/${playerProviderAliasId("api-football", externalId)}`,
+        );
+        if (
+          snapshot?.exists
+            ? !matchesPlayerCatalogAlias(
+                fromSnapshot<PlayerProviderAlias>(snapshot),
+                externalId,
+                candidate.id,
+                candidate.canonicalExternalId,
+              )
+            : providerEntityId("player", "api-football", externalId) !==
+                candidate.id || externalId !== candidate.canonicalExternalId
+        )
+          throw new AdminCatalogImportRejectedError(
+            "conflict",
+            "La asociación del plantel cambió.",
+          );
+      }
       const playerRef = this.database.doc(`players/${candidate.id}`);
       const membershipRef = this.database.doc(
         `teams/${action.trackedTeamId}/playerMemberships/${candidate.id}`,
@@ -697,10 +824,29 @@ export class AdminCatalogImportService {
       const existingPlayer = existing?.exists
         ? fromSnapshot<Player>(existing)
         : undefined;
+      const proposedPosition = existingPlayer?.position
+        ? undefined
+        : candidate.position;
+      if (proposedPosition) positionFills += 1;
+      else if (!existingPlayer?.position) positionGaps += 1;
       players.push({
         name: existingPlayer?.displayName ?? candidate.name,
         status: existingPlayer ? "existing" : "new",
         sourceFixtureIds: candidate.sourceFixtureIds,
+        ...(existingPlayer?.position
+          ? { currentPosition: existingPlayer.position }
+          : {}),
+        positionConflict: candidate.positionConflict,
+        ...(proposedPosition
+          ? { proposedPosition, positionSource: candidate.positionSource }
+          : {}),
+        ...(!existingPlayer?.position && !proposedPosition
+          ? {
+              positionGap: candidate.positionConflict
+                ? ("conflict" as const)
+                : ("missing" as const),
+            }
+          : {}),
       });
       if (aliases.some((alias) => alias?.exists) && !existingPlayer)
         throw new AdminCatalogImportRejectedError(
@@ -749,7 +895,13 @@ export class AdminCatalogImportService {
       };
       const player =
         existingPlayer?.identityProvenance === "operator_verified"
-          ? existingPlayer
+          ? proposedPosition
+            ? {
+                ...existingPlayer,
+                position: proposedPosition,
+                updatedAt: action.observedAt,
+              }
+            : existingPlayer
           : mergePlayerForProviderSync(existingPlayer, {
               ...incoming,
               ...(existingPlayer?.displayName
@@ -758,7 +910,7 @@ export class AdminCatalogImportService {
               ...(existingPlayer?.currentTeamId
                 ? { currentTeamId: existingPlayer.currentTeamId }
                 : {}),
-              ...(existingPlayer?.position && !incoming.position
+              ...(existingPlayer?.position
                 ? { position: existingPlayer.position }
                 : {}),
               ...(existingPlayer?.photoUrl
@@ -911,6 +1063,9 @@ export class AdminCatalogImportService {
       membershipChanges,
       coachAssociationChanges,
       metadataChanges,
+      positionFills,
+      positionGaps,
+      squadPlayers: action.squadPlayers,
       excludedPlayers: action.fixtures.reduce(
         (total, fixture) => total + fixture.excludedPlayerCount,
         0,
@@ -930,6 +1085,7 @@ export class AdminCatalogImportService {
           (count, coach) => count + coach.observedExternalIds.length,
           0,
         ) +
+        action.squadPlayers +
         state.references.length,
       observedAt: action.observedAt,
       canApply:

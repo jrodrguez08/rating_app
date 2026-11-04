@@ -49,6 +49,7 @@ export default async function AdminCatalogImportPage({
       <AdminCatalogImport
         club={club}
         messages={getMessages("es").admin.catalogImport}
+        positionNames={getMessages("es").players.positions}
       />
     </main>
   );

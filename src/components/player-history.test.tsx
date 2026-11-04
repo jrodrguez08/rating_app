@@ -2,7 +2,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { PlayerCatalogEntry } from "@/application/player-history";
-import { initialClub } from "@/config/club";
+import { clubs, initialClub } from "@/config/club";
 import { getMessages } from "@/i18n/messages";
 
 import { PlayerCatalogView, PlayerProfile } from "./player-history";
@@ -10,6 +10,51 @@ import { PlayerCatalogView, PlayerProfile } from "./player-history";
 const messages = getMessages("en").players;
 
 describe("player history UI", () => {
+  it.each(["es", "en"] as const)(
+    "uses each selected club in %s catalog and unrated profile",
+    (locale) => {
+      const copy = getMessages(locale).players;
+      for (const club of [clubs.herediano, clubs.saprissa]) {
+        const catalog = {
+          rankingMinimumMatches: 2,
+          rankingPriorMatchWeight: 3,
+          referenceMean: null,
+          players: [
+            player({
+              overallAverage: null,
+              recentRating: null,
+              ratedMatchCount: 0,
+              rank: null,
+              history: [],
+            }),
+          ],
+        };
+        const view = render(
+          <PlayerCatalogView
+            club={club}
+            catalog={catalog}
+            locale={locale}
+            messages={copy}
+          />,
+        );
+        expect(
+          screen.getByText(copy.eyebrow.replace("{club}", club.displayName)),
+        ).toBeInTheDocument();
+        view.unmount();
+        const profile = render(
+          <PlayerProfile
+            club={club}
+            player={catalog.players[0]}
+            locale={locale}
+            messages={copy}
+          />,
+        );
+        expect(screen.getByText(club.displayName)).toBeInTheDocument();
+        expect(screen.getByText(copy.noHistory)).toBeInTheDocument();
+        profile.unmount();
+      }
+    },
+  );
   it("renders ranked and unranked catalog entries as stable profile links", () => {
     render(
       <PlayerCatalogView
