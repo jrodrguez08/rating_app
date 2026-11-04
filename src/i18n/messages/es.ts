@@ -907,6 +907,8 @@ export const esMessages = {
     editIdentitySelection: "Cambiar selección",
     selectedIdentities: "Identidades seleccionadas",
     checkingProtectedHistory: "Comprobando historial protegido…",
+    retryIdentityEvidence: "Reintentar comprobación del historial",
+    invalidIdentityPair: "Seleccione dos identidades diferentes.",
     protectedHistoryPending: "Historial por comprobar",
     keepCanonicalIdentity: "Conservar como identidad canónica",
     recommendedIdentity: "Recomendado por seguridad",

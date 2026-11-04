@@ -63,6 +63,7 @@ export function AdminPlayerIdentityReconciliation({
   const [outcome, setOutcome] = useState("");
   const reviewHeading = useRef<HTMLHeadingElement>(null);
   const searchInput = useRef<HTMLInputElement>(null);
+  const reviewRequest = useRef(0);
 
   const loadSuggestions = useCallback(async () => {
     try {
@@ -74,11 +75,16 @@ export function AdminPlayerIdentityReconciliation({
       );
       const value: unknown = await response.json();
       if (!response.ok || !isSuggestionResult(value)) throw new Error();
+      if (
+        value.suggestions.some(({ first, second }) => first.id === second.id)
+      ) {
+        setError(messages.invalidIdentityPair);
+      }
       setSuggestions(value);
     } catch {
       setError(messages.playerSearchError);
     }
-  }, [club.slug, messages.playerSearchError]);
+  }, [club.slug, messages.invalidIdentityPair, messages.playerSearchError]);
 
   const loadPlayers = useCallback(
     async (cursor?: string, signal?: AbortSignal) => {
@@ -135,7 +141,6 @@ export function AdminPlayerIdentityReconciliation({
   }, [reviewing]);
 
   async function post(path: string, body: unknown) {
-    setError("");
     const csrf = document.cookie
       .split("; ")
       .find((item) => item.startsWith("rating_admin_csrf="))
@@ -189,6 +194,12 @@ export function AdminPlayerIdentityReconciliation({
     preferredId: string,
     selectionOrigin: SelectionOrigin,
   ) {
+    const request = ++reviewRequest.current;
+    if (pair.length !== 2 || pair[0].id === pair[1].id) {
+      setError(messages.invalidIdentityPair);
+      return;
+    }
+    setError("");
     setSelected(pair);
     setOrigin(selectionOrigin);
     setCanonicalId(preferredId);
@@ -204,17 +215,19 @@ export function AdminPlayerIdentityReconciliation({
         "/api/admin/player-identities/preview",
         buildAction(pair, preferredId, "match"),
       );
+      if (request !== reviewRequest.current) return;
       const nextPlan = result.plan as AdminPlayerIdentityPlan;
       rememberEvidence(nextPlan);
       if (pair.some(({ id }) => id === nextPlan.suggestedCanonicalPlayerId)) {
         setCanonicalId(nextPlan.suggestedCanonicalPlayerId);
       }
     } catch (caught) {
+      if (request !== reviewRequest.current) return;
       setError(
         caught instanceof Error ? caught.message : messages.genericError,
       );
     } finally {
-      setBusy(false);
+      if (request === reviewRequest.current) setBusy(false);
     }
   }
 
@@ -245,26 +258,30 @@ export function AdminPlayerIdentityReconciliation({
   }
 
   async function createPreview(decision: "match" | "nonmatch") {
-    if (selected.length !== 2 || !canonicalId) return;
+    if (!evidenceReady || !canonicalId) return;
+    const request = ++reviewRequest.current;
     const nextAction = buildAction(selected, canonicalId, decision);
     setBusy(true);
+    setError("");
     setOutcome("");
     try {
       const result = await post(
         "/api/admin/player-identities/preview",
         nextAction,
       );
+      if (request !== reviewRequest.current) return;
       const nextPlan = result.plan as AdminPlayerIdentityPlan;
       rememberEvidence(nextPlan);
       setAction(nextAction);
       setPlan(nextPlan);
       setPreviewToken(String(result.previewToken));
     } catch (caught) {
+      if (request !== reviewRequest.current) return;
       setError(
         caught instanceof Error ? caught.message : messages.genericError,
       );
     } finally {
-      setBusy(false);
+      if (request === reviewRequest.current) setBusy(false);
     }
   }
 
@@ -273,6 +290,7 @@ export function AdminPlayerIdentityReconciliation({
     if (!action || !plan?.canApply) return;
     const form = event.currentTarget;
     setBusy(true);
+    setError("");
     try {
       await post("/api/admin/player-identities/authorize", {
         action,
@@ -299,6 +317,7 @@ export function AdminPlayerIdentityReconciliation({
   }
 
   function resetSelection() {
+    reviewRequest.current += 1;
     setReviewing(false);
     setSelected([]);
     setCanonicalId("");
@@ -310,6 +329,9 @@ export function AdminPlayerIdentityReconciliation({
   }
 
   function editSelection() {
+    reviewRequest.current += 1;
+    setBusy(false);
+    setError("");
     setReviewing(false);
     setPlan(null);
     setAction(null);
@@ -334,8 +356,13 @@ export function AdminPlayerIdentityReconciliation({
 
   const visibleSuggestions =
     suggestions?.suggestions.filter(
-      ({ first, second }) => !deferred.has(pairKey(first.id, second.id)),
+      ({ first, second }) =>
+        first.id !== second.id && !deferred.has(pairKey(first.id, second.id)),
     ) ?? [];
+  const evidenceReady =
+    selected.length === 2 &&
+    selected[0].id !== selected[1].id &&
+    selected.every(({ id }) => evidence[id] !== undefined);
 
   return (
     <div className="grid gap-6">
@@ -403,7 +430,7 @@ export function AdminPlayerIdentityReconciliation({
             <button
               className="button-utility min-h-11 px-4"
               type="button"
-              disabled={busy}
+              disabled={busy && action !== null}
               onClick={editSelection}
             >
               {messages.editIdentitySelection}
@@ -414,34 +441,45 @@ export function AdminPlayerIdentityReconciliation({
               {messages.checkingProtectedHistory}
             </p>
           ) : null}
-          <fieldset className="grid gap-4 sm:grid-cols-2">
-            <legend className="mb-3 font-bold">
-              {messages.chooseCanonicalPlayer}
-            </legend>
-            {selected.map((player) => (
-              <PlayerReviewCard
-                key={player.id}
-                player={player}
-                evidence={evidence[player.id]}
-                messages={messages}
-                teamName={teamName}
-                checked={canonicalId === player.id}
-                recommended={recommendedId === player.id}
-                disabled={
-                  Object.values(evidence).filter(
-                    ({ hasProtectedHistory }) => hasProtectedHistory,
-                  ).length === 1 && !evidence[player.id]?.hasProtectedHistory
-                }
-                onChange={() => {
-                  setCanonicalId(player.id);
-                  setPlan(null);
-                  setAction(null);
-                  setPreviewToken("");
-                }}
-              />
-            ))}
-          </fieldset>
-          {!plan ? (
+          {!busy && !evidenceReady ? (
+            <button
+              className="button-secondary min-h-11 w-fit px-4"
+              type="button"
+              onClick={() => void beginReview(selected, canonicalId, origin)}
+            >
+              {messages.retryIdentityEvidence}
+            </button>
+          ) : null}
+          {evidenceReady ? (
+            <fieldset className="grid gap-4 sm:grid-cols-2">
+              <legend className="mb-3 font-bold">
+                {messages.chooseCanonicalPlayer}
+              </legend>
+              {selected.map((player) => (
+                <PlayerReviewCard
+                  key={player.id}
+                  player={player}
+                  evidence={evidence[player.id]}
+                  messages={messages}
+                  teamName={teamName}
+                  checked={canonicalId === player.id}
+                  recommended={recommendedId === player.id}
+                  disabled={
+                    Object.values(evidence).filter(
+                      ({ hasProtectedHistory }) => hasProtectedHistory,
+                    ).length === 1 && !evidence[player.id]?.hasProtectedHistory
+                  }
+                  onChange={() => {
+                    setCanonicalId(player.id);
+                    setPlan(null);
+                    setAction(null);
+                    setPreviewToken("");
+                  }}
+                />
+              ))}
+            </fieldset>
+          ) : null}
+          {evidenceReady && !plan ? (
             <div className="flex flex-wrap gap-3">
               <button
                 className="button-primary min-h-11 px-4"
@@ -468,7 +506,7 @@ export function AdminPlayerIdentityReconciliation({
                 {messages.reviewLater}
               </button>
             </div>
-          ) : (
+          ) : evidenceReady && plan ? (
             <Authorization
               messages={messages}
               action={action}
@@ -476,7 +514,7 @@ export function AdminPlayerIdentityReconciliation({
               busy={busy}
               onSubmit={confirmDecision}
             />
-          )}
+          ) : null}
         </section>
       )}
       {error ? (

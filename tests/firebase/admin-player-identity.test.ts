@@ -484,6 +484,204 @@ describe("admin Player identity reconciliation", () => {
     });
   });
 
+  it("omits a reviewed provider alias and the linked canonical Player's self-pair", async () => {
+    const teamId = "team-linked-suggestions";
+    const canonicalId = `player-internal-${"d".repeat(32)}`;
+    const retainedId = providerEntityId("player", "api-football", "639114");
+    const unreviewedId = providerEntityId("player", "api-football", "639115");
+    await seedSuggestionIndex(teamId, [
+      {
+        id: canonicalId,
+        name: "D. Gonzalez",
+        provenance: "operator_verified",
+        externalId: "639114",
+      },
+      {
+        id: retainedId,
+        name: "D. Gonzalez",
+        provenance: "provider",
+        externalId: "639114",
+      },
+      {
+        id: unreviewedId,
+        name: "D. Gonzalez",
+        provenance: "provider",
+        externalId: "639115",
+      },
+    ]);
+    await database
+      .doc(
+        `playerProviderAliases/${playerProviderAliasId("api-football", "639114")}`,
+      )
+      .set({
+        canonicalPlayerId: canonicalId,
+        externalProvider: "api-football",
+        externalProviderPlayerId: "639114",
+        canonicalExternalProviderPlayerId: "639114",
+        createdAt: Timestamp.now(),
+        updatedAt: Timestamp.now(),
+      });
+
+    const suggestions = (await service.suggestions(teamId)).suggestions;
+    expect(suggestions).toHaveLength(1);
+    expect(suggestions[0]).toMatchObject({
+      first: { id: canonicalId },
+      second: { id: unreviewedId },
+    });
+    expect(
+      suggestions.every(({ first, second }) => first.id !== second.id),
+    ).toBe(true);
+    expect(suggestions.some(({ second }) => second.id === retainedId)).toBe(
+      false,
+    );
+
+    const otherTeamId = "team-linked-suggestions-other";
+    await seedSuggestionIndex(otherTeamId, [
+      {
+        id: `player-internal-${"e".repeat(32)}`,
+        name: "D. Gonzalez",
+        provenance: "operator_verified",
+      },
+      {
+        id: providerEntityId("player", "api-football", "639116"),
+        name: "D. Gonzalez",
+        provenance: "provider",
+        externalId: "639116",
+      },
+    ]);
+    expect(
+      (await service.suggestions(otherTeamId)).suggestions.map(
+        ({ first, second }) => [first.id, second.id],
+      ),
+    ).toEqual([
+      [
+        `player-internal-${"e".repeat(32)}`,
+        providerEntityId("player", "api-football", "639116"),
+      ],
+    ]);
+  });
+
+  it("previews the retained provider document with protected canonical history intact", async () => {
+    const input = identityInput("linked-history");
+    const retainedId = await seedIdentityScenario(input);
+    const externalId = externalIdFor(input);
+    await database.doc(`players/${input.canonicalPlayerId}`).update({
+      externalProvider: "api-football",
+      externalProviderId: externalId,
+    });
+    await database
+      .doc(
+        `playerProviderAliases/${playerProviderAliasId("api-football", externalId)}`,
+      )
+      .set({
+        canonicalPlayerId: input.canonicalPlayerId,
+        externalProvider: "api-football",
+        externalProviderPlayerId: externalId,
+        canonicalExternalProviderPlayerId: externalId,
+        createdAt: Timestamp.now(),
+        updatedAt: Timestamp.now(),
+      });
+    for (let index = 0; index < 3; index += 1) {
+      const matchId = `match-linked-history-${index}`;
+      await database.doc(`matches/${matchId}`).set({
+        trackedTeamId: input.trackedTeamId,
+        ratingState: "rating_closed",
+      });
+      await database
+        .doc(`matches/${matchId}/participants/${input.canonicalPlayerId}`)
+        .set({
+          matchId,
+          playerId: input.canonicalPlayerId,
+          teamId: input.trackedTeamId,
+          participated: index < 2,
+          squadRole: index < 2 ? "starter" : "substitute",
+        });
+      if (index === 2) continue;
+      await database.doc(`matches/${matchId}/results/summary`).set({
+        matchId,
+        teamId: input.trackedTeamId,
+        status: "final",
+        ballotCount: index === 0 ? 13 : 15,
+        playerResults: {
+          [input.canonicalPlayerId]: {
+            playerId: input.canonicalPlayerId,
+            average: index === 0 ? 8.538461538461538 : 5.2,
+            voteCount: index === 0 ? 13 : 15,
+          },
+        },
+        generatedAt: Timestamp.now(),
+      });
+    }
+
+    const plan = await service.preview(input);
+    expect(plan).toMatchObject({
+      status: "already_linked",
+      canApply: false,
+      canonical: {
+        playerId: input.canonicalPlayerId,
+        matchCount: 3,
+        hasProtectedHistory: true,
+      },
+      duplicate: { playerId: retainedId },
+      preservedReferences: { canonicalPublishedResults: 2 },
+    });
+  });
+
+  it("does not let self-pairs consume the bounded suggestion slots", async () => {
+    const teamId = "team-self-pair-limit";
+    const linked = Array.from({ length: 12 }, (_, index) => ({
+      id: `player-internal-${String(index).padStart(32, "0")}`,
+      name: `Self ${index}`,
+      provenance: "operator_verified" as const,
+      externalId: String(700_000 + index),
+    }));
+    await seedSuggestionIndex(teamId, [
+      ...linked,
+      {
+        id: `player-internal-${"f".repeat(32)}`,
+        name: "Valid Pair",
+        provenance: "operator_verified",
+      },
+      {
+        id: providerEntityId("player", "api-football", "799999"),
+        name: "Valid Pair",
+        provenance: "provider",
+        externalId: "799999",
+      },
+    ]);
+
+    const suggestions = (await service.suggestions(teamId)).suggestions;
+    expect(suggestions).toHaveLength(1);
+    expect(suggestions[0].first.name).toBe("Valid Pair");
+    expect(suggestions[0].second.name).toBe("Valid Pair");
+  });
+
+  it("returns an unordered pair once when both operator Players have provider linkage", async () => {
+    const teamId = "team-overlapping-provenance";
+    const firstId = `player-internal-${"1".repeat(32)}`;
+    const secondId = `player-internal-${"2".repeat(32)}`;
+    await seedSuggestionIndex(teamId, [
+      {
+        id: firstId,
+        name: "Shared Name",
+        provenance: "operator_verified",
+        externalId: "900001",
+      },
+      {
+        id: secondId,
+        name: "Shared Name",
+        provenance: "operator_verified",
+        externalId: "900002",
+      },
+    ]);
+
+    const suggestions = (await service.suggestions(teamId)).suggestions;
+    expect(suggestions).toHaveLength(1);
+    expect(
+      new Set([suggestions[0].first.id, suggestions[0].second.id]),
+    ).toEqual(new Set([firstId, secondId]));
+  });
+
   it("reports provider unavailability without hiding manual reconciliation", async () => {
     const teamId = "team-no-provider";
     await seedSuggestionIndex(teamId, [
@@ -556,6 +754,9 @@ describe("admin Player identity reconciliation", () => {
     await expect(service.preview(input)).rejects.toThrow(
       "Seleccione dos jugadores diferentes.",
     );
+    await expect(
+      service.applyAuthorized(input, "unused-challenge"),
+    ).rejects.toThrow("Seleccione dos jugadores diferentes.");
   });
 });
 
