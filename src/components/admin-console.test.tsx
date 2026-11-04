@@ -339,9 +339,16 @@ describe("admin console", () => {
         name: messages.identityReconciliation,
       }),
     ).toHaveAttribute("href", "/admin/player-identities?club=herediano");
+    expect(
+      within(toolbar).getByRole("link", { name: messages.catalogImport.link }),
+    ).toHaveAttribute("href", "/admin/catalog-import?club=herediano");
 
     await user.tab();
     await user.tab();
+    await user.tab();
+    expect(
+      within(toolbar).getByRole("link", { name: messages.catalogImport.link }),
+    ).toHaveFocus();
     await user.tab();
     expect(
       within(toolbar).getByRole("link", {

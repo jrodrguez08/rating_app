@@ -110,6 +110,17 @@ export interface ProviderSquadPlayer {
   photoUrl?: string;
 }
 
+export interface ProviderFixtureCatalog {
+  fixture: ProviderFixture;
+  competitionName: string;
+  lineupStatus: "missing" | "partial" | "available";
+  players: ProviderMatchParticipant[];
+  excludedPlayerCount: number;
+  coach:
+    | { status: "resolved"; value: ProviderHeadCoach }
+    | { status: "unavailable"; reason: "coach-missing" | "ambiguous-coach" };
+}
+
 export interface ProviderStandingsRow {
   rank: number;
   externalTeamId: string;
@@ -196,6 +207,10 @@ export interface FootballDataProvider {
     fixtureKickoffAt?: string,
   ): Promise<ProviderMatchContext | null>;
   getSquad(externalTeamId: string): Promise<ProviderSquadPlayer[]>;
+  getRecentFixtureCatalog?(
+    externalTeamId: string,
+    asOf: string,
+  ): Promise<ProviderFixtureCatalog[]>;
 }
 
 export interface MatchLifecycleStore extends FootballSyncStore {

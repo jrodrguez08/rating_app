@@ -328,6 +328,134 @@ describe("ApiFootballAdapter", () => {
     expect(adapter.requestCount).toBe(1);
   });
 
+  it("bounds recent completed fixture catalogs, filters opponents, and reuses one coach recovery call", async () => {
+    const fixture = (id: number, date: string, status = "FT") => ({
+      fixture: { id, date, status: { short: status } },
+      league: {
+        id: id === 2 ? 1028 : 162,
+        name: id === 2 ? "Regional Cup" : "Primera División",
+        season: 2026,
+      },
+      teams: {
+        home: { id: id === 2 ? 900 : 816, name: "Home" },
+        away: { id: id === 2 ? 816 : 900, name: "Away" },
+      },
+      goals: { home: 1, away: 0 },
+    });
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/fixtures")
+        return response([
+          fixture(3, "2026-11-10T22:00:00.000Z"),
+          fixture(1, "2026-11-01T22:00:00.000Z"),
+          fixture(2, "2026-10-29T00:30:00.000Z"),
+        ]);
+      if (url.pathname === "/fixtures/lineups")
+        return response([
+          {
+            team: { id: 900 },
+            startXI: [{ player: { id: 999, name: "Opponent" } }],
+            substitutes: [],
+            coach: { id: 999, name: "Opponent Coach" },
+          },
+          {
+            team: { id: 816 },
+            startXI: [
+              ...Array.from({ length: 11 }, (_, index) => ({
+                player: {
+                  id: index + 1,
+                  name: `Player ${index + 1}`,
+                  pos: "M",
+                },
+              })),
+              { player: { id: 0, name: "Invalid ID" } },
+            ],
+            substitutes: [{ player: { id: 12, name: "Unused" } }],
+            coach: { name: "Historical Coach" },
+          },
+        ]);
+      if (url.pathname === "/coachs")
+        return response([
+          { id: 555, name: "Historical Coach", team: { id: 816 } },
+        ]);
+      throw new Error(`Unexpected request ${url.pathname}`);
+    });
+    const adapter = new ApiFootballAdapter("test-key", fetcher);
+
+    const catalogs = await adapter.getRecentFixtureCatalog(
+      "816",
+      "2026-11-04T00:00:00.000Z",
+    );
+
+    expect(catalogs.map(({ fixture }) => fixture.externalFixtureId)).toEqual([
+      "1",
+      "2",
+    ]);
+    expect(catalogs.map(({ competitionName }) => competitionName)).toEqual([
+      "Primera División",
+      "Regional Cup",
+    ]);
+    expect(catalogs[0]).toMatchObject({
+      lineupStatus: "partial",
+      excludedPlayerCount: 1,
+      coach: { status: "resolved", value: { externalCoachId: "555" } },
+    });
+    expect(catalogs[0].players).toHaveLength(12);
+    expect(
+      catalogs.every(({ players }) =>
+        players.every(({ externalTeamId }) => externalTeamId === "816"),
+      ),
+    ).toBe(true);
+    expect(adapter.requestCount).toBe(4);
+    expect(
+      fetcher.mock.calls.filter(
+        ([input]) => new URL(String(input)).pathname === "/coachs",
+      ),
+    ).toHaveLength(1);
+    expect(String(fetcher.mock.calls[0][0])).toContain("last=5");
+  });
+
+  it("reports missing lineup and coach evidence without inventing catalog identities", async () => {
+    const fixture = structuredClone(fixtureResponse[0]);
+    fixture.teams.home.id = 816;
+    Object.assign(fixture.league, { name: "Primera División" });
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(response([fixture]))
+      .mockResolvedValueOnce(
+        response([
+          {
+            team: { id: 900 },
+            startXI: [{ player: { id: 99, name: "Opponent" } }],
+          },
+        ]),
+      );
+    const adapter = new ApiFootballAdapter("test-key", fetcher);
+    const result = await adapter.getRecentFixtureCatalog(
+      "816",
+      "2026-11-04T00:00:00.000Z",
+    );
+    expect(result).toMatchObject([
+      {
+        lineupStatus: "missing",
+        players: [],
+        coach: { status: "unavailable", reason: "coach-missing" },
+      },
+    ]);
+    expect(adapter.requestCount).toBe(2);
+  });
+
+  it("keeps provider failures distinct from missing catalog evidence", async () => {
+    const adapter = new ApiFootballAdapter(
+      "test-key",
+      vi.fn<typeof fetch>().mockResolvedValue(response([], 429)),
+    );
+    await expect(
+      adapter.getRecentFixtureCatalog("816", "2026-11-04T00:00:00.000Z"),
+    ).rejects.toMatchObject({ code: "rate-limited" });
+    expect(adapter.requestCount).toBe(1);
+  });
+
   it("normalizes confirmed goals chronologically and skips malformed goal data", async () => {
     const payload = structuredClone(fixtureResponse);
     payload[0].fixture.status = { short: "2H", elapsed: 90 } as never;

@@ -1,6 +1,11 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 import {
+  hashAdminCatalogAction,
+  type AdminCatalogImportAction,
+} from "@/lib/server/admin-catalog-action";
+
+import {
   adminCoachIdentityResourceId,
   hashAdminCoachIdentityAction,
   type AdminCoachIdentityAction,
@@ -55,7 +60,9 @@ export type AdminAuditAction =
   | "lifecycle_request_passphrase"
   | "lifecycle_request_apply"
   | "manual_voting_passphrase"
-  | "manual_voting_apply";
+  | "manual_voting_apply"
+  | "catalog_import_passphrase"
+  | "catalog_import_apply";
 
 type AdminSensitiveAction =
   | AdminCoachAction
@@ -63,7 +70,8 @@ type AdminSensitiveAction =
   | AdminLifecycleAction
   | AdminManualVotingAction
   | AdminPlayerIdentityAction
-  | AdminCoachIdentityAction;
+  | AdminCoachIdentityAction
+  | AdminCatalogImportAction;
 
 export class AdminSecurityError extends Error {
   constructor(
@@ -290,6 +298,7 @@ export class AdminSecurityStore {
 }
 
 function hashAdminSensitiveAction(action: AdminSensitiveAction): string {
+  if ("stateHash" in action) return hashAdminCatalogAction(action);
   if ("firstCoachId" in action) return hashAdminCoachIdentityAction(action);
   if ("decision" in action) return hashAdminPlayerIdentityAction(action);
   if ("participants" in action) return hashAdminLineupAction(action);
@@ -300,17 +309,21 @@ function hashAdminSensitiveAction(action: AdminSensitiveAction): string {
 }
 
 function adminSensitiveResourceId(action: AdminSensitiveAction): string {
-  return "firstCoachId" in action
-    ? adminCoachIdentityResourceId(action)
-    : "decision" in action
-      ? adminPlayerIdentityResourceId(action)
-      : action.matchId;
+  return "stateHash" in action
+    ? action.trackedTeamId
+    : "firstCoachId" in action
+      ? adminCoachIdentityResourceId(action)
+      : "decision" in action
+        ? adminPlayerIdentityResourceId(action)
+        : action.matchId;
 }
 
 function adminSensitiveMatchId(
   action: AdminSensitiveAction,
 ): string | undefined {
-  return "decision" in action ? undefined : action.matchId;
+  return "stateHash" in action || "decision" in action
+    ? undefined
+    : action.matchId;
 }
 
 function signPreview(payload: string): string {

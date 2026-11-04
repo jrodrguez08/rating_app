@@ -12,6 +12,7 @@ import type {
   ProviderSquadPlayer,
   ProviderCompetitionSeason,
   ProviderFixture,
+  ProviderFixtureCatalog,
   ProviderTeamIdentity,
   StandingsDataProvider,
   TeamLookup,
@@ -346,6 +347,169 @@ export class ApiFootballAdapter
       );
     }
     return this.parseFixture(response[0]);
+  }
+
+  async getRecentFixtureCatalog(
+    externalTeamId: string,
+    asOf: string,
+  ): Promise<ProviderFixtureCatalog[]> {
+    const response = await this.request(
+      "/fixtures",
+      {
+        team: externalTeamId,
+        last: "5",
+        status: "FT-AET-PEN",
+        timezone: "UTC",
+      },
+      8_000,
+      500_000,
+    );
+    if (response.length > 5)
+      return malformed("Recent fixture response exceeds five records.");
+    const fixtures = response
+      .map((value) => {
+        const item = record(value, "recent fixture");
+        const league = record(item.league, "recent fixture.league");
+        const fixture = this.parseFixture(value);
+        if (
+          fixture.homeTeam.externalProviderId !== externalTeamId &&
+          fixture.awayTeam.externalProviderId !== externalTeamId
+        ) {
+          return malformed("Recent fixture belongs to another Team.");
+        }
+        return { fixture, competitionName: string(league.name, "league.name") };
+      })
+      .filter(
+        ({ fixture }) =>
+          fixture.status === "finished" && fixture.kickoffAt <= asOf,
+      )
+      .sort(
+        (a, b) =>
+          b.fixture.kickoffAt.localeCompare(a.fixture.kickoffAt) ||
+          b.fixture.externalFixtureId.localeCompare(
+            a.fixture.externalFixtureId,
+          ),
+      );
+    let coachResponse: unknown[] | undefined;
+    const catalogs: ProviderFixtureCatalog[] = [];
+    for (const source of fixtures) {
+      const lineups = await this.request(
+        "/fixtures/lineups",
+        {
+          fixture: source.fixture.externalFixtureId,
+        },
+        8_000,
+        500_000,
+      );
+      if (lineups.length > 4)
+        return malformed("Fixture lineup response exceeds four teams.");
+      const tracked = lineups.filter(
+        (value) =>
+          isRecord(value) &&
+          isRecord(value.team) &&
+          String(value.team.id) === externalTeamId,
+      );
+      if (tracked.length > 1)
+        return malformed("Fixture has multiple tracked-Team lineups.");
+      const lineup =
+        tracked.length === 1 ? record(tracked[0], "tracked lineup") : null;
+      const players: ProviderMatchParticipant[] = [];
+      let excludedPlayerCount = 0;
+      for (const [field, squadRole] of [
+        ["startXI", "starter"],
+        ["substitutes", "substitute"],
+      ] as const) {
+        const entries = lineup?.[field];
+        if (entries === undefined || entries === null) continue;
+        if (!Array.isArray(entries) || entries.length > 30) {
+          return malformed("Fixture lineup contains an invalid Player list.");
+        }
+        for (const entry of entries) {
+          const player =
+            isRecord(entry) && isRecord(entry.player) ? entry.player : null;
+          const id = player ? finiteNumberOrUndefined(player.id) : undefined;
+          const name = player
+            ? nonEmptyStringOrUndefined(player.name)
+            : undefined;
+          if (
+            id === undefined ||
+            !Number.isSafeInteger(id) ||
+            id <= 0 ||
+            name === undefined ||
+            players.some((item) => item.externalPlayerId === String(id))
+          ) {
+            excludedPlayerCount += 1;
+            continue;
+          }
+          const position = mapApiFootballPlayerPosition(player?.pos);
+          players.push({
+            externalTeamId,
+            externalPlayerId: String(id),
+            name,
+            squadRole,
+            participated: squadRole === "starter",
+            ...(position ? { position } : {}),
+          });
+        }
+      }
+      const starters = players.filter(
+        (player) => player.squadRole === "starter",
+      ).length;
+      const lineupStatus =
+        !lineup || players.length === 0
+          ? "missing"
+          : starters === 11 && players.length > 11 && excludedPlayerCount === 0
+            ? "available"
+            : "partial";
+      let coach: ProviderFixtureCatalog["coach"] = {
+        status: "unavailable",
+        reason: "coach-missing",
+      };
+      if (lineup && isRecord(lineup.coach)) {
+        try {
+          const rawCoach = lineup.coach;
+          if (
+            (!Number.isSafeInteger(rawCoach.id) ||
+              Number(rawCoach.id) <= 0 ||
+              nonEmptyStringOrUndefined(rawCoach.name) === undefined) &&
+            coachResponse === undefined
+          ) {
+            coachResponse = await this.request(
+              "/coachs",
+              { team: externalTeamId },
+              8_000,
+              500_000,
+            );
+            if (coachResponse.length > 100)
+              return malformed("Coach recovery response exceeds 100 records.");
+          }
+          coach = {
+            status: "resolved",
+            value: await this.resolveLineupCoach(
+              rawCoach,
+              externalTeamId,
+              source.fixture.kickoffAt,
+              coachResponse,
+            ),
+          };
+        } catch (error) {
+          if (
+            !(error instanceof ProviderError) ||
+            (error.code !== "coach-missing" && error.code !== "ambiguous-coach")
+          )
+            throw error;
+          coach = { status: "unavailable", reason: error.code };
+        }
+      }
+      catalogs.push({
+        ...source,
+        lineupStatus,
+        players,
+        excludedPlayerCount,
+        coach,
+      });
+    }
+    return catalogs;
   }
 
   async getMatchContext(
@@ -984,8 +1148,12 @@ export class ApiFootballAdapter
     coach: Record<string, unknown>,
     externalTeamId: string,
     fixtureKickoffAt?: string,
+    cachedResponse?: unknown[],
   ): Promise<ProviderHeadCoach> {
-    const lineupCoachId = finiteNumberOrUndefined(coach.id);
+    const lineupCoachId =
+      Number.isSafeInteger(coach.id) && Number(coach.id) > 0
+        ? Number(coach.id)
+        : undefined;
     const lineupCoachName = nonEmptyStringOrUndefined(coach.name);
     const lineupPhotoUrl = optionalString(coach.photo, "lineup.coach.photo");
 
@@ -1017,7 +1185,9 @@ export class ApiFootballAdapter
 
     let response: unknown[];
     try {
-      response = await this.request("/coachs", { team: externalTeamId });
+      response =
+        cachedResponse ??
+        (await this.request("/coachs", { team: externalTeamId }));
     } catch (error) {
       emitOperationalLog(this.log, "provider.coach_fallback", {
         teamId: externalTeamId,
@@ -1063,7 +1233,10 @@ export class ApiFootballAdapter
     }
 
     const resolved = matches[0];
-    const resolvedId = finiteNumberOrUndefined(resolved.id);
+    const resolvedId =
+      Number.isSafeInteger(resolved.id) && Number(resolved.id) > 0
+        ? Number(resolved.id)
+        : undefined;
     const resolvedName = nonEmptyStringOrUndefined(resolved.name);
     if (resolvedId === undefined || resolvedName === undefined) {
       emitOperationalLog(this.log, "provider.coach_fallback", {
@@ -1381,6 +1554,8 @@ export class ApiFootballAdapter
   private async request(
     path: string,
     query: Record<string, string>,
+    timeoutMs?: number,
+    maxBytes?: number,
   ): Promise<unknown[]> {
     const url = new URL(path, BASE_URL);
     for (const [key, value] of Object.entries(query)) {
@@ -1391,6 +1566,7 @@ export class ApiFootballAdapter
     try {
       response = await this.fetcher(url, {
         headers: { "x-apisports-key": this.apiKey },
+        ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
       });
     } catch (error) {
       throw new ProviderError(
@@ -1417,7 +1593,27 @@ export class ApiFootballAdapter
         `API-Football request to ${path} returned HTTP ${response.status}.`,
       );
     }
-    const body: unknown = await response.json();
+    let body: unknown;
+    try {
+      if (maxBytes) {
+        const length = Number(response.headers.get("content-length"));
+        if (Number.isFinite(length) && length > maxBytes)
+          return malformed("Provider response exceeds catalog size limit.");
+        const raw = await response.text();
+        if (Buffer.byteLength(raw, "utf8") > maxBytes)
+          return malformed("Provider response exceeds catalog size limit.");
+        body = JSON.parse(raw) as unknown;
+      } else {
+        body = await response.json();
+      }
+    } catch (error) {
+      if (error instanceof ProviderError) throw error;
+      throw new ProviderError(
+        "malformed-response",
+        `API-Football returned malformed JSON for ${path}.`,
+        { cause: error },
+      );
+    }
     const envelope = record(body, "response");
     const errors = envelope.errors;
     if (
