@@ -29,7 +29,9 @@ export function PlayerCatalogView({
 }) {
   return (
     <section aria-labelledby="players-heading">
-      <p className="eyebrow">{messages.eyebrow}</p>
+      <p className="eyebrow">
+        {messages.eyebrow.replace("{club}", club.displayName)}
+      </p>
       <h1 id="players-heading" className="score-font mt-2 text-3xl">
         {messages.title}
       </h1>
@@ -144,7 +146,7 @@ export function PlayerProfile({
               label={messages.avatarLabel.replace("{name}", player.playerName)}
             />
             <div className="min-w-0">
-              <p className="eyebrow">{messages.teamContext}</p>
+              <p className="eyebrow">{club.displayName}</p>
               <h1
                 id="player-heading"
                 className="mt-2 break-words text-3xl font-extrabold"

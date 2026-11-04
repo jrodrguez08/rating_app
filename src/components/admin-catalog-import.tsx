@@ -14,9 +14,11 @@ type Copy = Messages["admin"]["catalogImport"];
 export function AdminCatalogImport({
   club,
   messages,
+  positionNames,
 }: {
   club: Club;
   messages: Copy;
+  positionNames: Messages["players"]["positions"];
 }) {
   const [preview, setPreview] = useState<{
     action: AdminCatalogImportAction;
@@ -187,6 +189,9 @@ export function AdminCatalogImport({
                     preview.plan.coachAssociationChanges,
                   ],
                   [messages.metadata, preview.plan.metadataChanges],
+                  [messages.squadPlayers, preview.plan.squadPlayers],
+                  [messages.positionFills, preview.plan.positionFills],
+                  [messages.positionGaps, preview.plan.positionGaps],
                   [messages.excluded, preview.plan.excludedPlayers],
                   [messages.unresolvedCoaches, preview.plan.unresolvedCoaches],
                   [messages.requests, preview.plan.providerRequests],
@@ -223,6 +228,42 @@ export function AdminCatalogImport({
                         {messages.sourceFixtures}:{" "}
                         {identity.sourceFixtureIds.join(", ")}
                       </span>
+                      {"currentPosition" in identity &&
+                      identity.currentPosition ? (
+                        <span className="block">
+                          {messages.existingPosition.replace(
+                            "{position}",
+                            positionNames[identity.currentPosition],
+                          )}
+                        </span>
+                      ) : null}
+                      {"proposedPosition" in identity &&
+                      identity.proposedPosition &&
+                      identity.positionSource ? (
+                        <span className="block">
+                          {messages.proposedPosition
+                            .replace(
+                              "{position}",
+                              positionNames[identity.proposedPosition],
+                            )
+                            .replace(
+                              "{source}",
+                              messages.positionSources[identity.positionSource],
+                            )}
+                        </span>
+                      ) : null}
+                      {"positionConflict" in identity &&
+                      identity.positionConflict ? (
+                        <span className="text-muted block">
+                          {messages.positionConflict}
+                        </span>
+                      ) : null}
+                      {"positionGap" in identity &&
+                      identity.positionGap === "missing" ? (
+                        <span className="text-muted block">
+                          {messages.positionMissing}
+                        </span>
+                      ) : null}
                     </li>
                   ))}
                 </ul>

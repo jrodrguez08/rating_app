@@ -54,6 +54,37 @@ test("neutral selector and distinct club themes remain usable on mobile and desk
   }
 });
 
+test("selected-club copy follows Matches, Players and profiles in both languages", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  await page.goto("/");
+  for (const locale of ["es", "en"] as const) {
+    await selectLanguage(page, locale);
+    for (const club of ["herediano", "saprissa"] as const) {
+      const name =
+        club === "herediano" ? "Club Sport Herediano" : "Deportivo Saprissa";
+      await page.goto(`/${club}/matches`);
+      await expect(
+        page.getByText(
+          locale === "es" ? `Temporada de ${name}` : `${name} season`,
+        ),
+      ).toBeVisible();
+      await page.goto(`/${club}/players`);
+      await expect(
+        page.getByText(
+          locale === "es" ? `Historial de ${name}` : `${name} history`,
+        ),
+      ).toBeVisible();
+      await page.goto(`/${club}/players/e2e-${club}-player-1`);
+      await expect(page.locator("#player-heading")).toBeVisible();
+      await expect(
+        page.locator("#player-heading").locator("..").getByText(name),
+      ).toBeVisible();
+    }
+  }
+});
+
 test("seeded published fixture supplies visual coverage for both clubs", async ({
   page,
 }) => {

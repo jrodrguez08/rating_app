@@ -100,6 +100,46 @@ describe("ApiFootballAdapter", () => {
     );
   });
 
+  it("bounds catalog squad reads and distinguishes empty coverage from malformed duplicates", async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(response([]))
+      .mockResolvedValueOnce(
+        response([
+          {
+            team: { id: 815 },
+            players: [
+              { id: 101, name: "Player", position: "Defender" },
+              { id: 101, name: "Player", position: "Attacker" },
+            ],
+          },
+        ]),
+      );
+    const adapter = new ApiFootballAdapter("test-key", fetcher);
+    await expect(adapter.getSquad("815", "catalog")).resolves.toEqual([]);
+    await expect(adapter.getSquad("815", "catalog")).rejects.toMatchObject({
+      code: "malformed-response",
+    });
+    expect(fetcher.mock.calls[0][1]?.signal).toBeInstanceOf(AbortSignal);
+    expect(adapter.requestCount).toBe(2);
+  });
+
+  it("rejects oversized catalog squad responses before parsing players", async () => {
+    const oversized = new Response(
+      JSON.stringify({ errors: [], response: [] }),
+      {
+        headers: { "content-length": "500001" },
+      },
+    );
+    const adapter = new ApiFootballAdapter(
+      "test-key",
+      vi.fn<typeof fetch>().mockResolvedValue(oversized),
+    );
+    await expect(adapter.getSquad("815", "catalog")).rejects.toMatchObject({
+      code: "malformed-response",
+    });
+  });
+
   it.each([
     ["Goalkeeper", "goalkeeper"],
     ["Defender", "defender"],

@@ -206,7 +206,10 @@ export interface FootballDataProvider {
     externalTeamId: string,
     fixtureKickoffAt?: string,
   ): Promise<ProviderMatchContext | null>;
-  getSquad(externalTeamId: string): Promise<ProviderSquadPlayer[]>;
+  getSquad(
+    externalTeamId: string,
+    mode?: "catalog",
+  ): Promise<ProviderSquadPlayer[]>;
   getRecentFixtureCatalog?(
     externalTeamId: string,
     asOf: string,

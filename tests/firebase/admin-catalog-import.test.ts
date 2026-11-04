@@ -13,10 +13,13 @@ import {
 import type {
   FootballDataProvider,
   ProviderFixtureCatalog,
+  ProviderSquadPlayer,
 } from "@/domain/ports";
 import { AdminCatalogImportService } from "@/lib/firebase/admin-catalog-import";
 import { searchIndexedCoaches } from "@/lib/firebase/coach-search-index";
+import { AdminPlayerHistoryService } from "@/lib/firebase/server";
 import { searchIndexedTeamPlayers } from "@/lib/firebase/team-player-membership-index";
+import { ProviderError } from "@/lib/providers/api-football/errors";
 import { adminChallengeDocumentId } from "@/lib/server/admin-coach-action";
 import { hashAdminCatalogAction } from "@/lib/server/admin-catalog-action";
 
@@ -122,11 +125,15 @@ async function seed(teamId: string, externalTeamId: string) {
   ]);
 }
 
-function provider(fixtures: ProviderFixtureCatalog[]) {
+function provider(
+  fixtures: ProviderFixtureCatalog[],
+  squad: ProviderSquadPlayer[] = [],
+) {
   return {
     name: "api-football",
-    requestCount: 3,
+    requestCount: 4,
     getRecentFixtureCatalog: async () => fixtures,
+    getSquad: async () => squad,
   } as unknown as FootballDataProvider;
 }
 
@@ -148,6 +155,279 @@ async function authorize(
 }
 
 describe("recent-fixture preparation catalog import", () => {
+  it("fills only reviewed missing positions through canonical candidates", async () => {
+    const teamId = `team-catalog-positions-${++serial}`;
+    const owner = `owner-positions-${serial}`;
+    await seed(teamId, "816");
+    const canonicalId = providerEntityId("player", "api-football", "989100");
+    const operatorId = `player-internal-${"b".repeat(32)}`;
+    const retainedId = providerEntityId("player", "api-football", "989200");
+    await database.doc(`players/${canonicalId}`).set({
+      displayName: "Canonical Player",
+      identityProvenance: "provider",
+      externalProvider: "api-football",
+      externalProviderId: "989100",
+      currentTeamId: "other-club",
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    });
+    await database.doc(`players/${operatorId}`).set({
+      displayName: "Verified Player",
+      identityProvenance: "operator_verified",
+      currentTeamId: "other-club",
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    });
+    await database.doc(`players/${retainedId}`).set({
+      displayName: "Retained Duplicate",
+      identityProvenance: "provider",
+      externalProvider: "api-football",
+      externalProviderId: "989200",
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    });
+    const positionedId = providerEntityId("player", "api-football", "989700");
+    await database.doc(`players/${positionedId}`).set({
+      displayName: "Positioned Player",
+      identityProvenance: "provider",
+      externalProvider: "api-football",
+      externalProviderId: "989700",
+      position: "goalkeeper",
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    });
+    for (const [observed, id, canonical] of [
+      ["989200", canonicalId, "989100"],
+      ["989500", operatorId, "989500"],
+    ])
+      await database
+        .doc(
+          `playerProviderAliases/${playerProviderAliasId("api-football", observed)}`,
+        )
+        .set({
+          canonicalPlayerId: id,
+          externalProvider: "api-football",
+          externalProviderPlayerId: observed,
+          canonicalExternalProviderPlayerId: canonical,
+        });
+    const retainedBefore = (
+      await database.doc(`players/${retainedId}`).get()
+    ).data();
+    const fixture = {
+      ...catalog("816")[0],
+      players: [
+        {
+          externalTeamId: "816",
+          externalPlayerId: "989200",
+          name: "Observed Player",
+          squadRole: "starter" as const,
+          participated: true,
+        },
+        {
+          externalTeamId: "816",
+          externalPlayerId: "989300",
+          name: "New Player",
+          squadRole: "starter" as const,
+          participated: true,
+        },
+        {
+          externalTeamId: "816",
+          externalPlayerId: "989500",
+          name: "Verified Player",
+          squadRole: "starter" as const,
+          participated: true,
+        },
+        {
+          externalTeamId: "816",
+          externalPlayerId: "989600",
+          name: "Missing Player",
+          squadRole: "starter" as const,
+          participated: true,
+        },
+        {
+          externalTeamId: "816",
+          externalPlayerId: "989800",
+          name: "Conflicting Player",
+          position: "defender" as const,
+          squadRole: "starter" as const,
+          participated: true,
+        },
+        {
+          externalTeamId: "816",
+          externalPlayerId: "989700",
+          name: "Positioned Player",
+          squadRole: "starter" as const,
+          participated: true,
+        },
+      ],
+      coach: {
+        status: "unavailable" as const,
+        reason: "coach-missing" as const,
+      },
+    };
+    const squad: ProviderSquadPlayer[] = [
+      {
+        externalPlayerId: "989200",
+        name: "Observed Player",
+        position: "attacker",
+      },
+      {
+        externalPlayerId: "989300",
+        name: "New Player",
+        position: "midfielder",
+      },
+      {
+        externalPlayerId: "989500",
+        name: "Verified Player",
+        position: "defender",
+      },
+      {
+        externalPlayerId: "989800",
+        name: "Conflicting Player",
+        position: "attacker",
+      },
+      {
+        externalPlayerId: "989700",
+        name: "Positioned Player",
+        position: "attacker",
+      },
+      {
+        externalPlayerId: "989999",
+        name: "Squad Only",
+        position: "goalkeeper",
+      },
+    ];
+    const service = new AdminCatalogImportService(database);
+    const { action, plan } = await service.preview(
+      teamId,
+      owner,
+      provider([fixture], squad),
+    );
+    expect(plan).toMatchObject({
+      playerCount: 6,
+      positionFills: 3,
+      positionGaps: 2,
+      squadPlayers: 6,
+      providerRequests: 4,
+    });
+    expect(plan.players).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "Canonical Player",
+          proposedPosition: "attacker",
+          positionSource: "squad",
+        }),
+        expect.objectContaining({
+          name: "Verified Player",
+          proposedPosition: "defender",
+          positionSource: "squad",
+        }),
+        expect.objectContaining({
+          name: "Missing Player",
+          positionGap: "missing",
+        }),
+        expect.objectContaining({
+          name: "Positioned Player",
+          currentPosition: "goalkeeper",
+        }),
+        expect.objectContaining({
+          name: "Conflicting Player",
+          positionGap: "conflict",
+        }),
+      ]),
+    );
+    await service.applyAuthorized(
+      action,
+      owner,
+      await authorize(action, owner),
+    );
+    expect(
+      (await database.doc(`players/${canonicalId}`).get()).data(),
+    ).toMatchObject({
+      position: "attacker",
+      externalProviderId: "989100",
+      currentTeamId: "other-club",
+    });
+    expect(
+      (await database.doc(`players/${operatorId}`).get()).data(),
+    ).toMatchObject({
+      position: "defender",
+      displayName: "Verified Player",
+      currentTeamId: "other-club",
+    });
+    expect(
+      (
+        await database
+          .doc(
+            `players/${providerEntityId("player", "api-football", "989300")}`,
+          )
+          .get()
+      ).data(),
+    ).toMatchObject({ position: "midfielder" });
+    expect((await database.doc(`players/${retainedId}`).get()).data()).toEqual(
+      retainedBefore,
+    );
+    expect(
+      (await database.doc(`players/${positionedId}`).get()).data(),
+    ).toMatchObject({
+      position: "goalkeeper",
+    });
+    expect(
+      (
+        await database
+          .doc(
+            `players/${providerEntityId("player", "api-football", "989999")}`,
+          )
+          .get()
+      ).exists,
+    ).toBe(false);
+    expect(
+      (await searchIndexedTeamPlayers(database, teamId, "canonical player"))
+        .players,
+    ).toMatchObject([{ player: { id: canonicalId, position: "attacker" } }]);
+    expect(
+      (await new AdminPlayerHistoryService(database).get(canonicalId, teamId))
+        ?.position,
+    ).toBe("attacker");
+    const repeated = await service.preview(
+      teamId,
+      `${owner}-again`,
+      provider([fixture], squad),
+    );
+    expect(repeated.plan).toMatchObject({
+      positionFills: 0,
+      positionGaps: 2,
+      proposedWrites: 2,
+    });
+  });
+
+  it("keeps catalog identities untouched when the bounded squad lookup fails", async () => {
+    const teamId = `team-catalog-squad-error-${++serial}`;
+    await seed(teamId, "816");
+    const getSquad = vi
+      .fn()
+      .mockRejectedValue(new ProviderError("rate-limited", "quota"));
+    const service = new AdminCatalogImportService(database);
+    await expect(
+      service.preview(teamId, `owner-squad-error-${serial}`, {
+        name: "api-football",
+        requestCount: 3,
+        getRecentFixtureCatalog: async () => catalog("816"),
+        getSquad,
+      } as unknown as FootballDataProvider),
+    ).rejects.toMatchObject({ code: "rate-limited" });
+    expect(getSquad).toHaveBeenCalledWith("816", "catalog");
+    expect(
+      (
+        await database
+          .doc(
+            `players/${providerEntityId("player", "api-football", "915000")}`,
+          )
+          .get()
+      ).exists,
+    ).toBe(false);
+  });
+
   it.each([
     ["deportivo-saprissa", "816"],
     ["club-sport-herediano", "815"],
@@ -211,7 +491,7 @@ describe("recent-fixture preparation catalog import", () => {
         coachCount: 1,
         newPlayers: baseTeamId === "deportivo-saprissa" ? 25 : 0,
         newCoaches: baseTeamId === "deportivo-saprissa" ? 1 : 0,
-        providerRequests: 3,
+        providerRequests: 4,
         previewDocumentReads: 110,
         canApply: true,
       });

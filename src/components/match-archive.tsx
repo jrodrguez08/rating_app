@@ -69,7 +69,9 @@ export function MatchArchiveView({
   return (
     <>
       <section aria-labelledby="matches-heading" className="mb-7">
-        <p className="eyebrow">{messages.eyebrow}</p>
+        <p className="eyebrow">
+          {messages.eyebrow.replace("{club}", club.displayName)}
+        </p>
         <h1 id="matches-heading" className="mt-3 text-3xl font-extrabold">
           {messages.title}
         </h1>

@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { MatchArchiveItem } from "@/application/match-archive";
-import { initialClub } from "@/config/club";
+import { clubs, initialClub } from "@/config/club";
 import type { Match } from "@/domain/models";
 import { getMessages } from "@/i18n/messages";
 import { getBallotStatus } from "@/lib/firebase/ballot-client";
@@ -22,6 +22,34 @@ const ballotMessages = allMessages.home.matchLifecycle.ready;
 const now = new Date("2026-08-31T12:00:00.000Z");
 
 describe("Partidos presentation", () => {
+  it.each(["es", "en"] as const)(
+    "uses the selected club heading in %s",
+    (locale) => {
+      const copy = getMessages(locale);
+      for (const club of [clubs.herediano, clubs.saprissa]) {
+        const view = render(
+          <MatchArchiveView
+            club={club}
+            archive={{
+              relevant: null,
+              featuredUpcoming: false,
+              upcoming: [],
+              recent: [],
+            }}
+            locale={locale}
+            messages={copy.matches}
+            ballotMessages={copy.home.matchLifecycle.ready}
+          />,
+        );
+        expect(
+          screen.getByText(
+            copy.matches.eyebrow.replace("{club}", club.displayName),
+          ),
+        ).toBeInTheDocument();
+        view.unmount();
+      }
+    },
+  );
   beforeEach(() => {
     vi.mocked(getBallotStatus).mockResolvedValue("available");
   });
