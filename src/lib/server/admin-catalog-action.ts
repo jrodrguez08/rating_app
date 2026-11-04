@@ -17,7 +17,7 @@ export interface AdminCatalogImportAction {
   }>;
   players: Array<{
     id: string;
-    externalId: string;
+    canonicalExternalId: string;
     observedExternalIds: string[];
     name: string;
     position?: PlayerPosition;
@@ -91,11 +91,15 @@ export function parseAdminCatalogAction(
       if (
         !isRecord(item) ||
         !validId(item.id) ||
-        !numericId(item.externalId) ||
+        !numericId(
+          kind === "players" ? item.canonicalExternalId : item.externalId,
+        ) ||
         !Array.isArray(item.observedExternalIds) ||
         item.observedExternalIds.length < 1 ||
         item.observedExternalIds.length > 5 ||
         item.observedExternalIds.some((id: unknown) => !numericId(id)) ||
+        new Set(item.observedExternalIds).size !==
+          item.observedExternalIds.length ||
         !validName(item.name) ||
         !Array.isArray(item.sourceFixtureIds) ||
         item.sourceFixtureIds.length < 1 ||

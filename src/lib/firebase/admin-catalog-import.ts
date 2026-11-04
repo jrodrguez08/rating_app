@@ -384,8 +384,16 @@ export class AdminCatalogImportService {
     for (const source of fixtures) {
       for (const player of source.players) {
         const entry = playerObservations.get(player.externalPlayerId);
-        if (entry) entry.fixtures.add(source.fixture.externalFixtureId);
-        else
+        if (entry) {
+          entry.fixtures.add(source.fixture.externalFixtureId);
+          if (player.name.localeCompare(entry.name) < 0)
+            entry.name = player.name;
+          if (
+            player.position &&
+            (!entry.position || player.position < entry.position)
+          )
+            entry.position = player.position;
+        } else
           playerObservations.set(player.externalPlayerId, {
             name: player.name,
             position: player.position,
@@ -432,7 +440,9 @@ export class AdminCatalogImportService {
       if (
         alias &&
         (alias.externalProvider !== "api-football" ||
-          alias.externalProviderPlayerId !== externalId)
+          alias.externalProviderPlayerId !== externalId ||
+          !validCatalogId(alias.canonicalPlayerId) ||
+          !validProviderPlayerId(alias.canonicalExternalProviderPlayerId))
       ) {
         throw new AdminCatalogImportRejectedError(
           "conflict",
@@ -442,17 +452,29 @@ export class AdminCatalogImportService {
       const id =
         alias?.canonicalPlayerId ??
         providerEntityId("player", "api-football", externalId);
+      const canonicalExternalId =
+        alias?.canonicalExternalProviderPlayerId ?? externalId;
       const observed = playerObservations.get(externalId)!;
       const previous = players.get(id);
+      if (previous && previous.canonicalExternalId !== canonicalExternalId) {
+        throw new AdminCatalogImportRejectedError(
+          "conflict",
+          "Las asociaciones revisadas del jugador discrepan sobre su identidad canónica.",
+        );
+      }
+      const preferredObservation =
+        previous && previous.observedExternalIds[0] < externalId
+          ? previous
+          : observed;
       players.set(id, {
         id,
-        externalId: previous?.externalId ?? externalId,
+        canonicalExternalId,
         observedExternalIds: [
           ...new Set([...(previous?.observedExternalIds ?? []), externalId]),
         ].sort(),
-        name: previous?.name ?? observed.name,
-        ...((previous?.position ?? observed.position)
-          ? { position: previous?.position ?? observed.position }
+        name: preferredObservation.name,
+        ...(preferredObservation.position
+          ? { position: preferredObservation.position }
           : {}),
         sourceFixtureIds: [
           ...new Set([
@@ -503,13 +525,18 @@ export class AdminCatalogImportService {
         ].sort(),
       });
     });
-    return { players: [...players.values()], coaches: [...coaches.values()] };
+    return {
+      players: [...players.values()].sort((first, second) =>
+        first.id.localeCompare(second.id),
+      ),
+      coaches: [...coaches.values()],
+    };
   }
 
   private stateReferences(
     action: AdminCatalogImportAction,
   ): DocumentReference[] {
-    return [
+    const references = [
       this.database.doc(`teams/${action.trackedTeamId}`),
       this.database.doc(
         `teams/${action.trackedTeamId}/playerMembershipIndex/state`,
@@ -534,6 +561,18 @@ export class AdminCatalogImportService {
         ),
         this.database.doc(`coaches/${id}`),
       ]),
+    ];
+    for (const player of action.players) {
+      references.push(
+        this.database.doc(
+          `playerProviderAliases/${playerProviderAliasId("api-football", player.canonicalExternalId)}`,
+        ),
+      );
+    }
+    return [
+      ...new Map(
+        references.map((reference) => [reference.path, reference]),
+      ).values(),
     ];
   }
 
@@ -630,13 +669,19 @@ export class AdminCatalogImportService {
       if (
         aliases.some((snapshot, index) =>
           snapshot?.exists
-            ? fromSnapshot<PlayerProviderAlias>(snapshot).canonicalPlayerId !==
-              candidate.id
+            ? !matchesPlayerCatalogAlias(
+                fromSnapshot<PlayerProviderAlias>(snapshot),
+                candidate.observedExternalIds[index],
+                candidate.id,
+                candidate.canonicalExternalId,
+              )
             : providerEntityId(
                 "player",
                 "api-football",
                 candidate.observedExternalIds[index],
-              ) !== candidate.id,
+              ) !== candidate.id ||
+              candidate.observedExternalIds[index] !==
+                candidate.canonicalExternalId,
         )
       ) {
         throw new AdminCatalogImportRejectedError(
@@ -662,12 +707,42 @@ export class AdminCatalogImportService {
           "conflict",
           "Falta el jugador canónico de una asociación revisada.",
         );
+      const canonicalAlias = state.byPath.get(
+        `playerProviderAliases/${playerProviderAliasId("api-football", candidate.canonicalExternalId)}`,
+      );
+      if (
+        canonicalAlias?.exists &&
+        !matchesPlayerCatalogAlias(
+          fromSnapshot<PlayerProviderAlias>(canonicalAlias),
+          candidate.canonicalExternalId,
+          candidate.id,
+          candidate.canonicalExternalId,
+        )
+      ) {
+        throw new AdminCatalogImportRejectedError(
+          "conflict",
+          "La identidad canónica del jugador tiene una asociación posterior incompatible.",
+        );
+      }
+      if (
+        existingPlayer &&
+        ((existingPlayer.externalProvider &&
+          existingPlayer.externalProvider !== "api-football") ||
+          (existingPlayer.externalProviderId &&
+            existingPlayer.externalProviderId !==
+              candidate.canonicalExternalId))
+      ) {
+        throw new AdminCatalogImportRejectedError(
+          "conflict",
+          "La identidad de proveedor del jugador canónico no coincide con la asociación revisada.",
+        );
+      }
       const incoming: Player = {
         id: candidate.id,
         displayName: candidate.name,
         identityProvenance: "provider",
         externalProvider: "api-football",
-        externalProviderId: candidate.externalId,
+        externalProviderId: candidate.canonicalExternalId,
         ...(candidate.position ? { position: candidate.position } : {}),
         createdAt: action.observedAt,
         updatedAt: action.observedAt,
@@ -846,15 +921,16 @@ export class AdminCatalogImportService {
       proposedWrites: writes.length + 2,
       providerRequests: action.providerRequests,
       previewDocumentReads:
-        7 +
+        4 +
         action.players.reduce(
-          (count, player) => count + player.observedExternalIds.length * 2 + 2,
+          (count, player) => count + player.observedExternalIds.length,
           0,
         ) +
         action.coaches.reduce(
-          (count, coach) => count + coach.observedExternalIds.length * 2 + 1,
+          (count, coach) => count + coach.observedExternalIds.length,
           0,
-        ),
+        ) +
+        state.references.length,
       observedAt: action.observedAt,
       canApply:
         action.players.length + action.coaches.length > 0 &&
@@ -897,4 +973,28 @@ function sameIgnoringUpdate(first: object, second: object): boolean {
   delete left.lastObservedAt;
   delete right.lastObservedAt;
   return isDeepStrictEqual(left, right);
+}
+
+function validCatalogId(value: unknown): value is string {
+  return typeof value === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(value);
+}
+
+function validProviderPlayerId(value: unknown): value is string {
+  return (
+    typeof value === "string" && /^\d{1,12}$/.test(value) && Number(value) > 0
+  );
+}
+
+function matchesPlayerCatalogAlias(
+  alias: PlayerProviderAlias,
+  observedExternalId: string,
+  canonicalPlayerId: string,
+  canonicalExternalId: string,
+): boolean {
+  return (
+    alias.externalProvider === "api-football" &&
+    alias.externalProviderPlayerId === observedExternalId &&
+    alias.canonicalPlayerId === canonicalPlayerId &&
+    alias.canonicalExternalProviderPlayerId === canonicalExternalId
+  );
 }
