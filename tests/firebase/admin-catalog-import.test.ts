@@ -191,12 +191,53 @@ describe("recent-fixture preparation catalog import", () => {
           },
         },
       }));
+      const photoExternalId = String(8_000_000 + serial * 100);
+      const photoPlayerId = providerEntityId(
+        "player",
+        "api-football",
+        photoExternalId,
+      );
+      const photoUrl = `https://media.api-sports.io/football/players/${photoExternalId}.png`;
+      await database.doc(`players/${photoPlayerId}`).set({
+        displayName: "Catalog Player 00",
+        identityProvenance: "provider",
+        externalProvider: "api-football",
+        externalProviderId: photoExternalId,
+        createdAt: Timestamp.now(),
+        updatedAt: Timestamp.now(),
+      });
+      const squad = [
+        {
+          externalPlayerId: photoExternalId,
+          name: "Catalog Player 00",
+          photoUrl,
+        },
+        {
+          externalPlayerId: String(8_900_000 + serial),
+          name: "Squad Only",
+          photoUrl: "https://media.api-sports.io/football/players/8900001.png",
+        },
+      ];
       const { action, plan } = await service.preview(
         teamId,
         owner,
-        provider(fixtures),
+        provider(fixtures, squad),
       );
       expect(plan.canApply).toBe(true);
+      expect(plan).toMatchObject({ photoFills: 1, providerRequests: 4 });
+      expect(plan.players).toContainEqual(
+        expect.objectContaining({
+          name: "Catalog Player 00",
+          proposedPhotoUrl: photoUrl,
+          photoStatus: "fill",
+        }),
+      );
+      expect(
+        action.players.find((player) => player.id === photoPlayerId),
+      ).toMatchObject({
+        photoUrl,
+        photoConflict: false,
+      });
       const preview = await security.issuePreview(owner, action);
       const transported = parseAdminCatalogAction(
         JSON.parse(JSON.stringify(action)) as unknown,
@@ -204,6 +245,16 @@ describe("recent-fixture preparation catalog import", () => {
       expect(hashAdminCatalogAction(transported)).toBe(
         hashAdminCatalogAction(action),
       );
+      expect(() =>
+        parseAdminCatalogAction({
+          ...transported,
+          players: transported.players.map((player) =>
+            player.id === photoPlayerId
+              ? { ...player, photoUrl: "https://example.com/untrusted.png" }
+              : player,
+          ),
+        }),
+      ).toThrow("La foto del jugador no es válida.");
       const rearranged = parseAdminCatalogAction({
         ...transported,
         fixtures: transported.fixtures.map((fixture) => ({
@@ -217,6 +268,8 @@ describe("recent-fixture preparation catalog import", () => {
         players: transported.players.map((player) => ({
           sourceFixtureIds: player.sourceFixtureIds,
           positionConflict: player.positionConflict,
+          photoConflict: player.photoConflict,
+          photoUrl: player.photoUrl,
           positionSource: player.positionSource,
           position: player.position,
           name: player.name,
@@ -259,6 +312,18 @@ describe("recent-fixture preparation catalog import", () => {
             { ...transported.players[0], observedExternalIds: ["999"] },
             ...transported.players.slice(1),
           ],
+        },
+        {
+          ...transported,
+          players: transported.players.map((player) =>
+            player.id === photoPlayerId
+              ? {
+                  ...player,
+                  photoUrl:
+                    "https://media.api-sports.io/football/players/999.png",
+                }
+              : player,
+          ),
         },
         {
           ...transported,
@@ -334,6 +399,29 @@ describe("recent-fixture preparation catalog import", () => {
       );
       expect(applied.disposition).toBe("applied");
       expect(
+        (await database.doc(`players/${photoPlayerId}`).get()).data(),
+      ).toMatchObject({
+        photoUrl,
+        externalProviderId: photoExternalId,
+      });
+      expect(
+        (
+          await new AdminPlayerHistoryService(database).get(
+            photoPlayerId,
+            teamId,
+          )
+        )?.photoUrl,
+      ).toBe(photoUrl);
+      expect(
+        (
+          await database
+            .doc(
+              `players/${providerEntityId("player", "api-football", squad[1].externalPlayerId)}`,
+            )
+            .get()
+        ).exists,
+      ).toBe(false);
+      expect(
         (await database.doc(`adminAudit/${applied.auditId}`).get()).exists,
       ).toBe(true);
       const writtenBeforeRetry = await database.collection("players").get();
@@ -346,6 +434,15 @@ describe("recent-fixture preparation catalog import", () => {
       expect((await database.collection("players").get()).size).toBe(
         writtenBeforeRetry.size,
       );
+      const repeated = await service.preview(
+        teamId,
+        `${owner}-repeat`,
+        provider(fixtures, squad),
+      );
+      expect(repeated.plan).toMatchObject({
+        photoFills: 0,
+        proposedWrites: 3,
+      });
     } finally {
       if (previousDigest === undefined)
         delete process.env.ADMIN_PASSPHRASE_SCRYPT;
@@ -935,10 +1032,18 @@ describe("recent-fixture preparation catalog import", () => {
       await database.getAll(retainedPlayerRef, aliasRef)
     ).map((snapshot) => snapshot.data());
     const service = new AdminCatalogImportService(database);
+    const photoUrl = `https://media.api-sports.io/football/players/${observedExternalId}.png`;
+    const squad = [
+      {
+        externalPlayerId: observedExternalId,
+        name: "Canonical Player",
+        photoUrl,
+      },
+    ];
     const { action, plan } = await service.preview(
       teamId,
       operatorUid,
-      provider(aliasCatalog([observedExternalId, observedExternalId])),
+      provider(aliasCatalog([observedExternalId, observedExternalId]), squad),
     );
     expect(action.players).toMatchObject([
       {
@@ -950,7 +1055,8 @@ describe("recent-fixture preparation catalog import", () => {
     expect(plan).toMatchObject({
       playerCount: 1,
       newPlayers: 0,
-      metadataChanges: 0,
+      metadataChanges: 1,
+      photoFills: 1,
     });
     const token = await authorize(action, operatorUid);
     const applied = await service.applyAuthorized(action, operatorUid, token);
@@ -966,6 +1072,7 @@ describe("recent-fixture preparation catalog import", () => {
     ).toMatchObject({
       externalProviderId: canonicalExternalId,
       currentTeamId: "another-club",
+      photoUrl,
     });
     expect(
       (
@@ -989,15 +1096,256 @@ describe("recent-fixture preparation catalog import", () => {
     const repeated = await service.preview(
       teamId,
       `${operatorUid}-again`,
-      provider(aliasCatalog([observedExternalId, observedExternalId])),
+      provider(aliasCatalog([observedExternalId, observedExternalId]), squad),
     );
     expect(repeated.plan).toMatchObject({
       proposedWrites: 2,
       metadataChanges: 0,
+      photoFills: 0,
     });
     expect(repeated.action.players[0].canonicalExternalId).toBe(
       canonicalExternalId,
     );
+  });
+
+  it("fills only missing photos and reports unavailable or conflicting squad evidence", async () => {
+    const teamId = `team-catalog-photos-${++serial}`;
+    const owner = `owner-photos-${serial}`;
+    await seed(teamId, "816");
+    const storedId = providerEntityId("player", "api-football", "981001");
+    const verifiedId = `player-internal-${"c".repeat(32)}`;
+    const existingPhoto =
+      "https://media.api-sports.io/football/players/777.png";
+    const verifiedPhoto =
+      "https://media.api-sports.io/football/players/981002.png";
+    await database.doc(`players/${storedId}`).set({
+      displayName: "Stored Photo",
+      identityProvenance: "operator_verified",
+      externalProvider: "api-football",
+      externalProviderId: "981001",
+      photoUrl: existingPhoto,
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    });
+    await database.doc(`players/${verifiedId}`).set({
+      displayName: "Verified Player",
+      identityProvenance: "operator_verified",
+      position: "defender",
+      currentTeamId: "other-club",
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    });
+    await database
+      .doc(
+        `playerProviderAliases/${playerProviderAliasId("api-football", "981002")}`,
+      )
+      .set({
+        canonicalPlayerId: verifiedId,
+        canonicalExternalProviderPlayerId: "981102",
+        externalProvider: "api-football",
+        externalProviderPlayerId: "981002",
+      });
+    const fixture = {
+      ...catalog("816")[0],
+      players: ["981001", "981002", "981003", "981004"].map(
+        (externalPlayerId, index) => ({
+          ...catalog("816")[0].players[index],
+          externalPlayerId,
+          name: [
+            "Stored Photo",
+            "Verified Player",
+            "No Photo",
+            "Conflicting Photo",
+          ][index],
+        }),
+      ),
+      coach: {
+        status: "unavailable" as const,
+        reason: "coach-missing" as const,
+      },
+    };
+    const squad = [
+      {
+        externalPlayerId: "981001",
+        name: "Stored Photo",
+        photoUrl: "https://media.api-sports.io/football/players/999.png",
+      },
+      {
+        externalPlayerId: "981002",
+        name: "Verified Player",
+        photoUrl: verifiedPhoto,
+      },
+      {
+        externalPlayerId: "981003",
+        name: "No Photo",
+        photoUrl: "https://example.com/invalid.png",
+      },
+      {
+        externalPlayerId: "981004",
+        name: "Conflicting Photo",
+        photoUrl: "https://media.api-sports.io/football/players/400.png",
+      },
+      {
+        externalPlayerId: "981004",
+        name: "Conflicting Photo",
+        photoUrl: "https://media.api-sports.io/football/players/401.png",
+      },
+      {
+        externalPlayerId: "981999",
+        name: "Squad Only",
+        photoUrl: "https://media.api-sports.io/football/players/981999.png",
+      },
+    ];
+    const service = new AdminCatalogImportService(database);
+    const { action, plan } = await service.preview(
+      teamId,
+      owner,
+      provider([fixture], squad),
+    );
+    expect(plan).toMatchObject({
+      photoFills: 1,
+      photoGaps: 2,
+      providerRequests: 4,
+    });
+    expect(
+      plan.players.map(({ name, photoStatus }) => [name, photoStatus]),
+    ).toEqual(
+      expect.arrayContaining([
+        ["Stored Photo", "preserved"],
+        ["Verified Player", "fill"],
+        ["No Photo", "missing"],
+        ["Conflicting Photo", "conflict"],
+      ]),
+    );
+    expect(
+      action.players.find((player) => player.id === verifiedId),
+    ).toMatchObject({
+      canonicalExternalId: "981102",
+      photoUrl: verifiedPhoto,
+    });
+    expect(
+      action.players.find(
+        (player) =>
+          player.id === providerEntityId("player", "api-football", "981004"),
+      ),
+    ).toMatchObject({
+      photoConflict: true,
+    });
+    const token = await authorize(action, owner);
+    await service.applyAuthorized(action, owner, token);
+    expect(
+      (await database.doc(`players/${storedId}`).get()).data(),
+    ).toMatchObject({
+      identityProvenance: "operator_verified",
+      photoUrl: existingPhoto,
+    });
+    expect(
+      (await database.doc(`players/${verifiedId}`).get()).data(),
+    ).toMatchObject({
+      displayName: "Verified Player",
+      identityProvenance: "operator_verified",
+      position: "defender",
+      currentTeamId: "other-club",
+      photoUrl: verifiedPhoto,
+    });
+    for (const externalId of ["981003", "981004"]) {
+      expect(
+        (
+          await database
+            .doc(
+              `players/${providerEntityId("player", "api-football", externalId)}`,
+            )
+            .get()
+        ).data()?.photoUrl,
+      ).toBeUndefined();
+    }
+    expect(
+      (
+        await database
+          .doc(
+            `players/${providerEntityId("player", "api-football", "981999")}`,
+          )
+          .get()
+      ).exists,
+    ).toBe(false);
+    const repeated = await service.preview(
+      teamId,
+      `${owner}-again`,
+      provider([fixture], squad),
+    );
+    expect(repeated.plan).toMatchObject({
+      photoFills: 0,
+      photoGaps: 2,
+      proposedWrites: 2,
+    });
+  });
+
+  it("rejects a photo added after preview without consuming the challenge", async () => {
+    const teamId = `team-catalog-photo-stale-${++serial}`;
+    const owner = `owner-photo-stale-${serial}`;
+    const externalId = "982001";
+    const playerId = providerEntityId("player", "api-football", externalId);
+    await seed(teamId, "816");
+    await database.doc(`players/${playerId}`).set({
+      displayName: "Stale Photo",
+      identityProvenance: "operator_verified",
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    });
+    const fixture = {
+      ...catalog("816")[0],
+      players: [
+        {
+          ...catalog("816")[0].players[0],
+          externalPlayerId: externalId,
+          name: "Stale Photo",
+        },
+      ],
+      coach: {
+        status: "unavailable" as const,
+        reason: "coach-missing" as const,
+      },
+    };
+    const service = new AdminCatalogImportService(database);
+    const { action } = await service.preview(
+      teamId,
+      owner,
+      provider(
+        [fixture],
+        [
+          {
+            externalPlayerId: externalId,
+            name: "Stale Photo",
+            photoUrl: "https://media.api-sports.io/football/players/982001.png",
+          },
+        ],
+      ),
+    );
+    expect(action.players[0].photoUrl).toBeDefined();
+    const token = await authorize(action, owner);
+    const newerPhoto =
+      "https://media.api-sports.io/football/players/982002.png";
+    await database.doc(`players/${playerId}`).update({ photoUrl: newerPhoto });
+    await expect(
+      service.applyAuthorized(action, owner, token),
+    ).rejects.toMatchObject({ code: "stale" });
+    expect(
+      (await database.doc(`players/${playerId}`).get()).data()?.photoUrl,
+    ).toBe(newerPhoto);
+    expect(
+      (
+        await database
+          .doc(`adminActionChallenges/${adminChallengeDocumentId(token)}`)
+          .get()
+      ).data()?.consumedAt,
+    ).toBeUndefined();
+    expect(
+      (
+        await database
+          .doc(`adminAudit/catalog-import-${adminChallengeDocumentId(token)}`)
+          .get()
+      ).exists,
+    ).toBe(false);
   });
 
   it("collapses multiple aliases without depending on fixture order and rejects conflicting declarations", async () => {

@@ -33,6 +33,9 @@ const plan = {
       sourceFixtureIds: ["1551714"],
       proposedPosition: "attacker",
       positionSource: "squad",
+      proposedPhotoUrl:
+        "https://media.api-sports.io/football/players/981101.png",
+      photoStatus: "fill",
     },
   ],
   coaches: [],
@@ -41,6 +44,8 @@ const plan = {
   metadataChanges: 0,
   positionFills: 1,
   positionGaps: 0,
+  photoFills: 1,
+  photoGaps: 0,
   squadPlayers: 35,
   excludedPlayers: 1,
   unresolvedCoaches: 1,
@@ -95,6 +100,15 @@ describe("owner catalog import", () => {
     expect(
       screen.getByText("Completar posición: Delantero (plantel)"),
     ).toBeVisible();
+    expect(screen.getByText(messages.photoFills)).toBeVisible();
+    expect(
+      screen.getByRole("link", {
+        name: "https://media.api-sports.io/football/players/981101.png",
+      }),
+    ).toHaveAttribute(
+      "href",
+      "https://media.api-sports.io/football/players/981101.png",
+    );
     await userEvent.type(
       screen.getByLabelText(messages.passphrase),
       "test-passphrase",

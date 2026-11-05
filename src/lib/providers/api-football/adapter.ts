@@ -854,12 +854,14 @@ export class ApiFootballAdapter
       return malformed(`squad response does not match Team ${externalTeamId}.`);
     }
     const players = new Map<string, ProviderSquadPlayer>();
+    const catalogObservations: ProviderSquadPlayer[] = [];
     const entries = array(item.players, "squad response item.players");
     if (mode === "catalog" && entries.length > 100)
       return malformed("Squad response exceeds 100 Players.");
     for (const value of entries) {
       const player = parseSquadPlayer(value);
       if (player === null) continue;
+      if (mode === "catalog") catalogObservations.push(player);
       const previous = players.get(player.externalPlayerId);
       if (
         mode === "catalog" &&
@@ -876,7 +878,7 @@ export class ApiFootballAdapter
       )
         players.set(player.externalPlayerId, player);
     }
-    return [...players.values()];
+    return mode === "catalog" ? catalogObservations : [...players.values()];
   }
 
   async getStandings(

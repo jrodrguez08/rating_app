@@ -192,6 +192,8 @@ export function AdminCatalogImport({
                   [messages.squadPlayers, preview.plan.squadPlayers],
                   [messages.positionFills, preview.plan.positionFills],
                   [messages.positionGaps, preview.plan.positionGaps],
+                  [messages.photoFills, preview.plan.photoFills],
+                  [messages.photoGaps, preview.plan.photoGaps],
                   [messages.excluded, preview.plan.excludedPlayers],
                   [messages.unresolvedCoaches, preview.plan.unresolvedCoaches],
                   [messages.requests, preview.plan.providerRequests],
@@ -263,6 +265,30 @@ export function AdminCatalogImport({
                         <span className="text-muted block">
                           {messages.positionMissing}
                         </span>
+                      ) : null}
+                      {"photoStatus" in identity ? (
+                        identity.photoStatus === "fill" &&
+                        identity.proposedPhotoUrl ? (
+                          <span className="block">
+                            {messages.photoProposed}:{" "}
+                            <a
+                              className="break-all underline"
+                              href={identity.proposedPhotoUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              {identity.proposedPhotoUrl}
+                            </a>
+                          </span>
+                        ) : (
+                          <span className="text-muted block">
+                            {identity.photoStatus === "preserved"
+                              ? messages.photoPreserved
+                              : identity.photoStatus === "conflict"
+                                ? messages.photoConflict
+                                : messages.photoMissing}
+                          </span>
+                        )
                       ) : null}
                     </li>
                   ))}

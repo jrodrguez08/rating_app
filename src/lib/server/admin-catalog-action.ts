@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { isPlayerPhotoUrl } from "@/config/player-photos";
 import type { PlayerPosition } from "@/domain/models";
 
 export interface AdminCatalogImportAction {
@@ -25,6 +26,8 @@ export interface AdminCatalogImportAction {
     position?: PlayerPosition;
     positionSource?: "lineup" | "squad";
     positionConflict: boolean;
+    photoUrl?: string;
+    photoConflict: boolean;
     sourceFixtureIds: string[];
   }>;
   coaches: Array<{
@@ -64,6 +67,8 @@ export function hashAdminCatalogAction(
       player.position ?? null,
       player.positionSource ?? null,
       player.positionConflict,
+      player.photoUrl ?? null,
+      player.photoConflict,
       player.sourceFixtureIds,
     ]),
     action.coaches.map((coach) => [
@@ -174,6 +179,16 @@ export function parseAdminCatalogAction(
       (item.position !== undefined) !== (item.positionSource !== undefined)
     ) {
       throw new Error("La posición del jugador no es válida.");
+    }
+    if (
+      typeof item.photoConflict !== "boolean" ||
+      (item.photoConflict && item.photoUrl !== undefined) ||
+      (item.photoUrl !== undefined &&
+        (typeof item.photoUrl !== "string" ||
+          !isPlayerPhotoUrl(item.photoUrl) ||
+          new URL(item.photoUrl).href !== item.photoUrl))
+    ) {
+      throw new Error("La foto del jugador no es válida.");
     }
     return item as unknown as AdminCatalogImportAction["players"][number];
   });
