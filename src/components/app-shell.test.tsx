@@ -27,6 +27,11 @@ describe("AppShell navigation", () => {
       "href",
       "/saprissa/studio",
     );
+    const brand = screen.getByRole("link", { name: "FutRate CR" });
+    expect(brand).toHaveAttribute("href", "/saprissa");
+    expect(brand.querySelector("img")).toHaveAttribute("alt", "");
+    expect(brand.querySelector("img")).toHaveAttribute("src", "/icon.svg");
+    expect(brand.querySelector(".score-font")).toHaveTextContent("FutRate CR");
     expect(container.firstElementChild).toHaveStyle({
       "--club-primary": "#6f2c91",
       "--club-secondary": "#ffffff",
@@ -64,6 +69,10 @@ describe("AppShell navigation", () => {
     expect(screen.getByRole("link", { name: "Jugadores" })).toHaveAttribute(
       "aria-current",
       "page",
+    );
+    expect(screen.getByRole("link", { name: "FutRate CR" })).toHaveAttribute(
+      "href",
+      "/herediano",
     );
   });
 });

@@ -48,7 +48,7 @@ The reusable `.card`, `.game-inset`, `.status-badge`, `.button-primary`, `.butto
 
 ## App shell and navigation
 
-The compact header has an identity/utility row and a simple text-navigation row. The `R` mark uses a crisp club-colored block; the wordmark uses display typography without becoming an arcade banner. Navigation retains at least 40px vertical space and uses a small gold underline plus weight for `aria-current`, not giant buttons.
+The compact header has an identity/utility row and a simple text-navigation row. The shared brand uses the approved transparent pixel-art soccer ball beside the visible **FutRate CR** wordmark in the existing DotGothic16 display role. The ball is decorative beside the text and does not replace the link's accessible name. The surrounding header, navigation, focus, and club controls retain their selected-club theme tokens. Navigation retains at least 40px vertical space and uses a small accent underline plus weight for `aria-current`, not giant buttons.
 
 The language switcher remains secondary: a bordered `ES`/`EN` utility control opens a small hard-shadow menu with full language names and semantic current state. It retains 44px targets, Escape and outside-click dismissal, focus restoration, and visible focus.
 
@@ -126,7 +126,7 @@ Validate every visual component in Spanish and English. Prefer flexible wrapping
 
 Player identity uses a compact, hard-bordered square avatar in lists and a larger version in the profile header. A narrowly allowed persisted identification photo may fill the square without becoming the primary hierarchy; missing, malformed, or failed photos use the same fixed dimensions with deterministic one- or two-letter initials. Position labels use the readable sans and localized domain labels, never raw provider strings.
 
-Public app identity uses a simple project-owned Rating App `R` mark that remains recognizable at browser-icon size: charcoal field, Herediano-inspired red structure, and gold focus. The mark must not reproduce a club crest or imply official affiliation. Social cards use the same colors, hard geometry, high contrast, and generous safe margins; keep primary text within the central 80% of a 1200×630 frame so common sharing crops remain legible. Avoid remote imagery, tiny text, gradients, and decorative density.
+The browser favicon uses the standalone approved FutRate CR pixel ball on a transparent background for the root and both club routes. Its stepped outline, contrasting panels, and seams must remain recognizable at 16 and 32 pixels; do not substitute a club crest or a club-specific icon. This header and favicon change does not rebrand site metadata, Apple touch icons, or existing social cards. Social cards retain their current hard geometry, high contrast, and generous safe margins; keep primary text within the central 80% of a 1200×630 frame so common sharing crops remain legible. Avoid remote imagery, tiny text, gradients, and decorative density.
 
 ## Accessibility checklist
 

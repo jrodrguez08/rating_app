@@ -245,8 +245,11 @@ describe("public app identity metadata", () => {
     });
     expect(metadata.manifest).toBe("/manifest.webmanifest");
     expect(viewport).toEqual({ themeColor: "#101113", colorScheme: "dark" });
-    expect(readFileSync("src/app/icon.svg", "utf8")).toContain("#36475c");
-    expect(readFileSync("src/app/icon.svg", "utf8")).not.toContain("#b20d24");
+    const icon = readFileSync("src/app/icon.svg", "utf8");
+    expect(icon).toContain('viewBox="0 0 32 32"');
+    expect(icon).toContain("#13121b");
+    expect(icon).toContain("#f6f4f8");
+    expect(icon).not.toContain("#b20d24");
   });
 
   it("returns a focused install manifest without adding offline behavior", () => {

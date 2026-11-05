@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { CSSProperties } from "react";
 
+import { BrandIdentity } from "@/components/brand-identity";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { clubs, clubPath } from "@/config/club";
 import { publicClub } from "@/config/club-operations";
@@ -19,8 +20,12 @@ export default async function ClubSelectionPage() {
         {messages.accessibility.skipToContent}
       </a>
       <main id="main-content" className="page-shell py-10">
-        <div className="flex items-start justify-between gap-4">
-          <h1 className="score-font text-3xl">Rating App</h1>
+        <header className="flex items-start justify-between gap-4">
+          <h1>
+            <Link href="/" className="flex min-h-12 items-center gap-3">
+              <BrandIdentity prominent />
+            </Link>
+          </h1>
           <LanguageSwitcher
             locale={locale}
             label={messages.common.language}
@@ -29,7 +34,7 @@ export default async function ClubSelectionPage() {
               en: messages.common.english,
             }}
           />
-        </div>
+        </header>
         <p className="mt-4 text-muted">{messages.clubs.choose}</p>
         <div className="mt-6 grid gap-4 sm:grid-cols-2">
           {Object.values(clubs).map(({ slug }) => {

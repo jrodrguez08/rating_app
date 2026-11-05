@@ -24,7 +24,6 @@ export const enMessages = {
   },
   accessibility: {
     skipToContent: "Skip to content",
-    appHome: "Rating App home",
   },
   navigation: {
     label: "Primary navigation",
