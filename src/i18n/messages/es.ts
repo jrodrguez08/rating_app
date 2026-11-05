@@ -647,6 +647,9 @@ export const esMessages = {
         "No hay identidades importables. Revise la información faltante y vuelva a consultar más tarde.",
       error:
         "No se pudo completar la importación. Revise la causa y vuelva a consultar el catálogo.",
+      previewExpired:
+        "La vista previa venció o cambió. Consulte de nuevo el catálogo antes de autorizar.",
+      passphraseInvalid: "La frase de autorización no es válida.",
       providerError:
         "API-Football no respondió. El catálogo existente no cambió.",
       quotaError:

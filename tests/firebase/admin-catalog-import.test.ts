@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHmac, randomBytes, scryptSync } from "node:crypto";
 
 import { deleteApp, initializeApp } from "firebase-admin/app";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
@@ -16,15 +16,19 @@ import type {
   ProviderSquadPlayer,
 } from "@/domain/ports";
 import { AdminCatalogImportService } from "@/lib/firebase/admin-catalog-import";
+import { AdminSecurityStore } from "@/lib/firebase/admin-security";
 import { searchIndexedCoaches } from "@/lib/firebase/coach-search-index";
 import { AdminPlayerHistoryService } from "@/lib/firebase/server";
 import { searchIndexedTeamPlayers } from "@/lib/firebase/team-player-membership-index";
 import { ProviderError } from "@/lib/providers/api-football/errors";
 import { adminChallengeDocumentId } from "@/lib/server/admin-coach-action";
-import { hashAdminCatalogAction } from "@/lib/server/admin-catalog-action";
+import {
+  hashAdminCatalogAction,
+  parseAdminCatalogAction,
+} from "@/lib/server/admin-catalog-action";
 
 const app = initializeApp(
-  { projectId: process.env.GCLOUD_PROJECT ?? "demo-rating-app-local" },
+  { projectId: "demo-rating-app-catalog-import-tests" },
   `catalog-import-${Date.now()}`,
 );
 const database = getFirestore(app);
@@ -155,6 +159,199 @@ async function authorize(
 }
 
 describe("recent-fixture preparation catalog import", () => {
+  it("authorizes and applies a transported real preview with a synthetic passphrase", async () => {
+    const teamId = `team-catalog-roundtrip-${++serial}`;
+    const owner = `owner-roundtrip-${serial}`;
+    const externalTeamId = String(800_000 + serial);
+    const passphrase = "synthetic catalog passphrase 2026";
+    const previousDigest = process.env.ADMIN_PASSPHRASE_SCRYPT;
+    const salt = randomBytes(16);
+    const digest = scryptSync(passphrase, salt, 32, {
+      N: 16_384,
+      r: 8,
+      p: 1,
+    });
+    process.env.ADMIN_PASSPHRASE_SCRYPT = `scrypt$v1$16384$8$1$${salt.toString("base64")}$${digest.toString("base64")}`;
+    try {
+      await seed(teamId, externalTeamId);
+      const service = new AdminCatalogImportService(database);
+      const security = new AdminSecurityStore(database);
+      const fixtures = catalog(externalTeamId).map((fixture) => ({
+        ...fixture,
+        players: fixture.players.map((player, index) => ({
+          ...player,
+          externalPlayerId: String(8_000_000 + serial * 100 + index),
+        })),
+        coach: {
+          status: "resolved" as const,
+          value: {
+            externalTeamId,
+            externalCoachId: String(8_100_000 + serial),
+            name: "Synthetic Roundtrip Coach",
+          },
+        },
+      }));
+      const { action, plan } = await service.preview(
+        teamId,
+        owner,
+        provider(fixtures),
+      );
+      expect(plan.canApply).toBe(true);
+      const preview = await security.issuePreview(owner, action);
+      const transported = parseAdminCatalogAction(
+        JSON.parse(JSON.stringify(action)) as unknown,
+      );
+      expect(hashAdminCatalogAction(transported)).toBe(
+        hashAdminCatalogAction(action),
+      );
+      const rearranged = parseAdminCatalogAction({
+        ...transported,
+        fixtures: transported.fixtures.map((fixture) => ({
+          coachStatus: fixture.coachStatus,
+          excludedPlayerCount: fixture.excludedPlayerCount,
+          lineupStatus: fixture.lineupStatus,
+          competitionName: fixture.competitionName,
+          kickoffAt: fixture.kickoffAt,
+          id: fixture.id,
+        })),
+        players: transported.players.map((player) => ({
+          sourceFixtureIds: player.sourceFixtureIds,
+          positionConflict: player.positionConflict,
+          positionSource: player.positionSource,
+          position: player.position,
+          name: player.name,
+          squadExternalIds: player.squadExternalIds,
+          observedExternalIds: player.observedExternalIds,
+          canonicalExternalId: player.canonicalExternalId,
+          id: player.id,
+        })),
+        coaches: transported.coaches.map((coach) => ({
+          sourceFixtureIds: coach.sourceFixtureIds,
+          photoUrl: coach.photoUrl,
+          name: coach.name,
+          observedExternalIds: coach.observedExternalIds,
+          externalId: coach.externalId,
+          id: coach.id,
+        })),
+      });
+      expect(hashAdminCatalogAction(rearranged)).toBe(
+        hashAdminCatalogAction(action),
+      );
+      for (const changed of [
+        { ...transported, trackedTeamId: "other-team" },
+        { ...transported, externalTeamId: "817" },
+        { ...transported, stateHash: "f".repeat(64) },
+        { ...transported, observedAt: "2026-11-04T12:00:00.000Z" },
+        {
+          ...transported,
+          fixtures: [{ ...transported.fixtures[0], id: "999" }],
+        },
+        {
+          ...transported,
+          players: [
+            { ...transported.players[0], canonicalExternalId: "999" },
+            ...transported.players.slice(1),
+          ],
+        },
+        {
+          ...transported,
+          players: [
+            { ...transported.players[0], observedExternalIds: ["999"] },
+            ...transported.players.slice(1),
+          ],
+        },
+        {
+          ...transported,
+          players: [
+            {
+              ...transported.players[0],
+              position: "goalkeeper" as const,
+              positionSource: "lineup" as const,
+            },
+            ...transported.players.slice(1),
+          ],
+        },
+      ]) {
+        expect(hashAdminCatalogAction(changed)).not.toBe(
+          hashAdminCatalogAction(action),
+        );
+        await expect(
+          security.authorizeAction({
+            operatorUid: owner,
+            action: changed,
+            previewToken: preview.token,
+            passphrase,
+          }),
+        ).rejects.toMatchObject({ code: "stale_preview" });
+      }
+      await expect(
+        security.authorizeAction({
+          operatorUid: `${owner}-other`,
+          action: transported,
+          previewToken: preview.token,
+          passphrase,
+        }),
+      ).rejects.toMatchObject({ code: "stale_preview" });
+      const [payload] = preview.token.split(".");
+      const expiredPayload = Buffer.from(
+        JSON.stringify({
+          ...JSON.parse(Buffer.from(payload, "base64url").toString("utf8")),
+          expiresAt: new Date(Date.now() - 1_000).toISOString(),
+        }),
+      ).toString("base64url");
+      const expiredSignature = createHmac(
+        "sha256",
+        process.env.ADMIN_PASSPHRASE_SCRYPT!,
+      )
+        .update(expiredPayload)
+        .digest("base64url");
+      await expect(
+        security.authorizeAction({
+          operatorUid: owner,
+          action: transported,
+          previewToken: `${expiredPayload}.${expiredSignature}`,
+          passphrase,
+        }),
+      ).rejects.toMatchObject({ code: "stale_preview" });
+      await expect(
+        security.authorizeAction({
+          operatorUid: owner,
+          action: transported,
+          previewToken: preview.token,
+          passphrase: "incorrect synthetic passphrase",
+        }),
+      ).rejects.toMatchObject({ code: "invalid_passphrase" });
+      const challenge = await security.authorizeAction({
+        operatorUid: owner,
+        action: transported,
+        previewToken: preview.token,
+        passphrase,
+      });
+      const applied = await service.applyAuthorized(
+        parseAdminCatalogAction(JSON.parse(JSON.stringify(transported))),
+        owner,
+        challenge.token,
+      );
+      expect(applied.disposition).toBe("applied");
+      expect(
+        (await database.doc(`adminAudit/${applied.auditId}`).get()).exists,
+      ).toBe(true);
+      const writtenBeforeRetry = await database.collection("players").get();
+      expect(
+        await service.applyAuthorized(transported, owner, challenge.token),
+      ).toMatchObject({
+        auditId: applied.auditId,
+        disposition: "idempotent_retry",
+      });
+      expect((await database.collection("players").get()).size).toBe(
+        writtenBeforeRetry.size,
+      );
+    } finally {
+      if (previousDigest === undefined)
+        delete process.env.ADMIN_PASSPHRASE_SCRYPT;
+      else process.env.ADMIN_PASSPHRASE_SCRYPT = previousDigest;
+    }
+  });
   it("fills only reviewed missing positions through canonical candidates", async () => {
     const teamId = `team-catalog-positions-${++serial}`;
     const owner = `owner-positions-${serial}`;

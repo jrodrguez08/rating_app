@@ -41,7 +41,42 @@ export interface AdminCatalogImportAction {
 export function hashAdminCatalogAction(
   action: AdminCatalogImportAction,
 ): string {
-  return createHash("sha256").update(JSON.stringify(action)).digest("hex");
+  const normalized = [
+    action.trackedTeamId,
+    action.externalTeamId,
+    action.observedAt,
+    action.providerRequests,
+    action.squadPlayers,
+    action.fixtures.map((fixture) => [
+      fixture.id,
+      fixture.kickoffAt,
+      fixture.competitionName,
+      fixture.lineupStatus,
+      fixture.excludedPlayerCount,
+      fixture.coachStatus,
+    ]),
+    action.players.map((player) => [
+      player.id,
+      player.canonicalExternalId,
+      player.observedExternalIds,
+      player.squadExternalIds,
+      player.name,
+      player.position ?? null,
+      player.positionSource ?? null,
+      player.positionConflict,
+      player.sourceFixtureIds,
+    ]),
+    action.coaches.map((coach) => [
+      coach.id,
+      coach.externalId,
+      coach.observedExternalIds,
+      coach.name,
+      coach.photoUrl ?? null,
+      coach.sourceFixtureIds,
+    ]),
+    action.stateHash,
+  ];
+  return createHash("sha256").update(JSON.stringify(normalized)).digest("hex");
 }
 
 export function adminCatalogAuditId(challengeId: string): string {

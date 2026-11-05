@@ -142,4 +142,63 @@ describe("owner catalog import", () => {
     ).not.toBeInTheDocument();
     expect(screen.queryByText(messages.success)).not.toBeInTheDocument();
   });
+
+  it("shows a stale preview separately from a rejected passphrase and permits another preview", async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(json({ action, plan, previewToken: "preview" }))
+      .mockResolvedValueOnce(
+        json({ error: messages.previewExpired, code: "stale_preview" }, 403),
+      )
+      .mockResolvedValueOnce(json({ action, plan, previewToken: "fresh" }))
+      .mockResolvedValueOnce(
+        json(
+          { error: messages.passphraseInvalid, code: "invalid_passphrase" },
+          403,
+        ),
+      );
+    vi.stubGlobal("fetch", fetcher);
+    render(
+      <AdminCatalogImport
+        club={clubs.saprissa}
+        messages={messages}
+        positionNames={getMessages("es").players.positions}
+      />,
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: messages.preview }),
+    );
+    await userEvent.type(
+      screen.getByLabelText(messages.passphrase),
+      "test-passphrase",
+    );
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: messages.confirm }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: messages.apply }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      messages.previewExpired,
+    );
+    expect(screen.getByRole("alert")).not.toHaveTextContent(
+      messages.passphraseInvalid,
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: messages.preview }),
+    );
+    await userEvent.type(
+      screen.getByLabelText(messages.passphrase),
+      "test-passphrase",
+    );
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: messages.confirm }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: messages.apply }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      messages.passphraseInvalid,
+    );
+    expect(screen.getByRole("alert")).not.toHaveTextContent(
+      messages.previewExpired,
+    );
+    expect(fetcher).toHaveBeenCalledTimes(4);
+  });
 });

@@ -634,6 +634,9 @@ export const enMessages = {
         "No importable identities. Review missing information and check again later.",
       error:
         "Import could not be completed. Review the cause and check the catalog again.",
+      previewExpired:
+        "The preview expired or changed. Check the catalog again before authorizing.",
+      passphraseInvalid: "The authorization passphrase is invalid.",
       providerError:
         "API-Football did not respond. The existing catalog is unchanged.",
       quotaError:
