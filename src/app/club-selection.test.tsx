@@ -19,6 +19,11 @@ describe("club selection", () => {
     expect(
       screen.getByRole("link", { name: "Deportivo Saprissa" }),
     ).toHaveAttribute("href", "/saprissa");
+    expect(screen.getByRole("heading", { name: "FutRate CR" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "FutRate CR" })).toHaveAttribute(
+      "href",
+      "/",
+    );
     expect(screen.getByRole("main")).toBeInTheDocument();
   });
 });

@@ -23,7 +23,6 @@ export const esMessages = {
   },
   accessibility: {
     skipToContent: "Ir al contenido",
-    appHome: "Inicio de Rating App",
   },
   navigation: {
     label: "Navegación principal",

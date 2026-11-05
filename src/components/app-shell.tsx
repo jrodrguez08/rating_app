@@ -5,6 +5,7 @@ import { clubPath, type Club } from "@/config/club";
 import type { Locale } from "@/i18n/config";
 import type { Messages } from "@/i18n/messages";
 
+import { BrandIdentity } from "./brand-identity";
 import { LanguageSwitcher } from "./language-switcher";
 
 interface AppShellProps {
@@ -55,18 +56,9 @@ export function AppShell({
           <div className="flex min-h-14 items-center justify-between gap-3">
             <Link
               href={clubPath(club)}
-              aria-label={messages.accessibility.appHome}
               className="flex min-h-11 items-center gap-2"
             >
-              <span
-                aria-hidden="true"
-                className="score-font grid size-8 place-items-center border-2 border-accent bg-brand text-sm text-white shadow-[2px_2px_0_var(--game-shadow)]"
-              >
-                R
-              </span>
-              <span className="score-font text-sm uppercase text-foreground sm:text-base">
-                Rating App
-              </span>
+              <BrandIdentity />
             </Link>
             <LanguageSwitcher
               locale={locale}

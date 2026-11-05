@@ -12,6 +12,15 @@ test("neutral selector and distinct club themes remain usable on mobile and desk
 }) => {
   await mkdir(evidence, { recursive: true });
   await page.goto("/");
+  await expect(page.getByRole("heading", { name: "FutRate CR" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "FutRate CR" })).toHaveAttribute(
+    "href",
+    "/",
+  );
+  const iconResponse = await page.request.get("/icon.svg");
+  expect(iconResponse.ok()).toBe(true);
+  expect(iconResponse.headers()["content-type"]).toContain("image/svg+xml");
+  expect(await iconResponse.text()).toContain('viewBox="0 0 32 32"');
   await expect(
     page.getByRole("link", { name: "Club Sport Herediano" }),
   ).toHaveAttribute("href", "/herediano");
@@ -22,9 +31,46 @@ test("neutral selector and distinct club themes remain usable on mobile and desk
     path: `${evidence}/selector-desktop.png`,
     fullPage: true,
   });
+  await page.setViewportSize({ width: 320, height: 700 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth > window.innerWidth,
+    ),
+  ).toBe(false);
+  await page.screenshot({
+    path: `${evidence}/selector-320.png`,
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 1280, height: 800 });
 
   for (const club of ["herediano", "saprissa"] as const) {
     await page.goto(`/${club}`);
+    const brand = page.getByRole("link", { name: "FutRate CR" });
+    await expect(brand).toHaveAttribute("href", `/${club}`);
+    await expect(brand.locator("img")).toHaveAttribute("alt", "");
+    await expect(brand.locator("img")).toHaveJSProperty("complete", true);
+    expect(
+      await brand
+        .locator("img")
+        .evaluate((image) => (image as HTMLImageElement).naturalWidth),
+    ).toBeGreaterThan(0);
+    expect(
+      await brand
+        .locator("span")
+        .evaluate((wordmark) => getComputedStyle(wordmark).fontFamily),
+    ).toMatch(/DotGothic/i);
+    await brand.focus();
+    await expect(brand).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL(new RegExp(`/${club}$`));
+    await page.evaluate(() => (document.activeElement as HTMLElement).blur());
+    const faviconPaths = await page
+      .locator('link[rel="icon"]')
+      .evaluateAll((links) =>
+        links.map((link) => new URL((link as HTMLLinkElement).href).pathname),
+      );
+    expect(faviconPaths).toContain("/icon.svg");
+    expect(faviconPaths.every((path) => path === "/icon.svg")).toBe(true);
     await expect(page.locator("h1")).toContainText(
       club === "herediano" ? "Club Sport Herediano" : "Deportivo Saprissa",
     );
