@@ -14,6 +14,7 @@ import {
   COACH_SEARCH_INDEX_VERSION,
 } from "@/application/coach-search";
 import { mergeTeamPlayerMembership } from "@/application/team-player-membership";
+import { isPlayerPhotoUrl } from "@/config/player-photos";
 import { coachProviderAliasId } from "@/domain/coach-identity";
 import type {
   Coach,
@@ -87,6 +88,8 @@ export interface AdminCatalogImportPlan {
     positionSource?: "lineup" | "squad";
     positionGap?: "missing" | "conflict";
     positionConflict: boolean;
+    proposedPhotoUrl?: string;
+    photoStatus: "preserved" | "fill" | "missing" | "conflict";
   }>;
   coaches: Array<{
     name: string;
@@ -98,6 +101,8 @@ export interface AdminCatalogImportPlan {
   metadataChanges: number;
   positionFills: number;
   positionGaps: number;
+  photoFills: number;
+  photoGaps: number;
   squadPlayers: number;
   excludedPlayers: number;
   unresolvedCoaches: number;
@@ -473,6 +478,7 @@ export class AdminCatalogImportService {
       string,
       Set<NonNullable<Player["position"]>>
     >();
+    const squadPhotos = new Map<string, Set<string>>();
     playerIds.forEach((externalId, index) => {
       const alias = aliases[index].exists
         ? fromSnapshot<PlayerProviderAlias>(aliases[index])
@@ -518,6 +524,7 @@ export class AdminCatalogImportService {
         name: preferredObservation.name,
         squadExternalIds: previous?.squadExternalIds ?? [],
         positionConflict: false,
+        photoConflict: false,
         sourceFixtureIds: [
           ...new Set([
             ...(previous?.sourceFixtureIds ?? []),
@@ -558,6 +565,11 @@ export class AdminCatalogImportService {
           "El plantel discrepa sobre la identidad canónica del jugador.",
         );
       candidate.squadExternalIds.push(source.externalPlayerId);
+      if (source.photoUrl && isPlayerPhotoUrl(source.photoUrl)) {
+        const photos = squadPhotos.get(id) ?? new Set<string>();
+        photos.add(new URL(source.photoUrl).href);
+        squadPhotos.set(id, photos);
+      }
       if (source.position) {
         const positions = squadPositions.get(id) ?? new Set();
         positions.add(source.position);
@@ -565,7 +577,12 @@ export class AdminCatalogImportService {
       }
     });
     for (const [id, candidate] of players) {
-      candidate.squadExternalIds.sort();
+      candidate.squadExternalIds = [
+        ...new Set(candidate.squadExternalIds),
+      ].sort();
+      const photos = squadPhotos.get(id);
+      if (photos && photos.size > 1) candidate.photoConflict = true;
+      else if (photos?.size === 1) candidate.photoUrl = [...photos][0];
       const lineup = lineupPositions.get(id) ?? new Set();
       const squadValue = squadPositions.get(id) ?? new Set();
       if (
@@ -764,7 +781,9 @@ export class AdminCatalogImportService {
       coachAssociationChanges = 0,
       metadataChanges = 0,
       positionFills = 0,
-      positionGaps = 0;
+      positionGaps = 0,
+      photoFills = 0,
+      photoGaps = 0;
     const players: AdminCatalogImportPlan["players"] = [];
     const coaches: AdminCatalogImportPlan["coaches"] = [];
     for (const candidate of action.players) {
@@ -827,8 +846,12 @@ export class AdminCatalogImportService {
       const proposedPosition = existingPlayer?.position
         ? undefined
         : candidate.position;
+      const proposedPhotoUrl =
+        existingPlayer?.photoUrl === undefined ? candidate.photoUrl : undefined;
       if (proposedPosition) positionFills += 1;
       else if (!existingPlayer?.position) positionGaps += 1;
+      if (proposedPhotoUrl) photoFills += 1;
+      else if (existingPlayer?.photoUrl === undefined) photoGaps += 1;
       players.push({
         name: existingPlayer?.displayName ?? candidate.name,
         status: existingPlayer ? "existing" : "new",
@@ -837,6 +860,15 @@ export class AdminCatalogImportService {
           ? { currentPosition: existingPlayer.position }
           : {}),
         positionConflict: candidate.positionConflict,
+        photoStatus:
+          existingPlayer?.photoUrl !== undefined
+            ? "preserved"
+            : proposedPhotoUrl
+              ? "fill"
+              : candidate.photoConflict
+                ? "conflict"
+                : "missing",
+        ...(proposedPhotoUrl ? { proposedPhotoUrl } : {}),
         ...(proposedPosition
           ? { proposedPosition, positionSource: candidate.positionSource }
           : {}),
@@ -890,15 +922,17 @@ export class AdminCatalogImportService {
         externalProvider: "api-football",
         externalProviderId: candidate.canonicalExternalId,
         ...(candidate.position ? { position: candidate.position } : {}),
+        ...(proposedPhotoUrl ? { photoUrl: proposedPhotoUrl } : {}),
         createdAt: action.observedAt,
         updatedAt: action.observedAt,
       };
       const player =
         existingPlayer?.identityProvenance === "operator_verified"
-          ? proposedPosition
+          ? proposedPosition || proposedPhotoUrl
             ? {
                 ...existingPlayer,
-                position: proposedPosition,
+                ...(proposedPosition ? { position: proposedPosition } : {}),
+                ...(proposedPhotoUrl ? { photoUrl: proposedPhotoUrl } : {}),
                 updatedAt: action.observedAt,
               }
             : existingPlayer
@@ -913,7 +947,7 @@ export class AdminCatalogImportService {
               ...(existingPlayer?.position
                 ? { position: existingPlayer.position }
                 : {}),
-              ...(existingPlayer?.photoUrl
+              ...(existingPlayer?.photoUrl !== undefined
                 ? { photoUrl: existingPlayer.photoUrl }
                 : {}),
             });
@@ -1065,6 +1099,8 @@ export class AdminCatalogImportService {
       metadataChanges,
       positionFills,
       positionGaps,
+      photoFills,
+      photoGaps,
       squadPlayers: action.squadPlayers,
       excludedPlayers: action.fixtures.reduce(
         (total, fixture) => total + fixture.excludedPlayerCount,
