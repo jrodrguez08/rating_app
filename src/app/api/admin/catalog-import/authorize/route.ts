@@ -71,7 +71,10 @@ export async function POST(request: NextRequest) {
           error:
             error.code === "too_many_attempts"
               ? messages.attemptsError
-              : messages.passphraseError,
+              : error.code === "stale_preview"
+                ? messages.catalogImport.previewExpired
+                : messages.catalogImport.passphraseInvalid,
+          code: error.code,
         },
         error.code === "too_many_attempts" ? 429 : 403,
       );
