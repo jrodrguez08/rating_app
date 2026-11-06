@@ -5,13 +5,31 @@ import { resolveSiteUrl } from "./site";
 import { buildRatingUrl, buildWhatsAppRatingShareUrl } from "./whatsapp-share";
 
 describe("WhatsApp rating sharing", () => {
+  it.each(["herediano", "saprissa"] as const)(
+    "preserves %s and encoded Match identity with configured and fallback origins",
+    (slug) => {
+      for (const configured of [undefined, "https://ratings.example.com"]) {
+        const origin = resolveSiteUrl({
+          NEXT_PUBLIC_SITE_URL: configured,
+          VERCEL_URL: "untrusted-preview.vercel.app",
+        });
+        const composer = new URL(
+          buildWhatsAppRatingShareUrl(clubs[slug], "match/id ?", origin),
+        );
+        expect(composer.searchParams.get("text")).toContain(
+          `${configured ?? "https://www.futratecr.com"}/${slug}/matches/match%2Fid%20%3F/rate`,
+        );
+        expect(composer.searchParams.get("text")).not.toContain("untrusted");
+      }
+    },
+  );
   it("builds the encoded rating deep link from the canonical production origin", () => {
     const origin = resolveSiteUrl({
       VERCEL_URL: "rating-app-git-feature.vercel.app",
     });
 
     expect(buildRatingUrl(clubs.herediano, "match/id ?", origin).href).toBe(
-      "https://rating-app-amber.vercel.app/herediano/matches/match%2Fid%20%3F/rate",
+      "https://www.futratecr.com/herediano/matches/match%2Fid%20%3F/rate",
     );
   });
 

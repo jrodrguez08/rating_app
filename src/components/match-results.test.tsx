@@ -71,13 +71,13 @@ describe("match results UI", () => {
       screen.getByRole("link", { name: "Download Story" }),
     ).toHaveAttribute(
       "href",
-      "https://rating-app-amber.vercel.app/herediano/matches/match-1/results/story?lang=en",
+      "https://www.futratecr.com/herediano/matches/match-1/results/story?lang=en",
     );
     expect(
       screen.getByRole("link", { name: "Download ratings table Story" }),
     ).toHaveAttribute(
       "href",
-      "https://rating-app-amber.vercel.app/herediano/matches/match-1/results/story/table?page=1&lang=en",
+      "https://www.futratecr.com/herediano/matches/match-1/results/story/table?page=1&lang=en",
     );
     expect(document.body.textContent).not.toContain("voter-");
   });

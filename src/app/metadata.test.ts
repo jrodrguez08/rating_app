@@ -60,7 +60,7 @@ describe("public app identity metadata", () => {
     const openGraph = metadata.openGraph!;
     const twitter = metadata.twitter!;
 
-    expect(metadataBase.href).toBe("https://rating-app-amber.vercel.app/");
+    expect(metadataBase.href).toBe("https://www.futratecr.com/");
     expect(metadata.title).toMatchObject({ default: "Rating App" });
     expect(metadata.description).toContain("afición");
     expect(
@@ -182,7 +182,7 @@ describe("public app identity metadata", () => {
 
     expect(metadata.title).toContain("Herediano 2 - 1 Pérez Zeledón");
     expect(metadata.alternates!.canonical).toBe(
-      "https://rating-app-amber.vercel.app/herediano/matches/published-match/results",
+      "https://www.futratecr.com/herediano/matches/published-match/results",
     );
     expect(image).toMatchObject({
       width: 1200,

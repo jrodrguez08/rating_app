@@ -32,7 +32,8 @@ export default defineConfig({
       NEXT_PUBLIC_FIREBASE_ENVIRONMENT: "local",
       NEXT_PUBLIC_FIREBASE_PROJECT_ID: projectId,
       FIREBASE_ADMIN_PROJECT_ID: projectId,
-      NEXT_PUBLIC_SITE_URL: "https://rating-app.test",
+      NEXT_PUBLIC_SITE_URL:
+        process.env.E2E_SITE_URL ?? "https://rating-app.test",
       SAPRISSA_PUBLIC_ENABLED: "true",
       ADMIN_OWNER_UID: "e2e-owner",
       ADMIN_ALLOWED_ORIGIN: baseURL,

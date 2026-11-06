@@ -58,7 +58,7 @@ After closing, supporters can browse match results, MVPs, coach ratings, player 
 
 Jugadores enriches canonical player identity with the current API-Football squad position and identification photo persisted ahead of page reads. The catalog and profile never call the football provider while rendering, historical players remain visible when absent from the current squad, explicit aliases prevent duplicate catalog entries when provider IDs change, and a deterministic local initials avatar replaces missing or unavailable photos.
 
-The public app identity is consistent across browser tabs, bookmarks, mobile shortcuts, and shared links. Spanish canonical metadata describes supporter ratings in the current Herediano pilot without claiming official club affiliation; social previews use a deterministic Rating App card and never depend on authentication, Firebase, ballots, or the football provider.
+The public app identity is consistent across browser tabs, bookmarks, mobile shortcuts, and shared links. The canonical production origin is `https://www.futratecr.com`: voting messages, result sharing, image links and printed website addresses, metadata and Studio overlays use the configured origin with that production fallback for both clubs, independently of the host used to visit the app. Operator emails use the explicitly configured valid origin and omit the link when it is missing or invalid. Spanish canonical metadata describes supporter ratings without claiming official club affiliation; social previews use a deterministic Rating App card and never depend on authentication, Firebase, ballots, or the football provider.
 
 ## Product invariants
 

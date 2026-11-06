@@ -81,6 +81,8 @@ describe("published result social images", () => {
         STORY_IMAGE_SIZE,
       );
     },
+    // Three real 1080x1920 renders need headroom under the full worker load.
+    15_000,
   );
   it("keeps Saprissa result images unavailable while public exposure is disabled", async () => {
     serviceMocks.getPublishedPageState.mockResolvedValue(readyPage);
