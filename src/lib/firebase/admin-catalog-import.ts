@@ -123,6 +123,7 @@ interface ReadState {
   snapshots: DocumentSnapshot[];
   byPath: Map<string, DocumentSnapshot>;
   hash: string;
+  documentReads: number;
 }
 
 export class AdminCatalogImportService {
@@ -209,10 +210,21 @@ export class AdminCatalogImportService {
       ...actionWithoutHash,
       stateHash: "0".repeat(64),
     };
-    const state = await this.readState(provisional);
+    const state = await this.readState(
+      provisional,
+      undefined,
+      candidates.aliasSnapshots,
+    );
     const action = { ...provisional, stateHash: state.hash };
     const { plan } = this.plan(action, state, team);
-    return { action, plan };
+    return {
+      action,
+      plan: {
+        ...plan,
+        previewDocumentReads:
+          4 + candidates.aliasSnapshots.length + state.documentReads,
+      },
+    };
   }
 
   async applyAuthorized(
@@ -401,7 +413,11 @@ export class AdminCatalogImportService {
   private async canonicalize(
     fixtures: ProviderFixtureCatalog[],
     squad: ProviderSquadPlayer[],
-  ): Promise<Pick<AdminCatalogImportAction, "players" | "coaches">> {
+  ): Promise<
+    Pick<AdminCatalogImportAction, "players" | "coaches"> & {
+      aliasSnapshots: DocumentSnapshot[];
+    }
+  > {
     const playerObservations = new Map<
       string,
       {
@@ -463,9 +479,20 @@ export class AdminCatalogImportService {
         ),
       ),
     ];
-    const aliases = aliasReferences.length
-      ? await this.database.getAll(...aliasReferences)
+    const uniqueReferences = [
+      ...new Map(
+        aliasReferences.map((reference) => [reference.path, reference]),
+      ).values(),
+    ];
+    const aliasSnapshots = uniqueReferences.length
+      ? await this.database.getAll(...uniqueReferences)
       : [];
+    const byPath = new Map(
+      aliasSnapshots.map((snapshot) => [snapshot.ref.path, snapshot]),
+    );
+    const aliases = aliasReferences.map((reference) =>
+      byPath.get(reference.path)!,
+    );
     const players = new Map<
       string,
       AdminCatalogImportAction["players"][number]
@@ -649,6 +676,7 @@ export class AdminCatalogImportService {
         first.id.localeCompare(second.id),
       ),
       coaches: [...coaches.values()],
+      aliasSnapshots,
     };
   }
 
@@ -701,11 +729,24 @@ export class AdminCatalogImportService {
   private async readState(
     action: AdminCatalogImportAction,
     transaction?: Transaction,
+    cachedSnapshots: DocumentSnapshot[] = [],
   ): Promise<ReadState> {
     const references = this.stateReferences(action);
-    const snapshots = transaction
-      ? await transaction.getAll(...references)
-      : await this.database.getAll(...references);
+    // Reuse only this preview's observed aliases, including missing snapshots.
+    // Apply always reloads every reference transactionally to detect changes.
+    const byPath = new Map(
+      cachedSnapshots.map((snapshot) => [snapshot.ref.path, snapshot]),
+    );
+    const unread = references.filter(
+      (reference) => !byPath.has(reference.path),
+    );
+    const loaded = transaction
+      ? await transaction.getAll(...unread)
+      : await this.database.getAll(...unread);
+    loaded.forEach((snapshot) => byPath.set(snapshot.ref.path, snapshot));
+    const snapshots = references.map((reference) =>
+      byPath.get(reference.path)!,
+    );
     const hash = createHash("sha256")
       .update(
         JSON.stringify(
@@ -720,6 +761,7 @@ export class AdminCatalogImportService {
       references,
       snapshots,
       hash,
+      documentReads: unread.length,
       byPath: new Map(
         snapshots.map((snapshot) => [snapshot.ref.path, snapshot]),
       ),
@@ -1041,10 +1083,9 @@ export class AdminCatalogImportService {
       const base: Coach = existing
         ? {
             ...existing,
-            ...(existing.identityProvenance === "provider"
-              ? {
-                  photoUrl: existing.photoUrl ?? incoming.photoUrl,
-                }
+            ...(existing.identityProvenance === "provider" &&
+            (existing.photoUrl ?? incoming.photoUrl)
+              ? { photoUrl: existing.photoUrl ?? incoming.photoUrl }
               : {}),
           }
         : incoming;
@@ -1111,6 +1152,9 @@ export class AdminCatalogImportService {
       ).length,
       proposedWrites: writes.length + 2,
       providerRequests: action.providerRequests,
+      // Receipt reconstruction retains the legacy conservative preview budget.
+      // preview() replaces it with observed unique reads for its UI/log entry;
+      // neither value describes transaction retries or authentication reads.
       previewDocumentReads:
         4 +
         action.players.reduce(

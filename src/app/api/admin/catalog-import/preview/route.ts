@@ -56,6 +56,7 @@ export async function POST(request: NextRequest) {
       providerRequests: provider.requestCount,
       playerCount: plan.playerCount,
       coachCount: plan.coachCount,
+      documentReads: plan.previewDocumentReads,
     });
     return adminJson({
       action,

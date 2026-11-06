@@ -108,6 +108,7 @@ import {
   hashAdminCoachAction,
 } from "@/lib/server/admin-coach-action";
 import { readFirebaseAdminRuntimeConfig } from "@/lib/server/environment";
+import { emitOperationalLog } from "@/lib/operational-log";
 
 const TIMESTAMP_FIELDS = new Set([
   "createdAt",
@@ -1669,6 +1670,12 @@ export class AdminFootballSyncStore
       .collection("matches")
       .where("trackedTeamId", "==", trackedTeamId)
       .get();
+    emitOperationalLog(console.info, "firestore.match_list", {
+      teamId: trackedTeamId,
+      documentReads: Math.max(1, snapshot.size),
+      queries: 1,
+      expensive: snapshot.size > 100,
+    });
     return snapshot.docs.map((document) => fromDocument<Match>(document));
   }
   async updateMatchLifecycle(match: Match): Promise<void> {

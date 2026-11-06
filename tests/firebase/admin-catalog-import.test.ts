@@ -27,6 +27,8 @@ import {
   parseAdminCatalogAction,
 } from "@/lib/server/admin-catalog-action";
 
+import { measureReads } from "./read-counts";
+
 const app = initializeApp(
   { projectId: "demo-rating-app-catalog-import-tests" },
   `catalog-import-${Date.now()}`,
@@ -159,6 +161,108 @@ async function authorize(
 }
 
 describe("recent-fixture preparation catalog import", () => {
+  it("bounds a 100-player preview independently of 1000 unrelated identities", async () => {
+    const teamId = `team-catalog-large-${++serial}`;
+    const owner = `owner-large-${serial}`;
+    await seed(teamId, "816");
+    for (let offset = 0; offset < 1000; offset += 400) {
+      const batch = database.batch();
+      for (let index = offset; index < Math.min(offset + 400, 1000); index++) {
+        batch.set(database.doc(`players/unrelated-budget-${index}`), {
+          displayName: "Unrelated",
+        });
+      }
+      await batch.commit();
+    }
+    const fixtures = Array.from({ length: 5 }, (_, fixtureIndex) => ({
+      ...catalog("816")[0],
+      fixture: {
+        ...catalog("816")[0].fixture,
+        externalFixtureId: String(999100 + fixtureIndex),
+      },
+      players: Array.from({ length: 20 }, (_, index) => ({
+        ...catalog("816")[0].players[index],
+        externalPlayerId: String(996000 + fixtureIndex * 20 + index),
+      })),
+      coach: {
+        status: "resolved" as const,
+        value: {
+          externalTeamId: "816",
+          externalCoachId: "996999",
+          name: "Large Budget Coach",
+        },
+      },
+    }));
+    const squad = fixtures.flatMap((fixture) =>
+      fixture.players.map((player) => ({
+        externalPlayerId: player.externalPlayerId,
+        name: player.name,
+      })),
+    );
+    const service = new AdminCatalogImportService(database);
+    const read = await measureReads(() =>
+      service.preview(teamId, owner, provider(fixtures, squad)),
+    );
+    expect(read.value.plan.playerCount).toBe(100);
+    expect(read.documents).toBe(309);
+    expect(read.queries).toBe(0);
+    expect(read.value.plan.previewDocumentReads).toBe(read.documents);
+    expect(read.paths.some((path) => path.includes("unrelated-budget"))).toBe(
+      false,
+    );
+  });
+
+  it("measures preview, enrichment, apply, receipt and no-op re-import reads", async () => {
+    const teamId = `team-catalog-budget-${++serial}`;
+    const owner = `owner-budget-${serial}`;
+    await seed(teamId, "816");
+    const fixtures = catalog("816").map((fixture) => ({
+      ...fixture,
+      players: fixture.players.map((player, index) => ({
+        ...player,
+        externalPlayerId: String(997000 + index),
+      })),
+      coach: {
+        status: "resolved" as const,
+        value: {
+          externalTeamId: "816",
+          externalCoachId: "998000",
+          name: "Budget Coach",
+        },
+      },
+    }));
+    const squad = fixtures[0].players.map((player) => ({
+      externalPlayerId: player.externalPlayerId,
+      name: player.name,
+      position: "midfielder" as const,
+      photoUrl: `https://media.api-sports.io/football/players/${player.externalPlayerId}.png`,
+    }));
+    const service = new AdminCatalogImportService(database);
+    const preview = await measureReads(() =>
+      service.preview(teamId, owner, provider(fixtures, squad)),
+    );
+    expect(preview.documents).toBe(84);
+    expect(preview.value.plan.previewDocumentReads).toBe(preview.documents);
+    const token = await authorize(preview.value.action, owner);
+    const apply = await measureReads(() =>
+      service.applyAuthorized(preview.value.action, owner, token),
+    );
+    expect(apply.documents).toBe(81);
+    const retry = await measureReads(() =>
+      service.applyAuthorized(preview.value.action, owner, token),
+    );
+    expect(retry.documents).toBe(2);
+    expect(retry.value.disposition).toBe("idempotent_retry");
+    const repeated = await measureReads(() =>
+      service.preview(teamId, `${owner}-repeat`, provider(fixtures, squad)),
+    );
+    expect(repeated.documents).toBe(84);
+    expect(repeated.value.plan.metadataChanges).toBe(0);
+    expect(repeated.value.plan.proposedWrites).toBe(2);
+    expect(repeated.value.plan.photoFills).toBe(0);
+    expect(repeated.value.plan.positionFills).toBe(0);
+  });
+
   it("authorizes and applies a transported real preview with a synthetic passphrase", async () => {
     const teamId = `team-catalog-roundtrip-${++serial}`;
     const owner = `owner-roundtrip-${serial}`;
@@ -441,7 +545,7 @@ describe("recent-fixture preparation catalog import", () => {
       );
       expect(repeated.plan).toMatchObject({
         photoFills: 0,
-        proposedWrites: 3,
+        proposedWrites: 2,
       });
     } finally {
       if (previousDigest === undefined)
@@ -786,7 +890,7 @@ describe("recent-fixture preparation catalog import", () => {
         newPlayers: baseTeamId === "deportivo-saprissa" ? 25 : 0,
         newCoaches: baseTeamId === "deportivo-saprissa" ? 1 : 0,
         providerRequests: 4,
-        previewDocumentReads: 110,
+        previewDocumentReads: 84,
         canApply: true,
       });
       expect(

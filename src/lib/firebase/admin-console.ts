@@ -1,4 +1,9 @@
-import { Timestamp, type Firestore } from "firebase-admin/firestore";
+import {
+  Timestamp,
+  type DocumentSnapshot,
+  type Firestore,
+  type QuerySnapshot,
+} from "firebase-admin/firestore";
 
 import { CURRENT_MATCH_GRACE_MS } from "@/application/public-match-selection";
 import type {
@@ -411,7 +416,10 @@ export class AdminConsoleService {
         players.set(player.id, player);
       }
     }
-    const describedMatch = await this.describeMatch(match);
+    const describedMatch = await this.describeMatch(match, {
+      participants: participantSnapshot,
+      verifiedLineup: verifiedSnapshot,
+    });
     const currentCoachId =
       describedMatch.assignment?.coachId ??
       describedMatch.verification?.coachId;
@@ -590,7 +598,13 @@ export class AdminConsoleService {
     };
   }
 
-  private async describeMatch(match: Match): Promise<AdminMatchOperation> {
+  private async describeMatch(
+    match: Match,
+    preloaded?: {
+      participants: QuerySnapshot;
+      verifiedLineup: DocumentSnapshot;
+    },
+  ): Promise<AdminMatchOperation> {
     const participants = this.database.collection(
       `matches/${match.id}/participants`,
     );
@@ -602,8 +616,14 @@ export class AdminConsoleService {
         this.database
           .doc(`matches/${match.id}/verifiedCoachAssignments/head-coach`)
           .get(),
-        this.database.doc(`matches/${match.id}/verifiedLineups/current`).get(),
-        participants.get(),
+        preloaded
+          ? Promise.resolve(preloaded.verifiedLineup)
+          : this.database
+              .doc(`matches/${match.id}/verifiedLineups/current`)
+              .get(),
+        preloaded
+          ? Promise.resolve(preloaded.participants)
+          : participants.get(),
       ]);
     const current = assignment.exists
       ? fromSnapshot<CoachAssignment>(assignment)
