@@ -167,12 +167,16 @@ describe("Wrapped statistics", () => {
         sources: [
           {
             ...source,
-            match: { ...source.match, ratingState: "rating_open" },
+            match: {
+              ...source.match,
+              ratingState: "rating_ready",
+              votingReopenCount: 1,
+            },
             currentResult: undefined,
           },
         ],
       }),
-    ).toThrow(/incomplete_coverage/);
+    ).toThrow(/reopened/);
     expect(() =>
       calculateWrappedStatistics({
         ...input,
