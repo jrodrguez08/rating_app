@@ -161,22 +161,73 @@ async function authorize(
 }
 
 describe("recent-fixture preparation catalog import", () => {
-  it("accounts for preview, enrichment, apply and unchanged re-import reads", async () => {
-    const teamId = `team-search-audit-${++serial}`;
-    const owner = `owner-search-audit-${serial}`;
+  it("bounds a 100-player preview independently of 1000 unrelated identities", async () => {
+    const teamId = `team-catalog-large-${++serial}`;
+    const owner = `owner-large-${serial}`;
     await seed(teamId, "816");
-    const fixtures = catalog("816").map((fixture) => ({
-      ...fixture,
-      players: fixture.players.map((player, index) => ({
-        ...player,
-        externalPlayerId: String(995500 + index),
+    for (let offset = 0; offset < 1000; offset += 400) {
+      const batch = database.batch();
+      for (let index = offset; index < Math.min(offset + 400, 1000); index++) {
+        batch.set(database.doc(`players/unrelated-budget-${index}`), {
+          displayName: "Unrelated",
+        });
+      }
+      await batch.commit();
+    }
+    const fixtures = Array.from({ length: 5 }, (_, fixtureIndex) => ({
+      ...catalog("816")[0],
+      fixture: {
+        ...catalog("816")[0].fixture,
+        externalFixtureId: String(999100 + fixtureIndex),
+      },
+      players: Array.from({ length: 20 }, (_, index) => ({
+        ...catalog("816")[0].players[index],
+        externalPlayerId: String(996000 + fixtureIndex * 20 + index),
       })),
       coach: {
         status: "resolved" as const,
         value: {
           externalTeamId: "816",
-          externalCoachId: "995999",
-          name: "Catalog Audit Coach",
+          externalCoachId: "996999",
+          name: "Large Budget Coach",
+        },
+      },
+    }));
+    const squad = fixtures.flatMap((fixture) =>
+      fixture.players.map((player) => ({
+        externalPlayerId: player.externalPlayerId,
+        name: player.name,
+      })),
+    );
+    const service = new AdminCatalogImportService(database);
+    const read = await measureReads(() =>
+      service.preview(teamId, owner, provider(fixtures, squad)),
+    );
+    expect(read.value.plan.playerCount).toBe(100);
+    expect(read.documents).toBe(309);
+    expect(read.queries).toBe(0);
+    expect(read.value.plan.previewDocumentReads).toBe(read.documents);
+    expect(read.paths.some((path) => path.includes("unrelated-budget"))).toBe(
+      false,
+    );
+  });
+
+  it("measures preview, enrichment, apply, receipt and no-op re-import reads", async () => {
+    const teamId = `team-catalog-budget-${++serial}`;
+    const owner = `owner-budget-${serial}`;
+    await seed(teamId, "816");
+    const fixtures = catalog("816").map((fixture) => ({
+      ...fixture,
+      players: fixture.players.map((player, index) => ({
+        ...player,
+        externalPlayerId: String(997000 + index),
+      })),
+      coach: {
+        status: "resolved" as const,
+        value: {
+          externalTeamId: "816",
+          externalCoachId: "998000",
+          name: "Budget Coach",
         },
       },
     }));
@@ -190,7 +241,8 @@ describe("recent-fixture preparation catalog import", () => {
     const preview = await measureReads(() =>
       service.preview(teamId, owner, provider(fixtures, squad)),
     );
-    expect(preview.documents).toBeLessThanOrEqual(110);
+    expect(preview.documents).toBe(84);
+    expect(preview.value.plan.previewDocumentReads).toBe(preview.documents);
     expect(preview.queries).toBe(0);
     const token = await authorize(preview.value.action, owner);
     const apply = await measureReads(() =>
@@ -201,6 +253,7 @@ describe("recent-fixture preparation catalog import", () => {
       service.applyAuthorized(preview.value.action, owner, token),
     );
     expect(retry.documents).toBe(2);
+    expect(retry.value.disposition).toBe("idempotent_retry");
     for (let index = 0; index < 2; index++) {
       const repeated = await measureReads(() =>
         service.preview(
@@ -209,9 +262,12 @@ describe("recent-fixture preparation catalog import", () => {
           provider(fixtures, squad),
         ),
       );
-      expect(repeated.documents).toBeLessThanOrEqual(110);
+      expect(repeated.documents).toBe(84);
       expect(repeated.queries).toBe(0);
+      expect(repeated.value.plan.previewDocumentReads).toBe(repeated.documents);
       expect(repeated.value.plan).toMatchObject({
+        metadataChanges: 0,
+        proposedWrites: 2,
         newPlayers: 0,
         newCoaches: 0,
         positionFills: 0,
@@ -518,7 +574,7 @@ describe("recent-fixture preparation catalog import", () => {
       );
       expect(repeated.plan).toMatchObject({
         photoFills: 0,
-        proposedWrites: 3,
+        proposedWrites: 2,
       });
     } finally {
       if (previousDigest === undefined)
@@ -863,7 +919,7 @@ describe("recent-fixture preparation catalog import", () => {
         newPlayers: baseTeamId === "deportivo-saprissa" ? 25 : 0,
         newCoaches: baseTeamId === "deportivo-saprissa" ? 1 : 0,
         providerRequests: 4,
-        previewDocumentReads: 110,
+        previewDocumentReads: 84,
         canApply: true,
       });
       expect(

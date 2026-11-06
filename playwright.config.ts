@@ -26,6 +26,9 @@ export default defineConfig({
     url: baseURL,
     reuseExistingServer: false,
     env: {
+      // Next skips .env.local in test mode. Local operator secrets must not
+      // replace or expand the synthetic verifier's literal dollar separators.
+      NODE_ENV: "test",
       NEXT_PUBLIC_FIREBASE_ENVIRONMENT: "local",
       NEXT_PUBLIC_FIREBASE_PROJECT_ID: projectId,
       FIREBASE_ADMIN_PROJECT_ID: projectId,
