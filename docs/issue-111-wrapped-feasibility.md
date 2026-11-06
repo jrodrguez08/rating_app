@@ -2,6 +2,8 @@
 
 Design proposal for [#111](https://github.com/jrodrguez08/rating_app/issues/111), audited against `master` at `96b7f87`. Wrapped is one collective recap per tracked Team and completed Apertura or Clausura. The same rules serve both clubs. This phase introduces no runtime feature.
 
+Phase 2A implements only the [local tournament ledger and coverage preview](issue-164-wrapped-coverage.md). The award thresholds, snapshots and public delivery below remain proposals.
+
 ## Findings and club readiness
 
 | Club      | Evidence available                                                                                                                                                                                                                                                                                                | What remains unverified                                                                                                                                                                                                                   |

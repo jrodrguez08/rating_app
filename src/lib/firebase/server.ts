@@ -45,6 +45,7 @@ import {
 } from "@/application/team-player-membership";
 import { validateBallotRatings } from "@/domain/ballot-validation";
 import { resolvePersistedCoachProviderAlias } from "@/domain/coach-identity";
+import { isCompatibleCurrentResult } from "@/domain/current-match-result";
 import { preserveMonotonicMatchStatus } from "@/domain/match-status";
 import { hasAuthoritativeFinalWhistle } from "@/domain/manual-voting";
 import { aggregateMatchResult } from "@/domain/result-aggregation";
@@ -109,6 +110,8 @@ import {
 } from "@/lib/server/admin-coach-action";
 import { readFirebaseAdminRuntimeConfig } from "@/lib/server/environment";
 import { emitOperationalLog } from "@/lib/operational-log";
+
+import { fromDocument } from "./firestore-document";
 
 const TIMESTAMP_FIELDS = new Set([
   "createdAt",
@@ -2778,78 +2781,6 @@ function validTimestamp(value: string) {
   return Number.isFinite(new Date(value).getTime());
 }
 
-function isCompatibleCurrentResult(match: Match, result: MatchResult): boolean {
-  if (
-    result.matchId !== match.id ||
-    result.teamId !== match.trackedTeamId ||
-    !Number.isInteger(result.ballotCount) ||
-    result.ballotCount < 0 ||
-    (result.status !== "final" && result.status !== "no_votes") ||
-    typeof result.generatedAt !== "string" ||
-    !validTimestamp(result.generatedAt) ||
-    !isRecord(result.playerResults) ||
-    !isRecord(result.coachResult) ||
-    !Array.isArray(result.mvpPlayerIds)
-  ) {
-    return false;
-  }
-  const playerResults = Object.entries(result.playerResults);
-  if (playerResults.length === 0) return false;
-  const orders = new Set<number>();
-  for (const [playerId, value] of playerResults) {
-    if (
-      !isRecord(value) ||
-      value.playerId !== playerId ||
-      typeof value.playerName !== "string" ||
-      value.playerName.length === 0 ||
-      !validAggregateRating(value.average) ||
-      value.voteCount !== result.ballotCount ||
-      !Number.isInteger(value.order) ||
-      (value.order as number) < 0 ||
-      orders.has(value.order as number)
-    ) {
-      return false;
-    }
-    orders.add(value.order as number);
-  }
-  const coach = result.coachResult;
-  if (
-    typeof coach.coachId !== "string" ||
-    coach.coachId.length === 0 ||
-    typeof coach.coachName !== "string" ||
-    coach.coachName.length === 0 ||
-    !validAggregateRating(coach.average) ||
-    coach.voteCount !== result.ballotCount
-  ) {
-    return false;
-  }
-  if (
-    result.mvpPlayerIds.some(
-      (playerId) =>
-        typeof playerId !== "string" || !(playerId in result.playerResults),
-    ) ||
-    new Set(result.mvpPlayerIds).size !== result.mvpPlayerIds.length
-  ) {
-    return false;
-  }
-  return result.status === "no_votes"
-    ? result.ballotCount === 0 && result.mvpPlayerIds.length === 0
-    : result.ballotCount > 0 && result.mvpPlayerIds.length > 0;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function validAggregateRating(value: unknown): value is number {
-  return (
-    typeof value === "number" &&
-    Number.isFinite(value) &&
-    value >= 0 &&
-    value <= 10
-  );
-}
-
 function requireCanonicalCurrentResult(
   result: MatchResult,
   expected: MatchResult,
@@ -2947,21 +2878,6 @@ function toDocument(value: object): Record<string, unknown> {
           : field,
       ]),
   );
-}
-function fromDocument<T>(snapshot: {
-  id: string;
-  data(): Record<string, unknown> | undefined;
-}): T {
-  const data = snapshot.data() ?? {};
-  return {
-    ...Object.fromEntries(
-      Object.entries(data).map(([key, value]) => [
-        key,
-        value instanceof Timestamp ? value.toDate().toISOString() : value,
-      ]),
-    ),
-    id: snapshot.id,
-  } as T;
 }
 function comparable(value: object): string {
   const copy = { ...value } as Record<string, unknown>;

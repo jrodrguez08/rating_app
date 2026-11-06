@@ -19,6 +19,7 @@ export async function measureReads<T>(work: () => Promise<T>) {
     let documents = 0;
     let queryCount = 0;
     const paths: string[] = [];
+    const batchSizes: number[] = [];
     const snapshots = await Promise.all(
       [
         ...queries.mock.results,
@@ -36,6 +37,7 @@ export async function measureReads<T>(work: () => Promise<T>) {
     );
     for (const snapshot of snapshots) {
       if (Array.isArray(snapshot)) {
+        batchSizes.push(snapshot.length);
         const uniquePaths = [...new Set(snapshot.map((doc) => doc.ref.path))];
         documents += uniquePaths.length;
         paths.push(...uniquePaths);
@@ -48,7 +50,7 @@ export async function measureReads<T>(work: () => Promise<T>) {
         paths.push(snapshot.ref.path);
       }
     }
-    return { value, documents, queries: queryCount, paths };
+    return { value, documents, queries: queryCount, paths, batchSizes };
   } finally {
     queries.mockRestore();
     batches.mockRestore();
