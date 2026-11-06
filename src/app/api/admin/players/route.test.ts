@@ -6,6 +6,8 @@ import type * as AdminRequestModule from "@/lib/server/admin-request";
 const mocks = vi.hoisted(() => ({
   requireAdminRequest: vi.fn(),
   searchPlayers: vi.fn(),
+  observeRead: undefined as
+    ((read: { kind: string; documents: number }) => void) | undefined,
 }));
 
 vi.mock(
@@ -18,6 +20,9 @@ vi.mock(
 
 vi.mock("@/lib/firebase/admin-console", () => ({
   AdminConsoleService: class {
+    constructor(_database?: unknown, observe?: typeof mocks.observeRead) {
+      mocks.observeRead = observe;
+    }
     searchPlayers = mocks.searchPlayers;
   },
 }));
@@ -90,5 +95,70 @@ describe("admin player search route", () => {
 
     expect((await GET(request)).status).toBe(400);
     expect(mocks.searchPlayers).not.toHaveBeenCalled();
+  });
+
+  it("logs read estimates and page counts without query, identity or cursor data", async () => {
+    const log = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    try {
+      mocks.searchPlayers.mockImplementationOnce(async () => {
+        mocks.observeRead?.({ kind: "index_state", documents: 1 });
+        mocks.observeRead?.({ kind: "membership_query", documents: 21 });
+        mocks.observeRead?.({ kind: "player_lookup", documents: 20 });
+        mocks.observeRead?.({ kind: "alias_lookup", documents: 20 });
+        return { players: [{ id: "private-player", name: "Private name" }] };
+      });
+      const response = await GET(
+        new NextRequest(
+          "https://rating.test/api/admin/players?query=private-query&cursor=private-cursor&club=herediano",
+        ),
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toContain("no-store");
+      const line = String(log.mock.calls[0][0]);
+      expect(JSON.parse(line)).toMatchObject({
+        event: "admin.player_search",
+        teamId: "club-sport-herediano",
+        queries: 1,
+        membershipDocuments: 21,
+        documentReadEstimate: 62,
+        returnedPlayers: 1,
+        status: "completed",
+        clientAborted: false,
+      });
+      for (const privateValue of [
+        "private-query",
+        "private-cursor",
+        "owner-uid",
+        "private-player",
+        "Private name",
+      ])
+        expect(line).not.toContain(privateValue);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("counts an empty membership query as one estimated read", async () => {
+    const log = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    try {
+      mocks.searchPlayers.mockImplementationOnce(async () => {
+        mocks.observeRead?.({ kind: "index_state", documents: 1 });
+        mocks.observeRead?.({ kind: "membership_query", documents: 0 });
+        return { players: [] };
+      });
+      await GET(
+        new NextRequest(
+          "https://rating.test/api/admin/players?query=absent&club=saprissa",
+        ),
+      );
+      expect(JSON.parse(String(log.mock.calls[0][0]))).toMatchObject({
+        queries: 1,
+        membershipDocuments: 0,
+        documentReadEstimate: 2,
+        returnedPlayers: 0,
+      });
+    } finally {
+      log.mockRestore();
+    }
   });
 });

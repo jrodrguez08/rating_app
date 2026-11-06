@@ -27,6 +27,8 @@ import {
   parseAdminCatalogAction,
 } from "@/lib/server/admin-catalog-action";
 
+import { measureReads } from "./read-counts";
+
 const app = initializeApp(
   { projectId: "demo-rating-app-catalog-import-tests" },
   `catalog-import-${Date.now()}`,
@@ -159,6 +161,81 @@ async function authorize(
 }
 
 describe("recent-fixture preparation catalog import", () => {
+  it("accounts for preview, enrichment, apply and unchanged re-import reads", async () => {
+    const teamId = `team-search-audit-${++serial}`;
+    const owner = `owner-search-audit-${serial}`;
+    await seed(teamId, "816");
+    const fixtures = catalog("816").map((fixture) => ({
+      ...fixture,
+      players: fixture.players.map((player, index) => ({
+        ...player,
+        externalPlayerId: String(995500 + index),
+      })),
+      coach: {
+        status: "resolved" as const,
+        value: {
+          externalTeamId: "816",
+          externalCoachId: "995999",
+          name: "Catalog Audit Coach",
+        },
+      },
+    }));
+    const squad = fixtures[0].players.map((player) => ({
+      externalPlayerId: player.externalPlayerId,
+      name: player.name,
+      position: "midfielder" as const,
+      photoUrl: `https://media.api-sports.io/football/players/${player.externalPlayerId}.png`,
+    }));
+    const service = new AdminCatalogImportService(database);
+    const preview = await measureReads(() =>
+      service.preview(teamId, owner, provider(fixtures, squad)),
+    );
+    expect(preview.documents).toBeLessThanOrEqual(110);
+    expect(preview.queries).toBe(0);
+    const token = await authorize(preview.value.action, owner);
+    const apply = await measureReads(() =>
+      service.applyAuthorized(preview.value.action, owner, token),
+    );
+    expect(apply.documents).toBe(81);
+    const retry = await measureReads(() =>
+      service.applyAuthorized(preview.value.action, owner, token),
+    );
+    expect(retry.documents).toBe(2);
+    for (let index = 0; index < 2; index++) {
+      const repeated = await measureReads(() =>
+        service.preview(
+          teamId,
+          `${owner}-repeat-${index}`,
+          provider(fixtures, squad),
+        ),
+      );
+      expect(repeated.documents).toBeLessThanOrEqual(110);
+      expect(repeated.queries).toBe(0);
+      expect(repeated.value.plan).toMatchObject({
+        newPlayers: 0,
+        newCoaches: 0,
+        positionFills: 0,
+        photoFills: 0,
+      });
+      const repeatOwner = `${owner}-repeat-${index}`;
+      const repeatToken = await authorize(repeated.value.action, repeatOwner);
+      const reapplied = await measureReads(() =>
+        service.applyAuthorized(
+          repeated.value.action,
+          repeatOwner,
+          repeatToken,
+        ),
+      );
+      expect(reapplied.documents).toBe(81);
+      expect(reapplied.value.plan).toMatchObject({
+        newPlayers: 0,
+        newCoaches: 0,
+        positionFills: 0,
+        photoFills: 0,
+      });
+    }
+  });
+
   it("authorizes and applies a transported real preview with a synthetic passphrase", async () => {
     const teamId = `team-catalog-roundtrip-${++serial}`;
     const owner = `owner-roundtrip-${serial}`;

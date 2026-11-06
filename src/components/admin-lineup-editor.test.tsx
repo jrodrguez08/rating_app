@@ -1,6 +1,13 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getMessages } from "@/i18n/messages";
 import type { AdminMatchDetail } from "@/lib/firebase/admin-console";
@@ -509,6 +516,237 @@ describe("admin lineup editor", () => {
 
     expect(await screen.findByText(/lineup-audit/)).toBeVisible();
     expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+});
+
+describe("lineup Player search requests", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse({ players: [] })),
+    );
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  const advance = async (milliseconds = 200) => {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(milliseconds);
+    });
+  };
+
+  it("debounces rapid input and does not poll while idle", async () => {
+    renderEditor(detail("preparing_rating"));
+    await advance();
+    const search = screen.getByLabelText(messages.searchPlayers);
+    for (const value of ["j", "ju", "jua"]) {
+      fireEvent.change(search, { target: { value } });
+      await advance(50);
+    }
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await advance(149);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await advance(1);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    await advance(5000);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the loaded browse page during lineup edits without refetching", async () => {
+    renderEditor(detail("preparing_rating"));
+    await advance();
+    for (let change = 0; change < 3; change++) {
+      const row = screen.getByText("Jugador 12").closest("li")!;
+      fireEvent.click(
+        within(row).getByRole("button", {
+          name: change % 2 ? messages.markNotEntered : messages.markEntered,
+        }),
+      );
+      await advance();
+    }
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("deduplicates equivalent queries and debounces clear-and-type transitions", async () => {
+    renderEditor(detail("preparing_rating"));
+    await advance();
+    const search = screen.getByLabelText(messages.searchPlayers);
+    fireEvent.change(search, { target: { value: "aguil" } });
+    await advance();
+    fireEvent.change(search, { target: { value: "aguil " } });
+    await advance();
+    expect(fetch).toHaveBeenCalledTimes(2);
+    fireEvent.change(search, { target: { value: "" } });
+    await advance(50);
+    fireEvent.change(search, { target: { value: "jua" } });
+    await advance();
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("aborts old pagination and ignores it even when its response arrives later", async () => {
+    const old = {
+      id: "old-page",
+      name: "Old page Player",
+      identityProvenance: "provider",
+    };
+    const fresh = {
+      id: "fresh",
+      name: "Fresh search Player",
+      identityProvenance: "provider",
+    };
+    let resolvePage!: (response: ReturnType<typeof jsonResponse>) => void;
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({ players: [], nextCursor: "page-1" }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolvePage = resolve;
+          }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ players: [fresh] }));
+    vi.stubGlobal("fetch", fetchMock);
+    renderEditor(detail("preparing_rating"));
+    await advance();
+    fireEvent.click(
+      screen.getByRole("button", { name: messages.loadMorePlayers }),
+    );
+    fireEvent.change(screen.getByLabelText(messages.searchPlayers), {
+      target: { value: "fresh" },
+    });
+    await advance();
+    expect(screen.getByText(fresh.name)).toBeVisible();
+    expect(fetchMock.mock.calls[1][1]?.signal.aborted).toBe(true);
+    await act(async () => {
+      resolvePage(jsonResponse({ players: [old], nextCursor: "old-cursor" }));
+    });
+    expect(screen.queryByText(old.name)).not.toBeInTheDocument();
+    expect(screen.getByText(fresh.name)).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: messages.loadMorePlayers }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("ignores an obsolete first-page body after cancellation", async () => {
+    const old = {
+      id: "old-body",
+      name: "Obsolete body Player",
+      identityProvenance: "provider",
+    };
+    const fresh = {
+      id: "latest-body",
+      name: "Latest body Player",
+      identityProvenance: "provider",
+    };
+    let resolveBody!: (value: unknown) => void;
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          new Promise((resolve) => {
+            resolveBody = resolve;
+          }),
+      })
+      .mockResolvedValueOnce(jsonResponse({ players: [fresh] }));
+    vi.stubGlobal("fetch", fetchMock);
+    renderEditor(detail("preparing_rating"));
+    await advance();
+    fireEvent.change(screen.getByLabelText(messages.searchPlayers), {
+      target: { value: "latest" },
+    });
+    await advance();
+    expect(fetchMock.mock.calls[0][1]?.signal.aborted).toBe(true);
+    await act(async () => {
+      resolveBody({ players: [old], nextCursor: "old-cursor" });
+    });
+    expect(screen.getByText(fresh.name)).toBeVisible();
+    expect(screen.queryByText(old.name)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: messages.loadMorePlayers }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("filters selection locally while retaining unselected browse results", async () => {
+    const player = {
+      id: "available-browse",
+      name: "Available browse Player",
+      identityProvenance: "provider",
+    };
+    const another = {
+      id: "another-browse",
+      name: "Another browse Player",
+      identityProvenance: "provider",
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse({ players: [player, another] })),
+    );
+    renderEditor(detail("preparing_rating"));
+    await advance();
+    const row = screen.getByText(player.name).closest("li")!;
+    fireEvent.click(
+      within(row).getByRole("button", { name: messages.addSubstitute }),
+    );
+    await advance();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(another.name)).toBeVisible();
+    expect(screen.getAllByText(player.name)).toHaveLength(1);
+  });
+
+  it("aborts the previous club when the keyed workspace switches", async () => {
+    const old = {
+      id: "club-a-player",
+      name: "Club A roster Player",
+      identityProvenance: "provider",
+    };
+    const fresh = {
+      id: "club-b-player",
+      name: "Club B roster Player",
+      identityProvenance: "provider",
+    };
+    let resolveBody!: (value: unknown) => void;
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          new Promise((resolve) => {
+            resolveBody = resolve;
+          }),
+      })
+      .mockResolvedValueOnce(jsonResponse({ players: [fresh] }));
+    vi.stubGlobal("fetch", fetchMock);
+    const workspace = render(
+      <AdminLineupEditor
+        key="herediano:match"
+        detail={detail("preparing_rating")}
+        messages={messages}
+        teamId="club-sport-herediano"
+      />,
+    );
+    await advance();
+    workspace.rerender(
+      <AdminLineupEditor
+        key="saprissa:match"
+        detail={detail("preparing_rating")}
+        messages={messages}
+        teamId="deportivo-saprissa"
+      />,
+    );
+    await advance();
+    expect(fetchMock.mock.calls[0][1]?.signal.aborted).toBe(true);
+    expect(String(fetchMock.mock.calls[1][0])).toContain("club=saprissa");
+    await act(async () => {
+      resolveBody({ players: [old] });
+    });
+    expect(screen.getByText(fresh.name)).toBeVisible();
+    expect(screen.queryByText(old.name)).not.toBeInTheDocument();
   });
 });
 
