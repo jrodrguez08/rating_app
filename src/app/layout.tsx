@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { DotGothic16 } from "next/font/google";
 
+import { PublicWebAnalytics } from "@/components/public-web-analytics";
 import { VoterIdentityInitializer } from "@/components/voter-identity-initializer";
 import { buildPageMetadata, siteIdentity, siteUrl } from "@/config/site";
 import { getLocale } from "@/i18n/server";
@@ -52,6 +53,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
       <body className="min-h-full">
         <VoterIdentityInitializer />
         {children}
+        <PublicWebAnalytics />
       </body>
     </html>
   );
