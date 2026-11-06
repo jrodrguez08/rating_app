@@ -103,6 +103,112 @@ describe("Wrapped tournament ledger", () => {
 });
 
 describe("Wrapped coverage report", () => {
+  it.each([
+    {
+      scenario: "partial fixture coverage",
+      expected: 20,
+      rated: 5,
+      zero: 0,
+      missingSummaries: 0,
+      unfinished: 2,
+      fixturePercent: 25,
+      completedPercent: 100,
+    },
+    {
+      scenario: "finalized matches with zero votes",
+      expected: 10,
+      rated: 6,
+      zero: 4,
+      missingSummaries: 0,
+      unfinished: 0,
+      fixturePercent: 60,
+      completedPercent: 60,
+    },
+    {
+      scenario: "missing finalized summaries",
+      expected: 10,
+      rated: 5,
+      zero: 0,
+      missingSummaries: 3,
+      unfinished: 2,
+      fixturePercent: 50,
+      completedPercent: 62.5,
+    },
+  ])("reports both denominators for $scenario", (scenario) => {
+    const completed =
+      scenario.rated + scenario.zero + scenario.missingSummaries;
+    const fixtures = Array.from({ length: scenario.expected }, (_, index) =>
+      wrappedMatch("herediano", String(index + 1), {
+        status: index < completed ? "finished" : "scheduled",
+        ratingState: index < completed ? "rating_closed" : "not_ready",
+      }),
+    );
+    const observed = fixtures.slice(0, completed + scenario.unfinished);
+    const summaries = fixtures
+      .slice(0, scenario.rated + scenario.zero)
+      .map((match, index) =>
+        wrappedSummary(match, index < scenario.rated ? 12 : 0),
+      );
+    const result = report(
+      ledgerInput("herediano", fixtures.map(wrappedFixture)),
+      observed,
+      summaries,
+    );
+    expect(result.counts).toMatchObject({
+      expectedFixtures: scenario.expected,
+      completedInScope: completed,
+      rated: scenario.rated,
+      zeroVotes: scenario.zero,
+      ratedFixtureCoveragePercent: scenario.fixturePercent,
+      ratedCompletedFixturePercent: scenario.completedPercent,
+    });
+    expect(result.fixtureBlockers).toEqual(
+      expect.arrayContaining([
+        ...fixtures
+          .slice(scenario.rated + scenario.zero, completed)
+          .map(({ id }) => ({ matchId: id, code: "summary_missing" })),
+        ...fixtures
+          .slice(completed, observed.length)
+          .map(({ id }) => ({ matchId: id, code: "unfinished" })),
+        ...fixtures
+          .slice(observed.length)
+          .map(({ id }) => ({ matchId: id, code: "missing_match" })),
+      ]),
+    );
+    expect(result.fixtureBlockers).toHaveLength(
+      scenario.expected - scenario.rated - scenario.zero,
+    );
+    expect(result.coverageComplete).toBe(
+      scenario.expected === scenario.rated + scenario.zero,
+    );
+  });
+
+  it("returns null percentages when only reviewed exclusions are present", () => {
+    const excluded = wrappedMatch("saprissa", "1", {
+      ratingState: "not_ready",
+      votingOpensAt: undefined,
+    });
+    const input = ledgerInput("saprissa", [
+      {
+        ...wrappedFixture(excluded),
+        disposition: "excluded",
+        reason: "Predates the pilot",
+      },
+    ]);
+    expect(report(input, [excluded], [])).toMatchObject({
+      coverageComplete: false,
+      blockers: ["no_in_scope_fixtures"],
+      counts: {
+        expectedFixtures: 0,
+        completedInScope: 0,
+        rated: 0,
+        excluded: 1,
+        ratedFixtureCoveragePercent: null,
+        ratedCompletedFixturePercent: null,
+      },
+    });
+  });
+
   it("counts rated and zero-vote Matches, excludes reviewed dispositions, and has stable output", () => {
     const rated = wrappedMatch("herediano", "1");
     const zero = wrappedMatch("herediano", "2");
@@ -152,7 +258,8 @@ describe("Wrapped coverage report", () => {
       rated: 1,
       zeroVotes: 1,
       totalValidBallots: 12,
-      ratedCoveragePercent: 50,
+      ratedFixtureCoveragePercent: 50,
+      ratedCompletedFixturePercent: 50,
       excluded: 1,
       cancelled: 1,
       replaced: 1,
@@ -246,7 +353,12 @@ describe("Wrapped coverage report", () => {
         coachResult: { ...wrappedSummary(match, 0).coachResult, average: 1 },
       },
     ]) {
-      expect(report(input, [match], [invalid]).fixtureBlockers).toEqual([
+      const result = report(input, [match], [invalid]);
+      expect(result.counts).toMatchObject({
+        completedInScope: 1,
+        ratedCompletedFixturePercent: 0,
+      });
+      expect(result.fixtureBlockers).toEqual([
         { matchId: match.id, code: "summary_incompatible" },
       ]);
     }

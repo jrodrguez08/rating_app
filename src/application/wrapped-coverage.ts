@@ -298,7 +298,8 @@ export function evaluateWrappedCoverage({
     (fixture) => fixture.disposition === "expected",
   ).length;
   const completedInScope = fixtures.filter(
-    ({ observation }) => observation.completed,
+    ({ disposition, observation }) =>
+      disposition === "expected" && observation.completed,
   ).length;
   const rated = fixtures.filter(
     ({ observation }) => observation.status === "rated",
@@ -349,7 +350,9 @@ export function evaluateWrappedCoverage({
       rated,
       zeroVotes,
       totalValidBallots,
-      ratedCoveragePercent:
+      ratedFixtureCoveragePercent:
+        expectedFixtures === 0 ? null : (rated * 100) / expectedFixtures,
+      ratedCompletedFixturePercent:
         completedInScope === 0 ? null : (rated * 100) / completedInScope,
       excluded: fixtures.filter(
         ({ observation }) => observation.status === "excluded",

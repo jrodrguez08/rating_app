@@ -63,7 +63,14 @@ For Saprissa, use `clubSlug: saprissa`, `teamId: deportivo-saprissa`, a separate
 
 The JSON distinguishes the declared disposition and evidence from `matchPresence` and the computed `observation`. Stable status codes can be translated by a future consumer through ES/EN messages. The CLI emits structured data and technical diagnostics. Keep credentials, voter identities and private notes out of evidence strings.
 
-Coverage counts expected entries after explicit exclusions, cancellations and replacements. Rated coverage is rated divided by **observed completed in-scope** Matches, with zero-vote and unresolved completed Matches in the denominator. Missing and unfinished Matches still block completion even if the observed percentage is 100%. The percentage is null when there are no observed completed Matches. A consistent zero-vote result is final but contributes zero ballots and no rated Match. Total valid ballots comes from current summary counts and represents submissions per Match. No distinct supporter count is derived.
+The JSON report exposes two percentages:
+
+- **Collection coverage (`ratedFixtureCoveragePercent`)** is `100 × rated / expectedFixtures`. Every entry with disposition `expected` stays in the denominator, including missing, unfinished and unresolved fixtures. The value is null when there are no expected fixtures.
+- **Completed Match rating rate (`ratedCompletedFixturePercent`)** is `100 × rated / completedInScope`. Only expected fixtures with trustworthy completion evidence enter this denominator. A completed Match with a missing or incompatible summary still counts as completed and remains a blocker. The value is null when there are no completed in-scope Matches.
+
+Reviewed exclusions, cancellations and replaced originals contribute to neither denominator. An expected replacement counts once. A finalized zero-vote Match counts in both denominators and contributes no rated Match or ballots. Total valid ballots represents submissions per Match.
+
+For example, if 5 of 20 expected fixtures are completed and rated and the other 15 are missing or unfinished, collection coverage is **25%**, the completed Match rating rate is **100%**, and overall coverage is **incomplete**. Check the reviewed tournament boundary and blockers separately. Neither percentage establishes tournament completeness or publication approval.
 
 Current summaries must pass the shared published-result compatibility rules plus the preview's closure checks, including trusted early-close evidence, effective reopen time, generation after close and no future result relative to `--as-of`. A prior archived generation is ineligible. Only canonical positive or zero rating evidence consistent with the summary status is counted. The observation time constrains checks against the **current emulator snapshot**. It cannot reconstruct older Firestore history.
 

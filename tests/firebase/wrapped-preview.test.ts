@@ -196,7 +196,12 @@ it("runs the actual CLI for a zero-vote final and refuses production targets", a
     expect(JSON.parse(stdout)).toMatchObject({
       clubSlug: "saprissa",
       coverageComplete: true,
-      counts: { zeroVotes: 1, totalValidBallots: 0, ratedCoveragePercent: 0 },
+      counts: {
+        zeroVotes: 1,
+        totalValidBallots: 0,
+        ratedFixtureCoveragePercent: 0,
+        ratedCompletedFixturePercent: 0,
+      },
     });
     await expect(run("rating-app-prod-8b7df")).rejects.toMatchObject({
       code: 1,
