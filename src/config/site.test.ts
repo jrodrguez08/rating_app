@@ -1,15 +1,21 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { buildPageMetadata, resolveSiteUrl, siteIdentity } from "./site";
 
 describe("canonical site URL", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("reads the browser-inlined public setting at the default entry point", () => {
+    vi.stubEnv("NEXT_PUBLIC_SITE_URL", "https://ratings.example.com");
+    expect(resolveSiteUrl().origin).toBe("https://ratings.example.com");
+  });
   it("uses the explicit production origin without following a preview host", () => {
     expect(
       resolveSiteUrl({ VERCEL_URL: "rating-app-git-feature.vercel.app" }).href,
-    ).toBe("https://rating-app-amber.vercel.app/");
+    ).toBe("https://www.futratecr.com/");
   });
 
-  it("supports a future custom domain through one configured value", () => {
+  it("supports an explicit canonical origin through one configured value", () => {
     expect(
       resolveSiteUrl({ NEXT_PUBLIC_SITE_URL: "https://ratings.example.com" })
         .href,

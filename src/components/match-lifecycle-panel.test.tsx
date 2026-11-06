@@ -55,7 +55,7 @@ describe("Home WhatsApp rating share", () => {
     expect(
       new URL(share.getAttribute("href")!).searchParams.get("text"),
     ).toContain(
-      "https://rating-app-amber.vercel.app/herediano/matches/public-match/rate",
+      "https://www.futratecr.com/herediano/matches/public-match/rate",
     );
     expect(
       screen.getByText(/1 nov 2026, 9:01 p/).closest("p"),

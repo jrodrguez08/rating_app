@@ -5,7 +5,7 @@ import { getMessages } from "@/i18n/messages";
 
 import { clubPath, resolveClub } from "./club";
 
-const PRODUCTION_SITE_URL = "https://rating-app-amber.vercel.app";
+const PRODUCTION_SITE_URL = "https://www.futratecr.com";
 
 export const siteIdentity = {
   name: "Rating App",
@@ -20,7 +20,10 @@ export const siteIdentity = {
 } as const;
 
 export function resolveSiteUrl(
-  environment: Readonly<Record<string, string | undefined>> = process.env,
+  environment: Readonly<Record<string, string | undefined>> = {
+    // Next.js only inlines direct NEXT_PUBLIC references in browser bundles.
+    NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL,
+  },
 ): URL {
   const configured = environment.NEXT_PUBLIC_SITE_URL?.trim();
   if (!configured) return new URL(PRODUCTION_SITE_URL);

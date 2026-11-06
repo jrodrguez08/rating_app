@@ -4,6 +4,10 @@ import type {
   VotingWindowNotificationClaim,
   VotingWindowNotificationStore,
 } from "@/domain/ports";
+import {
+  readNotificationSiteUrl,
+  ResendVotingWindowNotifier,
+} from "@/lib/notifications/resend";
 
 import {
   notificationIdempotencyKey,
@@ -68,6 +72,53 @@ class MemoryNotificationStore implements VotingWindowNotificationStore {
 }
 
 describe("voting-window operator notification", () => {
+  it.each(["https://www.futratecr.com", undefined, "https://bad.example/path"])(
+    "delivers club-bound notification links with configuration %s through a test sender",
+    async (configured) => {
+      for (const [slug, trackedTeamId] of [
+        ["herediano", "club-sport-herediano"],
+        ["saprissa", "deportivo-saprissa"],
+      ]) {
+        const request = vi
+          .fn<typeof fetch>()
+          .mockResolvedValue(
+            new Response(JSON.stringify({ id: "test-message" })),
+          );
+        const notifier = new ResendVotingWindowNotifier(
+          {
+            apiKey: "test-only-key",
+            operatorEmail: "operator@example.test",
+            fromEmail: "sender@example.test",
+          },
+          request,
+        );
+        const store = new MemoryNotificationStore({
+          ...context,
+          trackedTeamId,
+        });
+        expect(
+          await notifyVotingWindowOpenedIfPending({
+            matchId: context.matchId,
+            store,
+            notifier,
+            siteUrl: readNotificationSiteUrl({
+              NEXT_PUBLIC_SITE_URL: configured,
+            }),
+          }),
+        ).toBe("sent");
+        const body = JSON.parse(String(request.mock.calls[0][1]?.body)) as {
+          text: string;
+        };
+        if (configured === "https://www.futratecr.com") {
+          expect(body.text).toContain(
+            `${configured}/${slug}/matches/match-1/rate`,
+          );
+        } else {
+          expect(body.text).not.toContain("https://");
+        }
+      }
+    },
+  );
   it("keeps shared-fixture club messages and idempotency independent", async () => {
     const heredianoId = "match-herediano-fixture-1";
     const saprissaId = "match-saprissa-fixture-1";
