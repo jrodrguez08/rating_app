@@ -6,6 +6,14 @@ import {
 } from "./src/config/player-photos";
 
 const nextConfig: NextConfig = {
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [{ key: "Referrer-Policy", value: "strict-origin" }],
+      },
+    ];
+  },
   images: {
     remotePatterns: [
       {
