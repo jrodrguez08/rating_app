@@ -35,6 +35,7 @@
     "backfill:coach-search": "tsx scripts/backfill-coach-search.ts",
     "manage:voting-window": "tsx scripts/manage-voting-window.ts",
     "manage:coach-assignment": "tsx scripts/manage-coach-assignment.ts",
+    "preview:wrapped": "tsx scripts/preview-wrapped.ts",
     "verify": "npm run format:check && npm run check:encoding && npm run lint && npm run typecheck && npm test && npm run build"
   },
   "dependencies": {

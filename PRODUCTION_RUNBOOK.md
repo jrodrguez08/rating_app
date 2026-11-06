@@ -1,5 +1,9 @@
 # Production pilot runbook
 
+## Wrapped coverage preparation
+
+Phase 2A has an emulator-only, read-only preview. Use a reviewed synthetic ledger and a loopback Firestore emulator with an explicit demo project. Follow the [command, report codes and read limits](docs/issue-164-wrapped-coverage.md). An exit 0 means coverage was resolved for the supplied ledger and observation time. Before any later production use, separately approve the exact edition, authoritative fixture roster, completion evidence and collection exclusions for each club. This tool cannot approve, persist or publish a recap.
+
 ## Public audience measurement
 
 For [Issue #160](https://github.com/jrodrguez08/rating_app/issues/160), activation could not be verified from the available Vercel session. Before the authorized release, sign in to [Analytics for `codex-tropica/rating-app`](https://vercel.com/codex-tropica/rating-app/analytics), confirm the team and project, and select **Enable** if Analytics is off. Use basic Web Analytics on the existing plan. Hobby includes 50,000 events and one month of data. Leave plan, billing, custom events and any analytics add-ons outside this rollout. See the [Vercel quickstart](https://vercel.com/docs/analytics/quickstart) and [Hobby limits](https://vercel.com/docs/plans/hobby).
