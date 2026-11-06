@@ -2,6 +2,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 
 import { expect, test, type Page } from "@playwright/test";
 
+import { getMessages } from "../../src/i18n/messages";
+
 import { e2eMatches } from "./seed";
 import { finalizeVotedMatch, inspectVotedMatch } from "./finalize";
 
@@ -406,6 +408,153 @@ async function selectLanguage(page: Page, locale: "es" | "en") {
     .click();
   await expect(page.locator("html")).toHaveAttribute("lang", locale);
 }
+
+test("Player search debounces input and keeps lineup edits local", async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  const messages = getMessages("es").admin;
+  const requests: Array<{ query: string; club: string }> = [];
+  let searchAborted = false;
+  await page.exposeFunction("observeSearchAbort", () => {
+    searchAborted = true;
+  });
+  await page.addInitScript(() => {
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = (input, init) => {
+      const target = new URL(
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url,
+        location.href,
+      );
+      if (
+        target.pathname === "/api/admin/players" &&
+        target.searchParams.get("query") === "late"
+      ) {
+        init?.signal?.addEventListener(
+          "abort",
+          () => {
+            void (
+              window as Window & { observeSearchAbort?: () => Promise<void> }
+            ).observeSearchAbort?.();
+          },
+          { once: true },
+        );
+      }
+      return originalFetch(input, init);
+    };
+  });
+  let releaseLate = () => {};
+  let signalLateStarted = () => {};
+  const lateStarted = new Promise<void>((resolve) => {
+    signalLateStarted = resolve;
+  });
+  await page.route("**/api/admin/players?**", async (route) => {
+    if (new URL(route.request().url()).searchParams.get("query") !== "late") {
+      await route.continue();
+      return;
+    }
+    // The real endpoint has finished its reads before this browser cancellation.
+    const response = await route.fetch();
+    expect(response.status()).toBe(200);
+    await new Promise<void>((resolve) => {
+      releaseLate = resolve;
+      signalLateStarted();
+    });
+    await route.fulfill({ response }).catch(() => {
+      /* Navigation canceled it. */
+    });
+  });
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname === "/api/admin/players")
+      requests.push({
+        query: url.searchParams.get("query") ?? "",
+        club: url.searchParams.get("club") ?? "",
+      });
+  });
+  await page.goto("/admin?club=herediano");
+  await page
+    .getByRole("textbox", { name: /correo|email/i })
+    .fill("owner@e2e.test");
+  await page.getByLabel(/contraseña/i).fill("E2e-owner-password-2026!");
+  const session = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/admin/session") &&
+      response.request().method() === "POST",
+  );
+  await page.getByRole("button", { name: "Ingresar" }).click();
+  expect((await session).status()).toBe(200);
+
+  for (const club of ["herediano", "saprissa"] as const) {
+    const initial = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return (
+        url.pathname === "/api/admin/players" &&
+        url.searchParams.get("club") === club &&
+        url.searchParams.get("query") === ""
+      );
+    });
+    await page.goto(
+      `/admin/matches/${e2eMatches[club].preparation}?club=${club}`,
+    );
+    expect((await initial).status()).toBe(200);
+    if (club === "saprissa") {
+      await expect(
+        page.getByText("Herediano Jugador 12", { exact: true }),
+      ).toHaveCount(0);
+    }
+    const input = page.getByLabel(messages.searchPlayers);
+    await expect(input).toBeVisible();
+    const responseFor = (query: string) =>
+      page.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return (
+          url.pathname === "/api/admin/players" &&
+          url.searchParams.get("club") === club &&
+          url.searchParams.get("query") === query
+        );
+      });
+    const typed = responseFor("jua");
+    await input.pressSequentially("jua", { delay: 30 });
+    expect((await typed).status()).toBe(200);
+    await input.fill("jua ");
+    await page.waitForTimeout(300); // Observe one full debounce interval.
+    expect(
+      requests
+        .filter((request) => request.club === club)
+        .map((request) => request.query),
+    ).toEqual(["", "jua"]);
+    const changed = responseFor("agui");
+    await input.fill("");
+    await input.fill("agui");
+    expect((await changed).status()).toBe(200);
+    const name = `${club === "herediano" ? "Herediano" : "Saprissa"} Jugador 12`;
+    const row = page
+      .locator("li")
+      .filter({ has: page.getByText(name, { exact: true }) });
+    await row.getByRole("button", { name: messages.markNotEntered }).click();
+    await row.getByRole("button", { name: messages.markEntered }).click();
+    await row.getByRole("button", { name: messages.markNotEntered }).click();
+    await page.waitForTimeout(1000); // Detect repeat work after typing/edits stop.
+    expect(
+      requests
+        .filter((request) => request.club === club)
+        .map((request) => request.query),
+    ).toEqual(["", "jua", "agui"]);
+    if (club === "herediano") {
+      await input.fill("late");
+      await lateStarted;
+      await page.locator('a[href="/admin?club=herediano"]').first().click();
+      await expect(page).toHaveURL(/\/admin\?club=herediano$/);
+      await expect.poll(() => searchAborted).toBe(true);
+      releaseLate();
+    }
+  }
+});
 
 test("the real emulator owner can switch club dashboards", async ({ page }) => {
   test.setTimeout(90_000);
