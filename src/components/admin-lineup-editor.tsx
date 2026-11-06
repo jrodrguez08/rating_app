@@ -11,9 +11,10 @@ import {
 } from "@dnd-kit/core";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 import { adminPath, adminClubForTeam } from "@/config/club";
+import { normalizePlayerSearch } from "@/domain/player-search";
 import type { Messages } from "@/i18n/messages";
 import type {
   AdminMatchDetail,
@@ -75,10 +76,14 @@ export function AdminLineupEditor({
   >(detail.draft ? "saved" : "unsaved");
   const [knownPlayers, setKnownPlayers] = useState(detail.players);
   const [search, setSearch] = useState("");
-  const [searchResults, setSearchResults] = useState<AdminPlayerOption[]>([]);
+  const [rosterResults, setRosterResults] = useState<AdminPlayerOption[]>([]);
   const [searchCursor, setSearchCursor] = useState<string | undefined>();
   const [searchLoading, setSearchLoading] = useState(false);
-  const [searchComplete, setSearchComplete] = useState(false);
+  const [resultKey, setResultKey] = useState<string>();
+  const activeSearch = useRef<AbortController | null>(null);
+  const query = normalizePlayerSearch(search).slice(0, 80);
+  const searchKey = JSON.stringify([club.slug, query]);
+  const searchComplete = resultKey === searchKey;
   const [internalName, setInternalName] = useState("");
   const [internalPosition, setInternalPosition] = useState("");
   const [internalShirtNumber, setInternalShirtNumber] = useState("");
@@ -109,6 +114,10 @@ export function AdminLineupEditor({
     () => new Set(participants.map(({ playerId }) => playerId)),
     [participants],
   );
+  const searchResults = searchComplete
+    ? rosterResults.filter((player) => !selectedIds.has(player.id))
+    : [];
+  const currentSearchCursor = searchComplete ? searchCursor : undefined;
   const metadata = useMemo(
     () => new Map(knownPlayers.map((player) => [player.id, player])),
     [knownPlayers],
@@ -144,71 +153,74 @@ export function AdminLineupEditor({
   };
 
   useEffect(() => {
-    const query = search.trim();
     if (!editable) return;
+    activeSearch.current?.abort();
     const controller = new AbortController();
-    const timer = window.setTimeout(
-      async () => {
-        setSearchLoading(true);
-        try {
-          const response = await fetch(
-            `/api/admin/players?query=${encodeURIComponent(query)}&club=${club.slug}`,
-            { cache: "no-store", signal: controller.signal },
-          );
-          const value: unknown = await response.json();
-          if (!response.ok || !isPlayerSearchResponse(value)) throw new Error();
-          setSearchResults(
-            value.players.filter((player) => !selectedIds.has(player.id)),
-          );
-          setSearchCursor(value.nextCursor);
-          setKnownPlayers((current) => mergePlayers(current, value.players));
-          setSearchComplete(true);
-        } catch (caught) {
-          if (caught instanceof DOMException && caught.name === "AbortError")
-            return;
-          setError(messages.playerSearchError);
-          setSearchResults([]);
-          setSearchCursor(undefined);
-          setSearchComplete(true);
-        } finally {
-          if (!controller.signal.aborted) setSearchLoading(false);
-        }
-      },
-      query.length === 0 ? 0 : 200,
-    );
+    activeSearch.current = controller;
+    const timer = window.setTimeout(async () => {
+      setSearchLoading(true);
+      try {
+        const response = await fetch(
+          `/api/admin/players?query=${encodeURIComponent(query)}&club=${club.slug}`,
+          { cache: "no-store", signal: controller.signal },
+        );
+        const value: unknown = await response.json();
+        if (controller.signal.aborted) return;
+        if (!response.ok || !isPlayerSearchResponse(value)) throw new Error();
+        setRosterResults(value.players);
+        setSearchCursor(value.nextCursor);
+        setKnownPlayers((current) => mergePlayers(current, value.players));
+        setResultKey(searchKey);
+      } catch (caught) {
+        if (
+          controller.signal.aborted ||
+          (caught instanceof DOMException && caught.name === "AbortError")
+        )
+          return;
+        setError(messages.playerSearchError);
+        setRosterResults([]);
+        setSearchCursor(undefined);
+        setResultKey(searchKey);
+      } finally {
+        if (!controller.signal.aborted) setSearchLoading(false);
+      }
+    }, 200);
     return () => {
       window.clearTimeout(timer);
       controller.abort();
+      activeSearch.current?.abort();
     };
-  }, [club.slug, editable, messages.playerSearchError, search, selectedIds]);
+  }, [club.slug, editable, messages.playerSearchError, query, searchKey]);
 
   async function loadMorePlayers() {
-    if (!searchCursor || searchLoading) return;
+    if (!currentSearchCursor || searchLoading) return;
+    activeSearch.current?.abort();
+    const controller = new AbortController();
+    activeSearch.current = controller;
     setSearchLoading(true);
     setError("");
     try {
       const parameters = new URLSearchParams({
-        query: search.trim(),
-        cursor: searchCursor,
+        query,
+        cursor: currentSearchCursor,
       });
       const response = await fetch(
         `/api/admin/players?${parameters}&club=${club.slug}`,
         {
           cache: "no-store",
+          signal: controller.signal,
         },
       );
       const value: unknown = await response.json();
+      if (controller.signal.aborted) return;
       if (!response.ok || !isPlayerSearchResponse(value)) throw new Error();
-      const available = value.players.filter(
-        (player) => !selectedIds.has(player.id),
-      );
-      setSearchResults((current) => mergePlayers(current, available));
+      setRosterResults((current) => mergePlayers(current, value.players));
       setKnownPlayers((current) => mergePlayers(current, value.players));
       setSearchCursor(value.nextCursor);
     } catch {
-      setError(messages.playerSearchError);
+      if (!controller.signal.aborted) setError(messages.playerSearchError);
     } finally {
-      setSearchLoading(false);
+      if (!controller.signal.aborted) setSearchLoading(false);
     }
   }
 
@@ -315,7 +327,6 @@ export function AdminLineupEditor({
       movedMessage(participant.playerName, lane, messages),
     );
     setSearch("");
-    setSearchResults([]);
   }
 
   async function addInternalPlayer(lane: LineupLane) {
@@ -576,7 +587,6 @@ export function AdminLineupEditor({
                 onChange={(event) => {
                   const value = event.target.value;
                   setSearch(value);
-                  setSearchComplete(false);
                 }}
                 aria-describedby="player-search-status"
               />
@@ -606,7 +616,7 @@ export function AdminLineupEditor({
                 ))}
               </ul>
             ) : null}
-            {searchCursor ? (
+            {currentSearchCursor ? (
               <button
                 className="button-utility min-h-11 w-fit px-4"
                 type="button"
@@ -635,7 +645,6 @@ export function AdminLineupEditor({
                     onChange={(event) => {
                       setInternalName(event.target.value);
                       setSearch(event.target.value);
-                      setSearchComplete(false);
                     }}
                     required
                   />

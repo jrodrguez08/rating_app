@@ -243,6 +243,7 @@ describe("recent-fixture preparation catalog import", () => {
     );
     expect(preview.documents).toBe(84);
     expect(preview.value.plan.previewDocumentReads).toBe(preview.documents);
+    expect(preview.queries).toBe(0);
     const token = await authorize(preview.value.action, owner);
     const apply = await measureReads(() =>
       service.applyAuthorized(preview.value.action, owner, token),
@@ -253,14 +254,42 @@ describe("recent-fixture preparation catalog import", () => {
     );
     expect(retry.documents).toBe(2);
     expect(retry.value.disposition).toBe("idempotent_retry");
-    const repeated = await measureReads(() =>
-      service.preview(teamId, `${owner}-repeat`, provider(fixtures, squad)),
-    );
-    expect(repeated.documents).toBe(84);
-    expect(repeated.value.plan.metadataChanges).toBe(0);
-    expect(repeated.value.plan.proposedWrites).toBe(2);
-    expect(repeated.value.plan.photoFills).toBe(0);
-    expect(repeated.value.plan.positionFills).toBe(0);
+    for (let index = 0; index < 2; index++) {
+      const repeated = await measureReads(() =>
+        service.preview(
+          teamId,
+          `${owner}-repeat-${index}`,
+          provider(fixtures, squad),
+        ),
+      );
+      expect(repeated.documents).toBe(84);
+      expect(repeated.queries).toBe(0);
+      expect(repeated.value.plan.previewDocumentReads).toBe(repeated.documents);
+      expect(repeated.value.plan).toMatchObject({
+        metadataChanges: 0,
+        proposedWrites: 2,
+        newPlayers: 0,
+        newCoaches: 0,
+        positionFills: 0,
+        photoFills: 0,
+      });
+      const repeatOwner = `${owner}-repeat-${index}`;
+      const repeatToken = await authorize(repeated.value.action, repeatOwner);
+      const reapplied = await measureReads(() =>
+        service.applyAuthorized(
+          repeated.value.action,
+          repeatOwner,
+          repeatToken,
+        ),
+      );
+      expect(reapplied.documents).toBe(81);
+      expect(reapplied.value.plan).toMatchObject({
+        newPlayers: 0,
+        newCoaches: 0,
+        positionFills: 0,
+        photoFills: 0,
+      });
+    }
   });
 
   it("authorizes and applies a transported real preview with a synthetic passphrase", async () => {
