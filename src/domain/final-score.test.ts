@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { confirmedManualScore } from "@/domain/final-score";
+import { confirmedManualScore, hasCompleteScore } from "@/domain/final-score";
 import type { ProviderFixture } from "@/domain/ports";
 
 import { wrappedMatch } from "../../tests/wrapped-fixtures";
@@ -37,14 +37,8 @@ describe("manual score evidence", () => {
     ).toBeNull();
   });
   it("rejects missing fields, nonfinal statuses, different providers and reversed or mismatched fixtures", () => {
-    for (const score of [{ home: 0 }, { away: 0 }]) {
-      expect(
-        confirmedManualScore(match, "api-football", {
-          ...fixture,
-          score: score as ProviderFixture["score"],
-        }),
-      ).toBeNull();
-    }
+    expect(hasCompleteScore({ home: 0 })).toBe(false);
+    expect(hasCompleteScore({ away: 0 })).toBe(false);
     for (const status of ["live", "scheduled", "abandoned"] as const) {
       expect(
         confirmedManualScore(match, "api-football", { ...fixture, status }),

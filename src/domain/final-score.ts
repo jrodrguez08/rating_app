@@ -4,7 +4,9 @@ import type { ProviderFixture } from "@/domain/ports";
 export const FINAL_SCORE_RETRY_MS = 60 * 60 * 1000;
 export const FINAL_SCORE_MAX_ATTEMPTS = 12;
 
-export function hasCompleteScore(score: Match["score"] | undefined): boolean {
+export function hasCompleteScore(
+  score: Partial<Match["score"]> | undefined,
+): boolean {
   return [score?.home, score?.away].every(
     (goal) =>
       typeof goal === "number" && Number.isSafeInteger(goal) && goal >= 0,
