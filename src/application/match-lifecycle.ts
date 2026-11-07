@@ -1,3 +1,7 @@
+import {
+  confirmedManualScore,
+  FINAL_SCORE_MAX_ATTEMPTS,
+} from "@/domain/final-score";
 import { preserveMonotonicMatchStatus } from "@/domain/match-status";
 import type {
   LineupCaptureOutcome,
@@ -109,7 +113,12 @@ async function executeMatchLifecycle({
       reason: `Tracked Team ${teamId} has no provider mapping.`,
     };
   }
-  let matches = await store.listMatches(teamId);
+  const listMatches = () =>
+    store.listLifecycleMatches?.(teamId, currentTime) ??
+    store.listMatches(teamId);
+  const reconcile = () =>
+    reconcileFinalScore(store, team, provider, currentTime, log);
+  let matches = await listMatches();
   const pendingFinalization = selectLifecycleMatch(matches, currentTime);
   if (
     pendingFinalization !== undefined &&
@@ -160,7 +169,7 @@ async function executeMatchLifecycle({
         lastFixtureDiscoveryAt: currentTime.toISOString(),
         updatedAt: currentTime.toISOString(),
       });
-      matches = await store.listMatches(teamId);
+      matches = await listMatches();
       discovered = true;
       emitOperationalLog(log, "lifecycle.discovery", {
         phase: "completed",
@@ -180,6 +189,8 @@ async function executeMatchLifecycle({
 
   const match = selectLifecycleMatch(matches, currentTime);
   if (match === undefined) {
+    const result = await reconcile();
+    if (result) return result;
     emitOperationalLog(log, "lifecycle.decision", {
       phase: "no_relevant_match",
       action: discovered ? "discovered" : "idle",
@@ -222,6 +233,8 @@ async function executeMatchLifecycle({
     match.ratingState === "rating_ready" ||
     match.ratingState === "rating_closed"
   ) {
+    const result = await reconcile();
+    if (result) return result;
     emitOperationalLog(log, "lifecycle.decision", {
       phase: "no_op",
       matchId: match.id,
@@ -236,6 +249,8 @@ async function executeMatchLifecycle({
   }
 
   if (!shouldRefreshMatch(match, currentTime)) {
+    const result = await reconcile();
+    if (result) return result;
     emitOperationalLog(log, "lifecycle.decision", {
       phase: match.status === "scheduled" ? "scheduled_no_op" : "no_op",
       matchId: match.id,
@@ -584,6 +599,65 @@ async function executeMatchLifecycle({
         : {}),
     };
   }
+}
+
+async function reconcileFinalScore(
+  store: MatchLifecycleStore,
+  team: Team,
+  provider: FootballDataProvider,
+  now: Date,
+  log: OperationalLogger,
+): Promise<LifecycleResult | undefined> {
+  if (
+    provider.requestCount !== 0 ||
+    !store.findDueFinalScore ||
+    !store.claimFinalScoreCheck ||
+    !store.commitFinalScore
+  )
+    return;
+  const matchId = await store.findDueFinalScore(team.id, now);
+  if (!matchId) return;
+  await requireLifecycleExecutionOwnership(store, team.id, matchId);
+  const match = await store.claimFinalScoreCheck(team, matchId, now);
+  if (!match) return;
+  let outcome = "unconfirmed";
+  try {
+    if (provider.name !== match.externalProvider) {
+      outcome = "provider_mismatch";
+    } else {
+      const fixture = await provider.getFixture(
+        match.externalProviderFixtureId,
+      );
+      if (confirmedManualScore(match, provider.name, fixture)) {
+        outcome = (await store.commitFinalScore(
+          match,
+          provider.name,
+          fixture,
+          now,
+        ))
+          ? "reconciled"
+          : "stale";
+      }
+    }
+  } catch (error) {
+    outcome =
+      error instanceof ProviderError ? error.code : "request_or_commit_failed";
+  }
+  emitOperationalLog(log, "lifecycle.final_score", {
+    matchId,
+    outcome,
+    attempt: match.finalScoreCheckAttempts ?? 0,
+    exhausted:
+      outcome !== "reconciled" &&
+      match.finalScoreCheckAttempts === FINAL_SCORE_MAX_ATTEMPTS,
+    providerRequests: provider.requestCount,
+  });
+  return {
+    action: outcome === "reconciled" ? "refreshed" : "idle",
+    matchId,
+    providerRequests: provider.requestCount,
+    reason: outcome,
+  };
 }
 
 async function persistRatingBlock(

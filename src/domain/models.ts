@@ -120,6 +120,9 @@ export interface Match {
   votingOpensAt?: string;
   votingClosesAt?: string;
   votingOpeningMode?: "provider" | "manual";
+  nextFinalScoreCheckAt?: string;
+  finalScoreCheckAttempts?: number;
+  finalScoreCheckState?: "pending" | "reconciled" | "exhausted";
   manualFinalWhistleAttestedAt?: string;
   votingReopenedAt?: string;
   votingReopenCount?: number;
