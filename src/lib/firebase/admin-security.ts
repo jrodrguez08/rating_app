@@ -40,6 +40,11 @@ import {
   type AdminPlayerIdentityAction,
 } from "@/lib/server/admin-player-identity-action";
 import { verifyAdminPassphrase } from "@/lib/server/admin-passphrase";
+import {
+  adminWrappedResourceId,
+  hashAdminWrappedAction,
+  type AdminWrappedAction,
+} from "@/lib/server/admin-wrapped-action";
 
 const PREVIEW_LIFETIME_MS = 5 * 60 * 1000;
 const CHALLENGE_LIFETIME_MS = 2 * 60 * 1000;
@@ -62,6 +67,7 @@ export type AdminAuditAction =
   | "manual_voting_passphrase"
   | "manual_voting_apply"
   | "catalog_import_passphrase"
+  | "wrapped_passphrase"
   | "catalog_import_apply";
 
 type AdminSensitiveAction =
@@ -71,7 +77,8 @@ type AdminSensitiveAction =
   | AdminManualVotingAction
   | AdminPlayerIdentityAction
   | AdminCoachIdentityAction
-  | AdminCatalogImportAction;
+  | AdminCatalogImportAction
+  | AdminWrappedAction;
 
 export class AdminSecurityError extends Error {
   constructor(
@@ -298,6 +305,7 @@ export class AdminSecurityStore {
 }
 
 function hashAdminSensitiveAction(action: AdminSensitiveAction): string {
+  if ("wrappedOperation" in action) return hashAdminWrappedAction(action);
   if ("stateHash" in action) return hashAdminCatalogAction(action);
   if ("firstCoachId" in action) return hashAdminCoachIdentityAction(action);
   if ("decision" in action) return hashAdminPlayerIdentityAction(action);
@@ -309,6 +317,7 @@ function hashAdminSensitiveAction(action: AdminSensitiveAction): string {
 }
 
 function adminSensitiveResourceId(action: AdminSensitiveAction): string {
+  if ("wrappedOperation" in action) return adminWrappedResourceId(action);
   return "stateHash" in action
     ? action.trackedTeamId
     : "firstCoachId" in action
@@ -321,7 +330,9 @@ function adminSensitiveResourceId(action: AdminSensitiveAction): string {
 function adminSensitiveMatchId(
   action: AdminSensitiveAction,
 ): string | undefined {
-  return "stateHash" in action || "decision" in action
+  return "stateHash" in action ||
+    "decision" in action ||
+    "wrappedOperation" in action
     ? undefined
     : action.matchId;
 }

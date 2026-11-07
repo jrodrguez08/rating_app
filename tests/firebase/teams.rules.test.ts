@@ -143,6 +143,10 @@ describe("Team persistence and rules", () => {
     "adminActionChallenges",
     "adminSecurity",
     "adminAudit",
+    "wrappedPublications",
+    "wrappedPublications/example/versions",
+    "wrappedPublications/example/projections",
+    "wrappedMatchDependencies",
   ])(
     "keeps %s client reads and writes denied until a browsing feature needs them",
     async (collection) => {

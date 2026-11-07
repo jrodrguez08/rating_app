@@ -2,6 +2,8 @@
 
 ## Wrapped coverage preparation
 
+Phase 2C's [snapshot procedure](docs/issue-168-wrapped-snapshots.md) runs only against local demo emulators. Hosted requests are disabled. Before a separate production release, approve each Team and edition, confirm the reviewed fixture roster and thresholds, and deploy the transactional result-invalidation path before enabling any active read. Keep client Firestore access denied and verify withdrawal and regeneration on synthetic data first.
+
 Phase 2A has an emulator-only, read-only preview. Use a reviewed synthetic ledger and a loopback Firestore emulator with an explicit demo project. Follow the [command, report codes and read limits](docs/issue-164-wrapped-coverage.md). An exit 0 means coverage was resolved for the supplied ledger and observation time. Before any later production use, separately approve the exact edition, authoritative fixture roster, completion evidence and collection exclusions for each club. This tool cannot approve, persist or publish a recap.
 
 ## Public audience measurement

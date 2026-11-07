@@ -103,6 +103,7 @@ import {
   TeamPlayerMembershipIndexIncompleteError,
   type TeamPlayerIndexObserver,
 } from "@/lib/firebase/team-player-membership-index";
+import { invalidateWrappedForMatch } from "@/lib/firebase/wrapped-publication";
 import {
   adminChallengeDocumentId,
   adminCoachAssignmentAuditId,
@@ -903,6 +904,12 @@ export class AdminVotingWindowService {
         archivePath: archiveReference.path,
       });
       if (apply) {
+        await invalidateWrappedForMatch(
+          this.database,
+          transaction,
+          matchId,
+          match.trackedTeamId,
+        );
         transaction.create(
           archiveReference,
           toDocument({
@@ -1755,6 +1762,12 @@ export class AdminFootballSyncStore
           throw new Error("The voting window is already finalized.");
         }
         if (match.ratingState !== "rating_closed") {
+          await invalidateWrappedForMatch(
+            this.database,
+            transaction,
+            matchId,
+            match.trackedTeamId,
+          );
           transaction.update(matchReference, {
             ratingState: "rating_closed",
             updatedAt: Timestamp.fromDate(now),
@@ -1785,6 +1798,12 @@ export class AdminFootballSyncStore
         ballots: ballots.docs.map((document) => fromDocument<Ballot>(document)),
         generatedAt: now.toISOString(),
       });
+      await invalidateWrappedForMatch(
+        this.database,
+        transaction,
+        matchId,
+        match.trackedTeamId,
+      );
       transaction.create(resultReference, {
         ...result,
         generatedAt: Timestamp.fromDate(now),
