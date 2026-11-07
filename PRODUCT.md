@@ -78,6 +78,8 @@ Social feeds, comments, fantasy football, betting, player-to-player comparisons,
 
 ## Future direction
 
+FutRate Wrapped prepares a separate tournament recap for each tracked Team and exact Apertura or Clausura. Phase 2C supports owner review and versioning on local emulators. Public rollout remains a separate decision for each club and edition, including approval of real coverage, statistical thresholds and editorial omissions.
+
 The same team, competition, season, match, participant, ballot, and result concepts can support more clubs and supporter communities. Add teams through data and theming; do not fork the domain or create club-named collections.
 
 ## Owner administrative recovery
