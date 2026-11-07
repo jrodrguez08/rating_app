@@ -1747,9 +1747,12 @@ export class AdminFootballSyncStore
         .limit(1)
         .get(),
     ]);
-    return results.flatMap(({ docs }) =>
-      docs.map((doc) => fromDocument<Match>(doc)),
-    );
+    // The original Team query used document ID ascending for equal kickoffs.
+    return results
+      .flatMap(({ docs }) => docs.map((doc) => fromDocument<Match>(doc)))
+      .sort((left, right) =>
+        left.id < right.id ? -1 : left.id > right.id ? 1 : 0,
+      );
   }
   async findDueFinalScore(teamId: string, now: Date): Promise<string | null> {
     const due = await this.database

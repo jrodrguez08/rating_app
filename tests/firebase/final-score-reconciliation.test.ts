@@ -203,9 +203,6 @@ it("reserves one attempt across competing stores, fences changed data, and exhau
   expect(
     await store.commitFinalScore(attempt, "api-football", response, start),
   ).toBe(false);
-  const failing = provider(async () => {
-    throw new Error("synthetic provider failure");
-  });
   let time = new Date(start.getTime() + FINAL_SCORE_RETRY_MS);
   for (let i = 1; i < FINAL_SCORE_MAX_ATTEMPTS; i++) {
     const data = (await ref.get()).data();
@@ -213,6 +210,9 @@ it("reserves one attempt across competing stores, fences changed data, and exhau
     expect(
       await store.findDueFinalScore(team.id, new Date(time.getTime() - 1)),
     ).toBeNull();
+    const failing = provider(async () => {
+      throw new Error("synthetic provider failure");
+    });
     await expect(run(team.id, failing, time)).resolves.toMatchObject({
       reason: "request_or_commit_failed",
     });
