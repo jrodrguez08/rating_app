@@ -106,7 +106,11 @@ describe("manual voting persistence", () => {
         ratingState: "rating_ready",
         votingOpeningMode: "manual",
         votingOpenNotificationStatus: "pending",
+        finalScoreCheckState: "pending",
       });
+      expect(match?.nextFinalScoreCheckAt.toMillis()).toBe(
+        match?.votingOpensAt.toMillis(),
+      );
       expect(
         match?.votingClosesAt.toMillis() - match?.votingOpensAt.toMillis(),
       ).toBe(2 * 60 * 60 * 1000);

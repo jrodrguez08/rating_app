@@ -218,6 +218,19 @@ export interface FootballDataProvider {
 
 export interface MatchLifecycleStore extends FootballSyncStore {
   listMatches(trackedTeamId: string): Promise<Match[]>;
+  listLifecycleMatches?(trackedTeamId: string, now: Date): Promise<Match[]>;
+  findDueFinalScore?(teamId: string, now: Date): Promise<string | null>;
+  claimFinalScoreCheck?(
+    team: Team,
+    matchId: string,
+    now: Date,
+  ): Promise<Match | null>;
+  commitFinalScore?(
+    attempt: Match,
+    provider: string,
+    fixture: ProviderFixture,
+    now: Date,
+  ): Promise<boolean>;
   updateMatchLifecycle(match: Match): Promise<void>;
   countRateableParticipants(matchId: string, teamId: string): Promise<number>;
   hasTrackedTeamHeadCoach(matchId: string, teamId: string): Promise<boolean>;

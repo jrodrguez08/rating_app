@@ -12,6 +12,7 @@ import {
   getFirestore,
   Timestamp,
   type Firestore,
+  type Transaction,
 } from "firebase-admin/firestore";
 
 import {
@@ -23,6 +24,7 @@ import {
   assertSameTrackedFixture,
   isMatchContextOwnedByTeam,
   isMatchOwnedByTeam,
+  trackedMatchId,
 } from "@/application/match-identity";
 import {
   buildPlayerCatalog,
@@ -46,6 +48,12 @@ import {
 import { validateBallotRatings } from "@/domain/ballot-validation";
 import { resolvePersistedCoachProviderAlias } from "@/domain/coach-identity";
 import { isCompatibleCurrentResult } from "@/domain/current-match-result";
+import {
+  confirmedManualScore,
+  FINAL_SCORE_MAX_ATTEMPTS,
+  FINAL_SCORE_RETRY_MS,
+  needsManualFinalScore,
+} from "@/domain/final-score";
 import { preserveMonotonicMatchStatus } from "@/domain/match-status";
 import { hasAuthoritativeFinalWhistle } from "@/domain/manual-voting";
 import { aggregateMatchResult } from "@/domain/result-aggregation";
@@ -78,6 +86,7 @@ import type {
   FootballSyncStore,
   LifecycleExecutionClaim,
   MatchLifecycleStore,
+  ProviderFixture,
   ProviderMatchContext,
   StandingsSyncStore,
   StandingsSyncTarget,
@@ -144,6 +153,7 @@ const TIMESTAMP_FIELDS = new Set([
   "windowReopenedAt",
   "windowClosedEarlyAt",
   "generatedAt",
+  "nextFinalScoreCheckAt",
   "lastFixtureDiscoveryAt",
   "lifecycleLeaseUntil",
   "lastLifecycleStartedAt",
@@ -1689,7 +1699,208 @@ export class AdminFootballSyncStore
     return snapshot.docs.map((document) => fromDocument<Match>(document));
   }
   async updateMatchLifecycle(match: Match): Promise<void> {
-    await this.database.doc(`matches/${match.id}`).set(toDocument(match));
+    const reference = this.database.doc(`matches/${match.id}`);
+    await this.database.runTransaction(async (transaction) => {
+      const current = (await transaction.get(reference)).data();
+      if (current?.votingOpeningMode === "manual")
+        throw new Error(
+          "Manual voting was established during fixture synchronization.",
+        );
+      transaction.set(reference, toDocument(match));
+    });
+  }
+  async listLifecycleMatches(teamId: string, now: Date): Promise<Match[]> {
+    const matches = this.database
+      .collection("matches")
+      .where("trackedTeamId", "==", teamId);
+    const byStatus = (
+      status: Match["status"],
+      states: Match["ratingState"][],
+    ) =>
+      matches
+        .where("status", "==", status)
+        .where("ratingState", "in", states)
+        .orderBy("kickoffAt");
+    const open = ["not_ready", "preparing_rating"] as const;
+    const cutoff = (hours: number) =>
+      Timestamp.fromMillis(now.getTime() - hours * 60 * 60_000);
+    const results = await Promise.all([
+      matches
+        .where("ratingState", "==", "rating_ready")
+        .orderBy("kickoffAt", "desc")
+        .get(),
+      byStatus("live", [...open])
+        .limit(1)
+        .get(),
+      byStatus("finished", ["preparing_rating"]).limit(1).get(),
+      byStatus("finished", ["not_ready"])
+        .where("kickoffAt", ">=", cutoff(8))
+        .limit(1)
+        .get(),
+      byStatus("scheduled", [...open])
+        .where("kickoffAt", ">=", cutoff(4))
+        .limit(1)
+        .get(),
+      matches
+        .where("ratingState", "==", "rating_closed")
+        .orderBy("kickoffAt", "desc")
+        .limit(1)
+        .get(),
+    ]);
+    // The original Team query used document ID ascending for equal kickoffs.
+    return results
+      .flatMap(({ docs }) => docs.map((doc) => fromDocument<Match>(doc)))
+      .sort((left, right) =>
+        left.id < right.id ? -1 : left.id > right.id ? 1 : 0,
+      );
+  }
+  async findDueFinalScore(teamId: string, now: Date): Promise<string | null> {
+    const due = await this.database
+      .collection("matches")
+      .where("trackedTeamId", "==", teamId)
+      .where("nextFinalScoreCheckAt", "<=", Timestamp.fromDate(now))
+      .orderBy("nextFinalScoreCheckAt")
+      .limit(1)
+      .get();
+    return due.docs[0]?.id ?? null;
+  }
+  async claimFinalScoreCheck(
+    team: Team,
+    matchId: string,
+    now: Date,
+  ): Promise<Match | null> {
+    const reference = this.database.doc(`matches/${matchId}`);
+    return this.database.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(reference);
+      if (
+        !snapshot.exists ||
+        !(await this.ownsFinalScoreLease(transaction, team.id))
+      )
+        return null;
+      const match = fromDocument<Match>(snapshot);
+      if (
+        match.trackedTeamId !== team.id ||
+        match.finalScoreCheckState !== "pending" ||
+        !match.nextFinalScoreCheckAt ||
+        Date.parse(match.nextFinalScoreCheckAt) > now.getTime()
+      )
+        return null;
+      const attempts = match.finalScoreCheckAttempts ?? 0;
+      const bound =
+        match.votingOpeningMode === "manual" &&
+        !!match.manualFinalWhistleAttestedAt &&
+        match.id ===
+          trackedMatchId(
+            match.externalProvider,
+            match.externalProviderFixtureId,
+            team.id,
+          ) &&
+        isMatchOwnedByTeam(match, team.id) &&
+        !!team.externalProviderId &&
+        (match.trackedTeamExternalProviderId === undefined ||
+          match.trackedTeamExternalProviderId === team.externalProviderId) &&
+        match.homeTeam.externalProviderId !==
+          match.awayTeam.externalProviderId &&
+        [
+          match.homeTeam.externalProviderId,
+          match.awayTeam.externalProviderId,
+        ].includes(team.externalProviderId);
+      if (
+        !bound ||
+        !needsManualFinalScore(match) ||
+        attempts >= FINAL_SCORE_MAX_ATTEMPTS
+      ) {
+        transaction.update(reference, {
+          finalScoreCheckState:
+            bound &&
+            match.status === "finished" &&
+            !needsManualFinalScore(match)
+              ? "reconciled"
+              : "exhausted",
+          nextFinalScoreCheckAt: FieldValue.delete(),
+        });
+        return null;
+      }
+      const nextAttempt = attempts + 1;
+      transaction.update(reference, {
+        finalScoreCheckAttempts: nextAttempt,
+        finalScoreCheckState:
+          nextAttempt === FINAL_SCORE_MAX_ATTEMPTS ? "exhausted" : "pending",
+        nextFinalScoreCheckAt:
+          nextAttempt === FINAL_SCORE_MAX_ATTEMPTS
+            ? FieldValue.delete()
+            : Timestamp.fromMillis(
+                Math.max(now.getTime(), snapshot.readTime.toMillis()) +
+                  FINAL_SCORE_RETRY_MS,
+              ),
+      });
+      return { ...match, finalScoreCheckAttempts: nextAttempt };
+    });
+  }
+  async commitFinalScore(
+    attempt: Match,
+    provider: string,
+    fixture: ProviderFixture,
+    now: Date,
+  ): Promise<boolean> {
+    const reference = this.database.doc(`matches/${attempt.id}`);
+    return this.database.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(reference);
+      if (
+        !snapshot.exists ||
+        !(await this.ownsFinalScoreLease(transaction, attempt.trackedTeamId))
+      )
+        return false;
+      const current = fromDocument<Match>(snapshot);
+      const score = confirmedManualScore(current, provider, fixture);
+      if (
+        !score ||
+        !needsManualFinalScore(current) ||
+        current.votingOpeningMode !== "manual" ||
+        current.manualFinalWhistleAttestedAt !==
+          attempt.manualFinalWhistleAttestedAt ||
+        current.trackedTeamId !== attempt.trackedTeamId ||
+        current.trackedTeamExternalProviderId !==
+          attempt.trackedTeamExternalProviderId ||
+        current.externalProvider !== attempt.externalProvider ||
+        current.externalProviderFixtureId !==
+          attempt.externalProviderFixtureId ||
+        current.homeTeam.externalProviderId !==
+          attempt.homeTeam.externalProviderId ||
+        current.awayTeam.externalProviderId !==
+          attempt.awayTeam.externalProviderId ||
+        current.finalScoreCheckAttempts !== attempt.finalScoreCheckAttempts ||
+        current.finalScoreCheckState === "reconciled" ||
+        current.status !== attempt.status ||
+        !isDeepStrictEqual(current.score, attempt.score) ||
+        current.lastProviderSyncAt !== attempt.lastProviderSyncAt ||
+        current.updatedAt !== attempt.updatedAt
+      )
+        return false;
+      const observedAt = Timestamp.fromDate(now);
+      transaction.update(reference, {
+        status: "finished",
+        score,
+        finishedObservedAt: snapshot.data()?.finishedObservedAt ?? observedAt,
+        lastProviderSyncAt: observedAt,
+        updatedAt: observedAt,
+        finalScoreCheckState: "reconciled",
+        nextFinalScoreCheckAt: FieldValue.delete(),
+      });
+      return true;
+    });
+  }
+  private async ownsFinalScoreLease(transaction: Transaction, teamId: string) {
+    if (!this.lifecycleAttemptId) return true;
+    const lease = await transaction.get(
+      this.database.doc(`footballSyncMetadata/${teamId}`),
+    );
+    const expires = lease.data()?.lifecycleLeaseUntil;
+    return (
+      lease.data()?.lifecycleAttemptId === this.lifecycleAttemptId &&
+      expires instanceof Timestamp &&
+      expires.toMillis() > lease.readTime.toMillis()
+    );
   }
   async countRateableParticipants(
     matchId: string,
@@ -3043,6 +3254,13 @@ function preserveMatchLifecycle(existing: Match, incoming: Match): Match {
   return {
     ...existing,
     ...incoming,
+    ...(existing.votingOpeningMode === "manual"
+      ? {
+          score: existing.score,
+          homeTeam: existing.homeTeam,
+          awayTeam: existing.awayTeam,
+        }
+      : {}),
     createdAt: existing.createdAt,
     ratingState: existing.ratingState ?? incoming.ratingState,
     status: preserveMonotonicMatchStatus(
