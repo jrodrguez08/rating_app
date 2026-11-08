@@ -1,7 +1,10 @@
+import sharp from "sharp";
+
 import type { PublishedPodiumPlayer } from "@/application/published-result-podium";
 import { isPlayerPhotoUrl } from "@/config/player-photos";
 
 const MAX_PHOTO_BYTES = 2 * 1024 * 1024;
+const MAX_PHOTO_PIXELS = 4_000_000;
 
 export async function loadSocialPlayerPhoto(
   photoUrl: string | undefined,
@@ -23,11 +26,36 @@ export async function loadSocialPlayerPhoto(
     if (Number.isFinite(declaredLength) && declaredLength > MAX_PHOTO_BYTES) {
       return null;
     }
-    const bytes = await response.arrayBuffer();
-    if (bytes.byteLength === 0 || bytes.byteLength > MAX_PHOTO_BYTES) {
-      return null;
+    if (!response.body) return null;
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let length = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        length += value.byteLength;
+        if (length > MAX_PHOTO_BYTES) {
+          await reader.cancel();
+          return null;
+        }
+        chunks.push(value);
+      }
+    } finally {
+      reader.releaseLock();
     }
-    return `data:${contentType};base64,${Buffer.from(bytes).toString("base64")}`;
+    if (length === 0) return null;
+    const bytes = Buffer.concat(chunks, length);
+    const image = sharp(bytes, {
+      failOn: "warning",
+      limitInputPixels: MAX_PHOTO_PIXELS,
+    });
+    const { format } = await image.metadata();
+    if (format !== "png" && format !== "jpeg") return null;
+    // Metadata alone accepts truncated payloads. Force a complete decode before
+    // passing the original, correctly labeled bytes to ImageResponse.
+    await image.raw().toBuffer();
+    return `data:image/${format};base64,${bytes.toString("base64")}`;
   } catch {
     return null;
   }

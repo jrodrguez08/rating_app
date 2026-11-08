@@ -311,28 +311,36 @@ function PlayerPodium({
           boxShadow: story ? "10px 10px 0 #050506" : "6px 6px 0 #050506",
         }}
       >
+        {/* ImageResponse has no browser onError event. Keep initials underneath
+            even a validated portrait in case its renderer cannot paint it. */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: medal,
+            fontSize: story ? (first ? 110 : 86) : first ? 74 : 60,
+            fontWeight: 900,
+          }}
+        >
+          {initials(player.displayName)}
+        </div>
         {photoDataUrl ? (
           <img
             alt=""
             src={photoDataUrl}
             width={width}
             height={portraitHeight}
-            style={{ width: "100%", height: "100%", objectFit: "cover" }}
-          />
-        ) : (
-          <div
             style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: medal,
-              fontSize: story ? (first ? 110 : 86) : first ? 74 : 60,
-              fontWeight: 900,
+              position: "absolute",
+              top: 0,
+              left: 0,
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
             }}
-          >
-            {initials(player.displayName)}
-          </div>
-        )}
+          />
+        ) : null}
         {player.isMvp && !story ? (
           <div
             style={{
