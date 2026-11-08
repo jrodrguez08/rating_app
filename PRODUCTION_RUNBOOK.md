@@ -507,6 +507,18 @@ After success, inspect `matches/{matchId}`, `finalWhistleAttestations/manual`, a
 
 For a non-production smoke test, cover scheduled and live provider states, default and custom close choices, delayed authorization, exact confirmation, notification failure, and an exact retry. Verify missing coach, incomplete lineup, wrong fixture or Team binding, draft-only data, canonical identity gaps, material conflicts, expired custom close, existing ballots/results/revisions, and prior attestation all fail without writes. Roll back application code through the normal deployment pipeline and preserve every attestation, audit, ballot, result, and lifecycle timestamp for investigation. Never edit these documents manually.
 
+### Manual opening final score reconciliation
+
+Issue #170 occurred because `runMatchLifecycle` stopped refreshing fixtures once the rating window was established. `preserveMatchLifecycle` also freezes sporting status once voting starts, so discovery could not move a manually attested Match from live or scheduled to finished. Recientes already displays the final score when the persisted status and both goal values are present.
+
+New manual openings register unresolved scores in the opening transaction. The existing scheduler can check one due tracked Match per Team per otherwise idle run, after expired-window finalization and normal lifecycle work. The query orders by the persisted due time and Firestore's document-ID tie break. Reserving a check moves it to the back of the due queue or removes it at the ceiling. The minimum interval is one hour and the ceiling is 12 attempts per tracked Match. An interrupted request still counts. A shared provider fixture has separate Herediano and Saprissa attempts, each with its own Match and original home/away orientation.
+
+Only an exact provider/fixture and ordered Team match with an authoritative final status and two nonnegative integer goal totals is accepted. The write atomically persists `finished`, both goals and reconciliation metadata. The current Match and execution lease are rechecked so stale responses cannot overwrite later changes. Existing voting, ballots, published results and Wrapped remain outside the write. Bulk fixture discovery preserves sporting scores for manually opened Matches.
+
+The ordinary lifecycle selector reads the Team's open-window set and up to five single-document priority queries. It does not enumerate closed history. A discovery run can repeat that selection once. Score reconciliation adds one sparse due query, at most one provider request, a Match and lease read per reservation or successful commit, and one Match write per transaction. The existing target-mark and provider lease renewal are also used. A failed, incomplete or conflicting response leaves the score untouched. Review `lifecycle.final_score` logs for the Match ID, attempt number and outcome. `finalScoreCheckState: exhausted` needs explicit operator review and an independently authorized exact-fixture correction. Standard lifecycle runs do not reset the counter. There is no automatic backfill.
+
+Before deploying the application, create the `matches` composite index on `trackedTeamId ASC` and `nextFinalScoreCheckAt ASC` from the declared index configuration, and confirm it is READY in the exact production project. Verify the existing lifecycle indexes are available as well. No rules or secrets change. The four records corrected during the incident require no repeat operation. [Firestore index documentation](https://firebase.google.com/docs/firestore/query-data/index-overview).
+
 ## Recent-fixture preparation catalog import (proposed Issue #145)
 
 ### Firestore read spikes and administrative Player search

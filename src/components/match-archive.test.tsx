@@ -329,7 +329,7 @@ describe("Partidos presentation", () => {
     expect(screen.queryByText(/^Live/)).not.toBeInTheDocument();
   });
 
-  it("keeps the featured match above accessible tabs and switches compact archive panels", async () => {
+  it("shows the reconciled score and preserves published ratings in the accessible recent panel", async () => {
     const user = userEvent.setup();
     const featured = item(
       match({
@@ -347,28 +347,31 @@ describe("Partidos presentation", () => {
     const recent = item(
       match({
         id: "recent",
-        status: "finished",
+        status: "live",
+        ratingState: "rating_closed",
+        votingOpeningMode: "manual",
         kickoffAt: "2026-08-30T23:00:00.000Z",
-        score: { home: 2, away: 1 },
         awayTeam: { externalProviderId: "3", name: "Recent opponent" },
       }),
+      true,
     );
 
-    render(
+    const view = (recentItem: MatchArchiveItem) => (
       <MatchArchiveView
         club={initialClub}
         archive={{
           relevant: featured,
           upcoming: [upcoming],
-          recent: [recent],
+          recent: [recentItem],
           featuredUpcoming: true,
         }}
         locale="en"
         messages={messages}
         ballotMessages={ballotMessages}
         now={now}
-      />,
+      />
     );
+    const { rerender } = render(view(recent));
 
     const featuredHeading = screen.getByRole("heading", {
       name: "Featured match",
@@ -403,8 +406,33 @@ describe("Partidos presentation", () => {
       "recent-tab",
     );
     expect(screen.getByText("Recent opponent")).toBeInTheDocument();
-    expect(screen.getByText("2 - 1")).toBeInTheDocument();
-    expect(screen.getByText("Final")).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("tabpanel")).getByText("VS"),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("tabpanel")).getByRole("link", {
+        name: /results/i,
+      }),
+    ).toBeInTheDocument();
+    rerender(
+      view({
+        ...recent,
+        match: {
+          ...recent.match,
+          status: "finished",
+          score: { home: 0, away: 2 },
+        },
+      }),
+    );
+    expect(
+      within(screen.getByRole("tabpanel")).getByText("0 - 2"),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("tabpanel")).getByRole("link", {
+        name: /results/i,
+      }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(messages.resultsAvailable)).toBeInTheDocument();
     expect(screen.queryByText("No Rating App vote")).not.toBeInTheDocument();
     expect(screen.getAllByText("Featured opponent")).toHaveLength(1);
 

@@ -1,6 +1,7 @@
 import { Timestamp, type Firestore } from "firebase-admin/firestore";
 
 import { coachWithSearchIndex } from "@/application/coach-search";
+import { needsManualFinalScore } from "@/domain/final-score";
 import {
   manualVotingClosesAt,
   manualVotingStatusEligibility,
@@ -435,6 +436,12 @@ export class AdminManualVotingService {
         votingClosesAt: Timestamp.fromDate(closesAt),
         votingOpeningMode: "manual",
         manualFinalWhistleAttestedAt: Timestamp.fromDate(trustedAt),
+        ...(needsManualFinalScore(match)
+          ? {
+              finalScoreCheckState: "pending",
+              nextFinalScoreCheckAt: Timestamp.fromDate(trustedAt),
+            }
+          : {}),
         votingOpenNotificationWindow: 0,
         votingOpenNotificationStatus: "pending",
         updatedAt: Timestamp.fromDate(trustedAt),
