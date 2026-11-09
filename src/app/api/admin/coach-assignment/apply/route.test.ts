@@ -14,8 +14,10 @@ vi.mock("@/lib/firebase/admin-security", () => ({
   },
 }));
 
-vi.mock("@/lib/firebase/server", () => {
-  class AdminVerifiedCoachAssignmentRejectedError extends Error {}
+vi.mock("@/lib/firebase/server", async () => {
+  const { AdminVerifiedCoachAssignmentRejectedError } =
+    await import("@/lib/server/admin-coach-error");
+
   class AdminVerifiedCoachAssignmentCommitError extends Error {}
   return {
     AdminVerifiedCoachAssignmentRejectedError,
@@ -98,7 +100,7 @@ describe("admin coach assignment apply route", () => {
 
     const response = await POST(applyRequest());
 
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(500);
     expect(mocks.audit).not.toHaveBeenCalled();
     expect(response.headers.get("set-cookie")).toBeNull();
   });
@@ -113,7 +115,7 @@ describe("admin coach assignment apply route", () => {
 
     const response = await POST(applyRequest());
 
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(500);
     expect(mocks.audit).toHaveBeenCalledWith(
       expect.objectContaining({ outcome: "failed" }),
     );

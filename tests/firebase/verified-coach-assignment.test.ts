@@ -4,6 +4,7 @@ import { deleteApp, initializeApp } from "firebase-admin/app";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { proposedCoachProviderAlias } from "@/domain/coach-identity";
 import {
   AdminVerifiedCoachAssignmentCommitError,
   AdminVerifiedCoachAssignmentRejectedError,
@@ -29,6 +30,37 @@ beforeAll(() => {
 afterAll(() => deleteApp(app));
 
 describe("verified coach assignment persistence", () => {
+  it("accepts a reviewed provider alias to a manual canonical Coach for Saprissa", async () => {
+    const matchId = "reconciled-saprissa-coach";
+    await seedMatch(matchId);
+    await database
+      .doc(`matches/${matchId}`)
+      .update({ trackedTeamId: "deportivo-saprissa" });
+    const input = {
+      ...assignmentInput(matchId),
+      trackedTeamId: "deportivo-saprissa",
+      externalProviderCoachId: "9174099",
+    };
+    await database.doc(`coaches/${input.coachId}`).set({
+      displayName: input.coachName,
+      identityProvenance: "operator_verified",
+      externalProvider: "api-football",
+      externalProviderId: "9174099",
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    });
+    const alias = proposedCoachProviderAlias(
+      "api-football",
+      "9174099",
+      new Date().toISOString(),
+      input.coachId,
+    );
+    await database.doc(`coachProviderAliases/${alias.id}`).set(alias);
+    await expect(service.assign(input, false)).resolves.toMatchObject({
+      coachCreated: false,
+      coachId: input.coachId,
+    });
+  });
   it.each(["scheduled", "live"] as const)(
     "permits guarded fixture coach preparation while provider status is %s",
     async (status) => {

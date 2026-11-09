@@ -155,7 +155,14 @@ describe("match-specific verified coach panel", () => {
         })
         .mockResolvedValueOnce({
           ok: true,
-          json: async () => ({ plan: {}, previewToken: "preview" }),
+          json: async () => ({
+            plan: {},
+            previewToken: "preview",
+            action: {
+              coachId: "coach-existing",
+              coachIdentityVersion: "a".repeat(64),
+            },
+          }),
         })
         .mockResolvedValueOnce({
           ok: true,
@@ -196,6 +203,12 @@ describe("match-specific verified coach panel", () => {
         }),
       );
       expect(fetchMock).toHaveBeenCalledTimes(4);
+      for (const call of fetchMock.mock.calls.slice(2)) {
+        expect(JSON.parse(call[1].body).action).toEqual({
+          coachId: "coach-existing",
+          coachIdentityVersion: "a".repeat(64),
+        });
+      }
     },
   );
 });

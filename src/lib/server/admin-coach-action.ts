@@ -7,6 +7,7 @@ export interface AdminCoachAction {
   coachId: string;
   coachName: string;
   externalProviderCoachId?: string;
+  coachIdentityVersion?: string;
   verificationSource: string;
   verificationReason: string;
 }
@@ -21,6 +22,9 @@ export function hashAdminCoachAction(action: AdminCoachAction): string {
         coachId: action.coachId,
         coachName: action.coachName,
         externalProviderCoachId: action.externalProviderCoachId ?? null,
+        ...(action.coachIdentityVersion === undefined
+          ? {}
+          : { coachIdentityVersion: action.coachIdentityVersion }),
         verificationSource: action.verificationSource,
         verificationReason: action.verificationReason,
       }),

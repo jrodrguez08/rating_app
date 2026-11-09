@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import type { CoachProviderAlias } from "./models";
+import type { Coach, CoachProviderAlias } from "./models";
 import { providerEntityId } from "./player-identity";
 
 export function coachProviderAliasId(
@@ -63,4 +63,45 @@ export function resolvePersistedCoachProviderAlias(
     );
   }
   return { ...proposed, createdAt: existing.createdAt };
+}
+
+/** Read-only resolution: never establishes a reviewed mapping during assignment. */
+export function resolveCoachAssignmentIdentity(
+  provider: string,
+  externalCoachId: string,
+  alias: CoachProviderAlias | undefined,
+  coach: Coach | undefined,
+  selectedCoachId: string,
+):
+  | "COACH_ALIAS_MISSING"
+  | "COACH_ALIAS_CONFLICT"
+  | "COACH_PROVIDER_MISMATCH"
+  | "COACH_INVALID_IDENTITY"
+  | undefined {
+  if (!/^[1-9]\d*$/.test(externalCoachId)) return "COACH_PROVIDER_MISMATCH";
+  const proposed = proposedCoachProviderAlias(provider, externalCoachId, "");
+  if (!alias && selectedCoachId !== proposed.canonicalCoachId)
+    return "COACH_ALIAS_MISSING";
+  if (
+    alias &&
+    (alias.id !== proposed.id ||
+      !/^[A-Za-z0-9_-]{1,128}$/.test(alias.canonicalCoachId))
+  )
+    return "COACH_ALIAS_CONFLICT";
+  let resolved: CoachProviderAlias;
+  try {
+    resolved = resolvePersistedCoachProviderAlias(alias, proposed);
+  } catch {
+    return "COACH_ALIAS_CONFLICT";
+  }
+  if (resolved.canonicalCoachId !== selectedCoachId)
+    return "COACH_ALIAS_CONFLICT";
+  if (alias && !coach) return "COACH_INVALID_IDENTITY";
+  if (
+    coach &&
+    (coach.externalProvider !== provider ||
+      coach.externalProviderId !== externalCoachId)
+  )
+    return "COACH_PROVIDER_MISMATCH";
+  return undefined;
 }
