@@ -5,6 +5,10 @@ import type { NextRequest } from "next/server";
 
 import { resolveClub, type Club } from "@/config/club";
 import { getMessages } from "@/i18n/messages";
+import {
+  AdminVerifiedCoachAssignmentRejectedError,
+  coachErrorKeys,
+} from "@/lib/server/admin-coach-error";
 import { emitOperationalLog } from "@/lib/operational-log";
 import type { AdminCoachAction } from "@/lib/server/admin-coach-action";
 import type { AdminCoachIdentityAction } from "@/lib/server/admin-coach-identity-action";
@@ -77,8 +81,11 @@ export function parseAdminCoachAction(value: unknown): AdminCoachAction {
     if (typeof value[key] !== "string") throw new AdminAuthorizationError(403);
   }
   if (
-    value.externalProviderCoachId !== undefined &&
-    typeof value.externalProviderCoachId !== "string"
+    (value.externalProviderCoachId !== undefined &&
+      typeof value.externalProviderCoachId !== "string") ||
+    (value.coachIdentityVersion !== undefined &&
+      (typeof value.coachIdentityVersion !== "string" ||
+        !/^[a-f0-9]{64}$/.test(value.coachIdentityVersion)))
   ) {
     throw new AdminAuthorizationError(403);
   }
@@ -88,7 +95,10 @@ export function parseAdminCoachAction(value: unknown): AdminCoachAction {
     externalFixtureId: value.externalFixtureId as string,
     coachId: value.coachId as string,
     coachName: value.coachName as string,
-    ...(value.externalProviderCoachId
+    ...(value.coachIdentityVersion === undefined
+      ? {}
+      : { coachIdentityVersion: value.coachIdentityVersion as string }),
+    ...(value.externalProviderCoachId !== undefined
       ? { externalProviderCoachId: value.externalProviderCoachId as string }
       : {}),
     verificationSource: value.verificationSource as string,
@@ -342,6 +352,52 @@ export function adminError(error: unknown): NextResponse {
     }
   }
   return adminJson({ error: messages.operationError }, 400);
+}
+
+export function adminCoachError(
+  error: unknown,
+  operation: "preview" | "authorize" | "apply",
+): NextResponse {
+  if (error instanceof AdminAuthorizationError) return adminError(error);
+  const code =
+    error instanceof AdminVerifiedCoachAssignmentRejectedError
+      ? error.code
+      : "COACH_OPERATION_UNAVAILABLE";
+  const status =
+    code === "COACH_OPERATION_UNAVAILABLE"
+      ? 500
+      : code === "COACH_MATCH_NOT_FOUND"
+        ? 404
+        : code === "COACH_INVALID_CHALLENGE"
+          ? 403
+          : [
+                "COACH_INVALID_INPUT",
+                "COACH_INVALID_SOURCE",
+                "COACH_INVALID_REASON",
+                "COACH_INVALID_IDENTITY",
+                "COACH_PROVIDER_MISMATCH",
+              ].includes(code)
+            ? 400
+            : 409;
+  const requestId = randomUUID();
+  emitOperationalLog(
+    status >= 500 ? console.error : console.warn,
+    "admin_coach_operation_failed",
+    { requestId, operation, code, status },
+  );
+  const response = adminJson(
+    {
+      code,
+      requestId,
+      error: messages.coachErrors[coachErrorKeys[code]].replace(
+        "{requestId}",
+        requestId,
+      ),
+    },
+    status,
+  );
+  response.headers.set("X-Request-ID", requestId);
+  return response;
 }
 
 export function adminLineupError(

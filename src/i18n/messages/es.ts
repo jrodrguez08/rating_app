@@ -395,6 +395,34 @@ export const esMessages = {
     backHome: "Volver al inicio",
   },
   admin: {
+    coachErrors: {
+      aliasMissing:
+        "Falta el alias revisado para la identidad canónica seleccionada. Revisa la conciliación.",
+      invalidInput: "Los datos de la asignación no son válidos.",
+      invalidSource:
+        "La fuente de verificación debe ser el propietario autenticado o una URL HTTPS válida.",
+      invalidReason:
+        "El motivo de verificación debe tener entre 10 y 500 caracteres.",
+      invalidIdentity:
+        "La identidad canónica del director técnico no existe o no es compatible. Vuelve a seleccionarla.",
+      aliasConflict:
+        "La identidad del proveedor no apunta al director técnico seleccionado. Revisa la conciliación de identidades.",
+      reconciliationStale:
+        "La conciliación del director técnico cambió. Actualiza la selección y solicita una nueva vista previa.",
+      providerMismatch:
+        "La identidad del proveedor del director técnico no coincide con la verificada.",
+      invalidBinding:
+        "El equipo o el fixture no coincide con el partido seleccionado.",
+      assignmentConflict:
+        "Ya existe una asignación de director técnico incompatible. Requiere revisión.",
+      invalidMatchState:
+        "El estado del partido o su historial de votación impide cambiar el director técnico.",
+      matchNotFound: "No se encontró el partido seleccionado.",
+      invalidChallenge:
+        "La autorización de esta asignación no es válida. Solicita una nueva vista previa.",
+      unavailable:
+        "No se pudo completar la asignación. Conserva esta referencia: {requestId}.",
+    },
     eyebrow: "Operación segura",
     title: "Consola administrativa",
     description:

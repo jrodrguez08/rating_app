@@ -186,12 +186,12 @@ export function AdminMatchCoachPanel({
     try {
       const preview = await post("/api/admin/coach-assignment/preview", action);
       await post("/api/admin/coach-assignment/authorize", {
-        action,
+        action: preview.action,
         previewToken: preview.previewToken,
         passphrase: String(new FormData(form).get("passphrase")),
       });
       await post("/api/admin/coach-assignment/apply", {
-        action,
+        action: preview.action,
         confirmation: `assign-verified-coach:${detail.match.id}`,
       });
       router.refresh();

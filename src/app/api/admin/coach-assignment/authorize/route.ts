@@ -11,7 +11,7 @@ import {
   readAdminIdentityConfig,
 } from "@/lib/server/admin-auth";
 import {
-  adminError,
+  adminCoachError,
   adminJson,
   parseAdminCoachAction,
   requireAdminRequest,
@@ -88,6 +88,6 @@ export async function POST(request: NextRequest) {
         error.code === "too_many_attempts" ? 429 : 403,
       );
     }
-    return adminError(error);
+    return adminCoachError(error, "authorize");
   }
 }

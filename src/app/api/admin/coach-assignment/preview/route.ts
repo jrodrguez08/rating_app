@@ -3,7 +3,7 @@ import type { NextRequest } from "next/server";
 import { AdminSecurityStore } from "@/lib/firebase/admin-security";
 import { AdminVerifiedCoachService } from "@/lib/firebase/server";
 import {
-  adminError,
+  adminCoachError,
   adminJson,
   parseAdminCoachAction,
   requireAdminRequest,
@@ -20,13 +20,18 @@ export async function POST(request: NextRequest) {
       { ...action, operatorId: identity.uid },
       false,
     );
-    const preview = await security.issuePreview(identity.uid, action);
+    const boundAction = {
+      ...action,
+      coachIdentityVersion: plan.coachIdentityVersion,
+    };
+    const preview = await security.issuePreview(identity.uid, boundAction);
     return adminJson({
       plan,
+      action: boundAction,
       previewToken: preview.token,
       expiresAt: preview.expiresAt,
     });
   } catch (error) {
-    return adminError(error);
+    return adminCoachError(error, "preview");
   }
 }

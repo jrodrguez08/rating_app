@@ -2,6 +2,7 @@ import { deleteApp, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
 
+import { proposedCoachProviderAlias } from "@/domain/coach-identity";
 import { trackedMatchId } from "@/application/match-identity";
 import {
   coachWithSearchIndex,
@@ -86,10 +87,19 @@ export default async function seed(): Promise<void> {
           displayName: `${club.shortName} Entrenador`,
           associatedTeamIds: [club.teamId],
           identityProvenance: "operator_verified",
+          externalProvider: "api-football",
+          externalProviderId: club.providerId,
           createdAt: now.toISOString(),
           updatedAt: now.toISOString(),
         }),
       );
+      const alias = proposedCoachProviderAlias(
+        "api-football",
+        club.providerId,
+        now.toISOString(),
+        coachId,
+      );
+      await database.doc(`coachProviderAliases/${alias.id}`).set(alias);
       await database.doc(`teams/${club.teamId}`).set({
         displayName: club.name,
         shortName: club.shortName,

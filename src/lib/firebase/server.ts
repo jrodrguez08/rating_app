@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 
 import {
@@ -46,7 +47,11 @@ import {
   mergeTeamPlayerMembership,
 } from "@/application/team-player-membership";
 import { validateBallotRatings } from "@/domain/ballot-validation";
-import { resolvePersistedCoachProviderAlias } from "@/domain/coach-identity";
+import {
+  coachProviderAliasId,
+  resolveCoachAssignmentIdentity,
+  resolvePersistedCoachProviderAlias,
+} from "@/domain/coach-identity";
 import { isCompatibleCurrentResult } from "@/domain/current-match-result";
 import {
   confirmedManualScore,
@@ -98,8 +103,8 @@ import {
   canonicalPlayerIdMap,
   mergePlayerForProviderSync,
   playerProviderAliasId,
-  providerEntityId,
 } from "@/domain/player-identity";
+import { AdminVerifiedCoachAssignmentRejectedError } from "@/lib/server/admin-coach-error";
 import { selectDurableVerifiedLineupReconciliation } from "@/domain/verified-lineup-reconciliation";
 import {
   getEffectiveVotingWindow,
@@ -1048,6 +1053,7 @@ export class AdminVotingWindowService {
 }
 
 export interface VerifiedCoachAssignmentPlan {
+  coachIdentityVersion?: string;
   matchId: string;
   trackedTeamId: string;
   externalFixtureId: string;
@@ -1066,6 +1072,7 @@ export interface VerifiedCoachAssignmentPlan {
 }
 
 export interface VerifiedCoachAssignmentInput {
+  coachIdentityVersion?: string;
   matchId: string;
   trackedTeamId: string;
   externalFixtureId: string;
@@ -1083,12 +1090,7 @@ export interface AuthorizedVerifiedCoachAssignmentResult {
   disposition: "committed" | "idempotent_retry";
 }
 
-export class AdminVerifiedCoachAssignmentRejectedError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "AdminVerifiedCoachAssignmentRejectedError";
-  }
-}
+export { AdminVerifiedCoachAssignmentRejectedError };
 
 export class AdminVerifiedCoachAssignmentCommitError extends Error {
   constructor() {
@@ -1114,6 +1116,7 @@ export class AdminVerifiedCoachService {
     if (!challengeToken || !/^[A-Za-z0-9_-]{40,64}$/.test(challengeToken)) {
       throw new AdminVerifiedCoachAssignmentRejectedError(
         "Admin action challenge is invalid.",
+        "COACH_INVALID_CHALLENGE",
       );
     }
     const challengeId = adminChallengeDocumentId(challengeToken);
@@ -1144,19 +1147,50 @@ export class AdminVerifiedCoachService {
     auditId?: string;
     disposition?: "committed" | "idempotent_retry";
   }> {
+    if (!validVerificationSource(input.verificationSource))
+      throw new AdminVerifiedCoachAssignmentRejectedError(
+        "Verified coach assignment input is invalid: source.",
+        "COACH_INVALID_SOURCE",
+      );
+    if (
+      input.verificationReason.trim().length < 10 ||
+      input.verificationReason.length > 500
+    )
+      throw new AdminVerifiedCoachAssignmentRejectedError(
+        "Verified coach assignment input is invalid: reason.",
+        "COACH_INVALID_REASON",
+      );
+    if (
+      input.externalProviderCoachId !== undefined &&
+      !/^[1-9]\d*$/.test(input.externalProviderCoachId)
+    )
+      throw new AdminVerifiedCoachAssignmentRejectedError(
+        "Invalid external coach identity.",
+        "COACH_PROVIDER_MISMATCH",
+      );
+    if (
+      input.coachIdentityVersion !== undefined &&
+      !/^[a-f0-9]{64}$/.test(input.coachIdentityVersion)
+    )
+      throw new AdminVerifiedCoachAssignmentRejectedError(
+        "Invalid identity version.",
+        "COACH_RECONCILIATION_STALE",
+      );
+    if (
+      !/^[A-Za-z0-9_-]{1,128}$/.test(input.coachId) ||
+      input.coachName.trim() === "" ||
+      input.coachName.length > 120
+    ) {
+      throw new AdminVerifiedCoachAssignmentRejectedError(
+        "Coach identity input is invalid.",
+        "COACH_INVALID_IDENTITY",
+      );
+    }
     if (
       !/^[A-Za-z0-9_-]{1,128}$/.test(input.matchId) ||
       !/^[A-Za-z0-9_-]{1,128}$/.test(input.trackedTeamId) ||
       !/^[A-Za-z0-9_-]{1,128}$/.test(input.externalFixtureId) ||
-      !/^[A-Za-z0-9_-]{1,128}$/.test(input.coachId) ||
-      input.coachName.trim() === "" ||
-      input.coachName.length > 120 ||
-      !validVerificationSource(input.verificationSource) ||
-      input.verificationReason.trim().length < 10 ||
-      input.verificationReason.length > 500 ||
-      !/^[A-Za-z0-9_.@-]{1,128}$/.test(input.operatorId) ||
-      (input.externalProviderCoachId !== undefined &&
-        !/^\d+$/.test(input.externalProviderCoachId))
+      !/^[A-Za-z0-9_.@-]{1,128}$/.test(input.operatorId)
     ) {
       throw new AdminVerifiedCoachAssignmentRejectedError(
         "Verified coach assignment input is invalid.",
@@ -1174,12 +1208,13 @@ export class AdminVerifiedCoachService {
       const resultReference = this.database.doc(
         `matches/${input.matchId}/results/summary`,
       );
-      const ballotQuery = this.database.collection(
-        `matches/${input.matchId}/ballots`,
-      );
-      const revisionQuery = this.database.collection(
-        `matches/${input.matchId}/resultRevisions`,
-      );
+      // Existence guards only: one document proves protected history is present.
+      const ballotQuery = this.database
+        .collection(`matches/${input.matchId}/ballots`)
+        .limit(1);
+      const revisionQuery = this.database
+        .collection(`matches/${input.matchId}/resultRevisions`)
+        .limit(1);
       const challengeReference = challengeId
         ? this.database.doc(`adminActionChallenges/${challengeId}`)
         : undefined;
@@ -1204,6 +1239,7 @@ export class AdminVerifiedCoachService {
         ) {
           throw new AdminVerifiedCoachAssignmentRejectedError(
             "Admin action challenge is invalid.",
+            "COACH_INVALID_CHALLENGE",
           );
         }
         if (challenge.consumedAt !== undefined) {
@@ -1213,6 +1249,7 @@ export class AdminVerifiedCoachService {
           ) {
             throw new AdminVerifiedCoachAssignmentRejectedError(
               "Admin action challenge is invalid.",
+              "COACH_INVALID_CHALLENGE",
             );
           }
           const auditSnapshot = await transaction.get(auditReference);
@@ -1231,6 +1268,8 @@ export class AdminVerifiedCoachService {
             audit.evidenceReference !== input.verificationSource ||
             audit.verificationReason !== input.verificationReason ||
             audit.actionHash !== actionHash ||
+            (input.coachIdentityVersion !== undefined &&
+              audit.coachIdentityVersion !== input.coachIdentityVersion) ||
             audit.outcome !== "success" ||
             audit.commitDisposition !== "committed" ||
             !(audit.createdAt instanceof Timestamp) ||
@@ -1246,10 +1285,14 @@ export class AdminVerifiedCoachService {
           ) {
             throw new AdminVerifiedCoachAssignmentRejectedError(
               "Committed admin action audit is invalid.",
+              "COACH_INVALID_CHALLENGE",
             );
           }
           return {
             plan: {
+              ...(typeof audit.coachIdentityVersion === "string"
+                ? { coachIdentityVersion: audit.coachIdentityVersion }
+                : {}),
               matchId: input.matchId,
               trackedTeamId: input.trackedTeamId,
               externalFixtureId: input.externalFixtureId,
@@ -1288,6 +1331,7 @@ export class AdminVerifiedCoachService {
         ) {
           throw new AdminVerifiedCoachAssignmentRejectedError(
             "Admin action challenge is invalid.",
+            "COACH_INVALID_CHALLENGE",
           );
         }
       }
@@ -1301,6 +1345,7 @@ export class AdminVerifiedCoachService {
       if (!matchSnapshot.exists) {
         throw new AdminVerifiedCoachAssignmentRejectedError(
           "Match was not found.",
+          "COACH_MATCH_NOT_FOUND",
         );
       }
       const match = fromDocument<Match>(matchSnapshot);
@@ -1310,6 +1355,7 @@ export class AdminVerifiedCoachService {
       ) {
         throw new AdminVerifiedCoachAssignmentRejectedError(
           "Match Team or fixture confirmation does not match.",
+          "COACH_INVALID_BINDING",
         );
       }
       if (
@@ -1321,6 +1367,7 @@ export class AdminVerifiedCoachService {
       ) {
         throw new AdminVerifiedCoachAssignmentRejectedError(
           "Verified coach recovery is not permitted in the current match state.",
+          "COACH_INVALID_MATCH_STATE",
         );
       }
       let trackedTeamExternalProviderId = match.trackedTeamExternalProviderId;
@@ -1332,24 +1379,93 @@ export class AdminVerifiedCoachService {
           ? fromDocument<Team>(teamSnapshot).externalProviderId
           : undefined;
       }
-      if (!trackedTeamExternalProviderId) {
+      if (
+        !trackedTeamExternalProviderId ||
+        ![
+          match.homeTeam.externalProviderId,
+          match.awayTeam.externalProviderId,
+        ].includes(trackedTeamExternalProviderId)
+      ) {
         throw new AdminVerifiedCoachAssignmentRejectedError(
           "Tracked Team provider identity is missing.",
+          "COACH_INVALID_BINDING",
         );
       }
       const trustedDate = matchSnapshot.readTime.toDate();
       const trustedAt = trustedDate.toISOString();
-      if (input.externalProviderCoachId !== undefined) {
-        const expectedId = providerEntityId(
-          "coach",
-          match.externalProvider,
-          input.externalProviderCoachId,
+      const existingCoach = coachSnapshot.exists
+        ? fromDocument<Coach>(coachSnapshot)
+        : undefined;
+      const externalCoachId =
+        input.externalProviderCoachId ?? existingCoach?.externalProviderId;
+      let alias: CoachProviderAlias | undefined;
+      if (externalCoachId !== undefined) {
+        const aliasSnapshot = await transaction.get(
+          this.database.doc(
+            `coachProviderAliases/${coachProviderAliasId(match.externalProvider, externalCoachId)}`,
+          ),
         );
-        if (expectedId !== input.coachId) {
+        alias = aliasSnapshot.exists
+          ? fromDocument<CoachProviderAlias>(aliasSnapshot)
+          : undefined;
+      }
+      const coachIdentityVersion = createHash("sha256")
+        .update(
+          JSON.stringify({
+            provider: match.externalProvider,
+            externalCoachId: externalCoachId ?? null,
+            alias: alias
+              ? [
+                  alias.id,
+                  alias.externalProvider,
+                  alias.externalProviderCoachId,
+                  alias.canonicalCoachId,
+                  alias.createdAt,
+                  alias.updatedAt,
+                ]
+              : null,
+            coach: existingCoach
+              ? [
+                  existingCoach.id,
+                  existingCoach.displayName,
+                  existingCoach.identityProvenance ?? null,
+                  existingCoach.externalProvider ?? null,
+                  existingCoach.externalProviderId ?? null,
+                ]
+              : null,
+          }),
+        )
+        .digest("hex");
+      if (
+        (input.coachIdentityVersion !== undefined &&
+          input.coachIdentityVersion !== coachIdentityVersion) ||
+        (challengeId &&
+          externalCoachId !== undefined &&
+          !input.coachIdentityVersion)
+      ) {
+        throw new AdminVerifiedCoachAssignmentRejectedError(
+          "Coach reconciliation changed since preview.",
+          "COACH_RECONCILIATION_STALE",
+        );
+      }
+      if (externalCoachId !== undefined) {
+        const conflict = resolveCoachAssignmentIdentity(
+          match.externalProvider,
+          externalCoachId,
+          alias,
+          existingCoach,
+          input.coachId,
+        );
+        if (conflict)
           throw new AdminVerifiedCoachAssignmentRejectedError(
-            "Coach ID must match the verified provider identity mapping.",
+            "Coach canonical provider identity conflicts with recovery.",
+            conflict,
           );
-        }
+      } else if (existingCoach?.externalProvider !== undefined) {
+        throw new AdminVerifiedCoachAssignmentRejectedError(
+          "Coach provider identity is incomplete.",
+          "COACH_PROVIDER_MISMATCH",
+        );
       }
       const proposedCoach: Coach = {
         id: input.coachId,
@@ -1375,6 +1491,7 @@ export class AdminVerifiedCoachService {
             error instanceof Error
               ? error.message
               : "Coach identity conflicts with recovery.",
+            "COACH_INVALID_IDENTITY",
           );
         }
       }
@@ -1420,18 +1537,27 @@ export class AdminVerifiedCoachService {
         ) {
           throw new AdminVerifiedCoachAssignmentRejectedError(
             "Verified coach assignment conflicts with existing audit data.",
+            "COACH_ASSIGNMENT_CONFLICT",
           );
         }
       }
       if (assignmentSnapshot.exists) {
         const existing = fromDocument<CoachAssignment>(assignmentSnapshot);
-        if (existing.coachId !== input.coachId) {
+        if (
+          existing.coachId !== input.coachId ||
+          existing.matchId !== input.matchId ||
+          existing.teamId !== input.trackedTeamId ||
+          existing.externalProviderTeamId !== trackedTeamExternalProviderId ||
+          existing.role !== "head-coach"
+        ) {
           throw new AdminVerifiedCoachAssignmentRejectedError(
             "Current head-coach assignment conflicts with recovery.",
+            "COACH_ASSIGNMENT_CONFLICT",
           );
         }
       }
       const plan: VerifiedCoachAssignmentPlan = {
+        coachIdentityVersion,
         matchId: match.id,
         trackedTeamId: match.trackedTeamId,
         externalFixtureId: match.externalProviderFixtureId,
@@ -1492,6 +1618,7 @@ export class AdminVerifiedCoachService {
           committedAuditId: auditId,
         });
         transaction.create(auditReference, {
+          coachIdentityVersion,
           operatorUid: input.operatorId,
           action: "coach_assignment_apply",
           matchId: input.matchId,

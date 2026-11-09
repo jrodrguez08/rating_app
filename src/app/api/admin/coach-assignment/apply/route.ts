@@ -8,7 +8,7 @@ import {
 } from "@/lib/firebase/server";
 import { ADMIN_ACTION_COOKIE } from "@/lib/server/admin-auth";
 import {
-  adminError,
+  adminCoachError,
   adminJson,
   parseAdminCoachAction,
   requireAdminRequest,
@@ -47,7 +47,10 @@ export async function POST(request: NextRequest) {
     };
     const confirmation = "confirmation" in body ? body.confirmation : undefined;
     if (confirmation !== `assign-verified-coach:${action.matchId}`) {
-      throw new Error("La confirmación no coincide con el partido.");
+      throw new AdminVerifiedCoachAssignmentRejectedError(
+        "Coach assignment confirmation does not match the fixture.",
+        "COACH_INVALID_BINDING",
+      );
     }
     assignmentStarted = true;
     const result = await new AdminVerifiedCoachService().assignAuthorized(
@@ -72,7 +75,7 @@ export async function POST(request: NextRequest) {
     if (audit && assignmentStarted && !rejected && !failed) {
       clearChallenge = false;
     }
-    response = adminError(error);
+    response = adminCoachError(error, "apply");
   }
   if (clearChallenge) {
     response.cookies.set(ADMIN_ACTION_COOKIE, "", {

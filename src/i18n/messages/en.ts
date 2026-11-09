@@ -384,6 +384,33 @@ export const enMessages = {
     backHome: "Back to home",
   },
   admin: {
+    coachErrors: {
+      aliasMissing:
+        "The selected canonical identity has no reviewed alias. Review the reconciliation.",
+      invalidInput: "The assignment data is invalid.",
+      invalidSource:
+        "The verification source must be the authenticated owner or a valid HTTPS URL.",
+      invalidReason:
+        "The verification reason must contain 10 to 500 characters.",
+      invalidIdentity:
+        "The canonical coach identity is missing or incompatible. Select it again.",
+      aliasConflict:
+        "The provider identity does not point to the selected coach. Review the identity reconciliation.",
+      reconciliationStale:
+        "The coach reconciliation changed. Refresh the selection and request a new preview.",
+      providerMismatch:
+        "The coach provider identity does not match the verified identity.",
+      invalidBinding: "The Team or fixture does not match the selected Match.",
+      assignmentConflict:
+        "An incompatible coach assignment already exists and requires review.",
+      invalidMatchState:
+        "The Match state or voting history prevents coach changes.",
+      matchNotFound: "The selected Match was not found.",
+      invalidChallenge:
+        "The assignment authorization is invalid. Request a new preview.",
+      unavailable:
+        "The assignment could not be completed. Keep this reference: {requestId}.",
+    },
     eyebrow: "Secure operation",
     title: "Admin console",
     description:
